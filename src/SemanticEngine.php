@@ -126,6 +126,9 @@ class SemanticEngine
 
         $this->synonyms[$leftKey][$rightKey] = true;
         $this->synonyms[$rightKey][$leftKey] = true;
+
+        $this->addTriple($left, 'synonym', $right);
+        $this->addTriple($right, 'synonym', $left);
     }
 
     /**
@@ -178,6 +181,33 @@ class SemanticEngine
             $sentences = [];
         }
 
+        $relationPatterns = [
+            [
+                'regex' => '/^(?P<subject>.+?)\s+works\s+(?:at|for)\s+(?P<object>.+)$/iu',
+                'relation' => 'works_at',
+            ],
+            [
+                'regex' => '/^(?P<subject>.+?)\s+lives\s+(?:in|at)\s+(?P<object>.+)$/iu',
+                'relation' => 'lives_in',
+            ],
+            [
+                'regex' => '/^(?P<subject>.+?)\s+(?:leads|heads)\s+(?P<object>.+)$/iu',
+                'relation' => 'leads',
+            ],
+            [
+                'regex' => '/^(?P<subject>.+?)\s+focuses\s+on\s+(?P<object>.+)$/iu',
+                'relation' => 'focuses_on',
+            ],
+            [
+                'regex' => '/^(?P<subject>.+?)\s+located\s+(?:in|at)\s+(?P<object>.+)$/iu',
+                'relation' => 'located_in',
+            ],
+            [
+                'regex' => '/^(?P<subject>.+?)\s+collaborates\s+with\s+(?P<object>.+)$/iu',
+                'relation' => 'collaborates_with',
+            ],
+        ];
+
         foreach ($sentences as $sentence) {
             $sentence = trim($sentence);
             if ($sentence === '') {
@@ -206,6 +236,22 @@ class SemanticEngine
                     $triples[] = [$left, 'synonym', $right];
                 }
                 continue;
+            }
+
+            foreach ($relationPatterns as $pattern) {
+                if (!preg_match($pattern['regex'], $sentence, $matches)) {
+                    continue;
+                }
+
+                $subjectRaw = $matches['subject'];
+                $objectRaw = $matches['object'];
+                $this->addTriple($subjectRaw, $pattern['relation'], $objectRaw);
+                $subject = $this->normalizeEntity($subjectRaw);
+                $object = $this->normalizeEntity($objectRaw);
+                if ($subject !== '' && $object !== '') {
+                    $triples[] = [$subject, $this->norm($pattern['relation']), $object];
+                }
+                continue 2;
             }
         }
 
