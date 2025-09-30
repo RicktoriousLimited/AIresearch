@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../AiResearch/CoOccurrenceMatrixBuilder.php';
+require_once __DIR__ . '/../AiResearch/infer.php';
 
 use AiResearch\CoOccurrenceMatrixBuilder;
 
@@ -54,6 +55,46 @@ if (abs($weightDistance1 - 1.0) > 1e-9) {
 
 if (abs($weightDistance2 - 0.75) > 1e-9) {
     throw new AssertionError('Linear decay distance2 mismatch: ' . $weightDistance2);
+}
+
+$builder = new CoOccurrenceMatrixBuilder(1);
+$corpus = [
+    [1, 3, 2, 3],
+    [2, 3, 1, 3],
+    [1, 3, 2, 3],
+];
+
+foreach ($corpus as $document) {
+    $builder->addDocument($document);
+}
+
+$ppmi = $builder->computePpmi();
+
+$idToWord = [
+    1 => 'alpha',
+    2 => 'beta',
+    3 => 'gamma',
+];
+
+$pairs = \AiResearch\infer($ppmi, $idToWord, 0.0);
+
+if (empty($pairs)) {
+    throw new AssertionError('Expected synonym pairs but none were inferred.');
+}
+
+$found = false;
+foreach ($pairs as [$left, $right, $score]) {
+    if ($left === 'alpha' && $right === 'beta') {
+        if ($score <= 0.0) {
+            throw new AssertionError('Expected positive similarity score for alpha/beta pair.');
+        }
+        $found = true;
+        break;
+    }
+}
+
+if (!$found) {
+    throw new AssertionError('Expected alpha/beta synonym pair not found: ' . var_export($pairs, true));
 }
 
 echo "CoOccurrenceMatrixBuilder tests passed\n";

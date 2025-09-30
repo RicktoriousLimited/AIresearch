@@ -199,4 +199,57 @@ class CoOccurrenceMatrixBuilder
             'sumCol' => $this->sumCol,
         ];
     }
+
+    /**
+     * Compute a sparse Positive Pointwise Mutual Information matrix.
+     *
+     * The matrix is keyed by target token id with inner arrays containing the
+     * positive PMI scores for each context id. Negative PMI values are clipped
+     * to zero and therefore omitted from the resulting sparse structure.
+     *
+     * @return array<int|string, array<int|string, float>>
+     */
+    public function computePpmi(): array
+    {
+        $this->finalize();
+
+        if ($this->sumAll <= 0.0) {
+            return [];
+        }
+
+        $ppmi = [];
+
+        foreach ($this->counts as $target => $contexts) {
+            $rowTotal = $this->sumRow[$target] ?? 0.0;
+            if ($rowTotal <= 0.0) {
+                continue;
+            }
+
+            foreach ($contexts as $context => $count) {
+                if ($count <= 0.0) {
+                    continue;
+                }
+
+                $colTotal = $this->sumCol[$context] ?? 0.0;
+                if ($colTotal <= 0.0) {
+                    continue;
+                }
+
+                $denominator = $rowTotal * $colTotal;
+                if ($denominator <= 0.0) {
+                    continue;
+                }
+
+                $pmi = log(($count * $this->sumAll) / $denominator);
+                if ($pmi > 0.0) {
+                    if (!isset($ppmi[$target])) {
+                        $ppmi[$target] = [];
+                    }
+                    $ppmi[$target][$context] = $pmi;
+                }
+            }
+        }
+
+        return $ppmi;
+    }
 }
