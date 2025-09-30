@@ -11,6 +11,8 @@ Options:
   -f, --format FORMAT     Output format: text (default), json, csv.
   -e, --export TYPE       Data to export: triples, synonyms. May be repeated.
   -o, --output PATH       Write output to the specified file instead of STDOUT.
+  -s, --snapshot PATH     Load an existing engine snapshot from PATH and
+                          overwrite it with the updated state after processing.
 
 If no files are provided, the command reads from STDIN. Use "-" as a file
 argument to explicitly read from STDIN alongside other files.
@@ -27,7 +29,7 @@ function fatalError(string $message): void
 
 /**
  * @param array<int, string> $argv
- * @return array{options: array{format: string, exports: array<int, string>, output: ?string, help: bool}, files: array<int, string>}
+ * @return array{options: array{format: string, exports: array<int, string>, output: ?string, help: bool, snapshot: ?string}, files: array<int, string>}
  */
 function parseArguments(array $argv): array
 {
@@ -39,6 +41,7 @@ function parseArguments(array $argv): array
         'exports' => [],
         'output' => null,
         'help' => false,
+        'snapshot' => null,
     ];
     $files = [];
 
@@ -77,6 +80,14 @@ function parseArguments(array $argv): array
                 }
                 $options['output'] = $value;
                 continue 2;
+            case '-s':
+            case '--snapshot':
+                $value = array_shift($args);
+                if ($value === null) {
+                    fatalError('Missing value for --snapshot option.');
+                }
+                $options['snapshot'] = $value;
+                continue 2;
         }
 
         if (strpos($arg, '--format=') === 0) {
@@ -91,6 +102,11 @@ function parseArguments(array $argv): array
 
         if (strpos($arg, '--output=') === 0) {
             $options['output'] = substr($arg, 9);
+            continue;
+        }
+
+        if (strpos($arg, '--snapshot=') === 0) {
+            $options['snapshot'] = substr($arg, 11);
             continue;
         }
 
@@ -250,7 +266,33 @@ if ($texts === []) {
     fatalError('No input text provided. Specify files or pipe text via STDIN.');
 }
 
-$engine = new SemanticEngine();
+$snapshotPath = $options['snapshot'];
+if ($snapshotPath !== null) {
+    $snapshotPath = trim($snapshotPath);
+    if ($snapshotPath === '') {
+        $snapshotPath = null;
+    }
+}
+
+if ($snapshotPath !== null && is_file($snapshotPath)) {
+    $contents = file_get_contents($snapshotPath);
+    if ($contents === false) {
+        fatalError(sprintf('Failed to read snapshot file "%s".', $snapshotPath));
+    }
+
+    $decoded = json_decode($contents, true);
+    if (!is_array($decoded)) {
+        fatalError(sprintf('Snapshot file "%s" does not contain valid JSON.', $snapshotPath));
+    }
+
+    $engine = SemanticEngine::fromArray($decoded);
+} else {
+    if ($snapshotPath !== null && file_exists($snapshotPath) && !is_file($snapshotPath)) {
+        fatalError(sprintf('Snapshot path "%s" is not a regular file.', $snapshotPath));
+    }
+    $engine = new SemanticEngine();
+}
+
 foreach ($texts as $text) {
     $engine->extractRelations($text);
 }
@@ -319,7 +361,28 @@ if ($options['output'] !== null) {
     if ($bytes === false) {
         fatalError(sprintf('Failed to write output to "%s".', $options['output']));
     }
+    if ($snapshotPath !== null) {
+        $snapshotData = json_encode($engine->toArray(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($snapshotData === false) {
+            fatalError('Failed to encode snapshot data as JSON.');
+        }
+        $bytes = @file_put_contents($snapshotPath, $snapshotData . PHP_EOL);
+        if ($bytes === false) {
+            fatalError(sprintf('Failed to write snapshot to "%s".', $snapshotPath));
+        }
+    }
     exit(0);
 }
 
 echo $outputData;
+
+if ($snapshotPath !== null) {
+    $snapshotData = json_encode($engine->toArray(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if ($snapshotData === false) {
+        fatalError('Failed to encode snapshot data as JSON.');
+    }
+    $bytes = @file_put_contents($snapshotPath, $snapshotData . PHP_EOL);
+    if ($bytes === false) {
+        fatalError(sprintf('Failed to write snapshot to "%s".', $snapshotPath));
+    }
+}
