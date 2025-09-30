@@ -304,4 +304,78 @@ class SemanticEngine
         }
         return $result;
     }
+
+    /**
+     * Export the engine state.
+     *
+     * @return array{graph: array<string, array<string, array<string, true>>>, synonyms: array<string, array<string, true>>}
+     */
+    public function toArray(): array
+    {
+        return [
+            'graph' => $this->graph,
+            'synonyms' => $this->synonyms,
+        ];
+    }
+
+    /**
+     * Restore an engine instance from exported state.
+     *
+     * @param array{graph?: mixed, synonyms?: mixed} $payload
+     */
+    public static function fromArray(array $payload): self
+    {
+        $engine = new self();
+
+        if (isset($payload['graph']) && is_array($payload['graph'])) {
+            foreach ($payload['graph'] as $relation => $subjects) {
+                if (!is_string($relation) || $relation === '' || !is_array($subjects)) {
+                    continue;
+                }
+
+                foreach ($subjects as $subject => $objects) {
+                    if (!is_string($subject) || $subject === '' || !is_array($objects)) {
+                        continue;
+                    }
+
+                    foreach ($objects as $object => $flag) {
+                        if (!is_string($object) || $object === '' || $flag !== true) {
+                            continue;
+                        }
+
+                        if (!isset($engine->graph[$relation])) {
+                            $engine->graph[$relation] = [];
+                        }
+                        if (!isset($engine->graph[$relation][$subject])) {
+                            $engine->graph[$relation][$subject] = [];
+                        }
+
+                        $engine->graph[$relation][$subject][$object] = true;
+                    }
+                }
+            }
+        }
+
+        if (isset($payload['synonyms']) && is_array($payload['synonyms'])) {
+            foreach ($payload['synonyms'] as $entity => $synonyms) {
+                if (!is_string($entity) || $entity === '' || !is_array($synonyms)) {
+                    continue;
+                }
+
+                foreach ($synonyms as $synonym => $flag) {
+                    if (!is_string($synonym) || $synonym === '' || $flag !== true) {
+                        continue;
+                    }
+
+                    if (!isset($engine->synonyms[$entity])) {
+                        $engine->synonyms[$entity] = [];
+                    }
+
+                    $engine->synonyms[$entity][$synonym] = true;
+                }
+            }
+        }
+
+        return $engine;
+    }
 }
