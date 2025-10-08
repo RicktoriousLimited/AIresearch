@@ -112,4 +112,13 @@ $triples = $engine->extractRelations($text);
 assertContains(['google accounts', 'tagline', 'sign in'], $triples);
 assertContains(['google maps', 'tagline', 'find local businesses'], $triples);
 
+$engine = new SemanticEngine();
+$text = 'Skip to main content accessibility feedback Google AI mode all image short videos videos news shopping more tools https://www.google.com';
+$triples = $engine->extractRelations($text);
+foreach ($triples as $triple) {
+    if (strpos($triple[1], 'action-') === 0) {
+        throw new AssertionError('Unexpected action triple extracted from navigation chrome.');
+    }
+}
+
 echo "All tests passed\n";
