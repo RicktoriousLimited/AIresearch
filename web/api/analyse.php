@@ -76,9 +76,14 @@ if (isset($payload['include'])) {
     }
 }
 
+$state = null;
+if (isset($payload['state']) && is_array($payload['state'])) {
+    $state = $payload['state'];
+}
+
 try {
     $extractor = new Extractor();
-    $result = $extractor->analyseMany($documents);
+    $result = $extractor->analyseMany($documents, $state);
 } catch (\Throwable $exception) {
     http_response_code(500);
     echo json_encode([
@@ -91,7 +96,7 @@ try {
 $data = $result->toArray();
 
 if (is_array($include) && $include !== []) {
-    $allowedKeys = ['triples', 'synonyms', 'relations', 'entities', 'summary'];
+    $allowedKeys = ['triples', 'synonyms', 'relations', 'entities', 'summary', 'state'];
     $filtered = [];
     foreach ($include as $key) {
         if (!in_array($key, $allowedKeys, true)) {
@@ -110,6 +115,7 @@ echo json_encode([
     'data' => $data,
     'meta' => [
         'documents' => count($documents),
+        'documents_processed' => $result->summary()['documents_processed'] ?? null,
         'processing_time_ms' => (int) round((microtime(true) - $startTime) * 1000),
     ],
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);

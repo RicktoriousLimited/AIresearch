@@ -26,25 +26,31 @@ final class ExtractionResult implements JsonSerializable
     /** @var array<string, int|string> */
     private array $summary;
 
+    /** @var array<string, mixed> */
+    private array $state;
+
     /**
      * @param array<int, array{subject: string, relation: string, object: string}> $triples
      * @param array<int, array{entity: string, synonyms: array<int, string>}> $synonyms
      * @param array<string, int> $relationFrequency
      * @param array<string, int> $entityFrequency
      * @param array<string, int|string> $summary
+     * @param array<string, mixed> $state
      */
     public function __construct(
         array $triples,
         array $synonyms,
         array $relationFrequency,
         array $entityFrequency,
-        array $summary
+        array $summary,
+        array $state
     ) {
         $this->triples = $triples;
         $this->synonyms = $synonyms;
         $this->relationFrequency = $relationFrequency;
         $this->entityFrequency = $entityFrequency;
         $this->summary = $summary;
+        $this->state = $state;
     }
 
     /**
@@ -90,6 +96,14 @@ final class ExtractionResult implements JsonSerializable
     /**
      * @return array<string, mixed>
      */
+    public function state(): array
+    {
+        return $this->state;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
     public function toArray(): array
     {
         return [
@@ -98,6 +112,7 @@ final class ExtractionResult implements JsonSerializable
             'relations' => $this->relationFrequency,
             'entities' => $this->entityFrequency,
             'summary' => $this->summary,
+            'state' => $this->state,
         ];
     }
 

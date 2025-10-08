@@ -16,15 +16,21 @@ final class Extractor
      * Analyse a collection of documents.
      *
      * @param array<int, string> $documents
+     * @param array<string, mixed>|null $state Previously exported engine state for incremental ingestion.
      */
-    public function analyseMany(array $documents): ExtractionResult
+    public function analyseMany(array $documents, ?array $state = null): ExtractionResult
     {
-        $engine = new SemanticEngine();
+        $engine = $state === null ? new SemanticEngine() : SemanticEngine::fromArray($state);
+
+        $processedCount = 0;
+        $receivedCount = 0;
 
         foreach ($documents as $document) {
             if (!is_string($document)) {
                 continue;
             }
+
+            $receivedCount++;
 
             $text = trim($document);
             if ($text === '') {
@@ -32,17 +38,24 @@ final class Extractor
             }
 
             $engine->extractRelations($text);
+            $processedCount++;
         }
 
-        return $this->buildResult($engine, count($documents));
+        return $this->buildResult($engine, $processedCount, $receivedCount);
     }
 
-    public function analyse(string $document): ExtractionResult
+    /**
+     * Analyse a single document.
+     *
+     * @param string $document
+     * @param array<string, mixed>|null $state Previously exported engine state for incremental ingestion.
+     */
+    public function analyse(string $document, ?array $state = null): ExtractionResult
     {
-        return $this->analyseMany([$document]);
+        return $this->analyseMany([$document], $state);
     }
 
-    private function buildResult(SemanticEngine $engine, int $documentCount): ExtractionResult
+    private function buildResult(SemanticEngine $engine, int $processedCount, int $receivedCount): ExtractionResult
     {
         $triples = array_map(
             static fn(array $triple): array => [
@@ -101,7 +114,8 @@ final class Extractor
         ksort($entityFrequency);
 
         $summary = [
-            'documents_processed' => $documentCount,
+            'documents_received' => $receivedCount,
+            'documents_processed' => $processedCount,
             'triples' => count($triples),
             'synonym_groups' => count($synonyms),
             'unique_entities' => count($entityFrequency),
@@ -113,7 +127,8 @@ final class Extractor
             $synonyms,
             $relationFrequency,
             $entityFrequency,
-            $summary
+            $summary,
+            $engine->toArray()
         );
     }
 }
