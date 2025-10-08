@@ -21,6 +21,7 @@ $scriptPath = $assetBase . '/assets/workbench.js';
 $stylesVersion = file_exists(__DIR__ . '/assets/workbench.css') ? (string) filemtime(__DIR__ . '/assets/workbench.css') : (string) time();
 $scriptVersion = file_exists(__DIR__ . '/assets/workbench.js') ? (string) filemtime(__DIR__ . '/assets/workbench.js') : (string) time();
 $apiEndpoint = $assetBase . '/api/analyse.php';
+$scrapeEndpoint = $assetBase . '/api/scrape.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -30,7 +31,7 @@ $apiEndpoint = $assetBase . '/api/analyse.php';
     <title>AIresearch Semantic Workbench</title>
     <link rel="stylesheet" href="<?= htmlspecialchars($stylesPath . '?v=' . $stylesVersion, ENT_QUOTES) ?>">
 </head>
-<body data-api="<?= htmlspecialchars($apiEndpoint, ENT_QUOTES) ?>">
+<body data-api="<?= htmlspecialchars($apiEndpoint, ENT_QUOTES) ?>" data-scrape="<?= htmlspecialchars($scrapeEndpoint, ENT_QUOTES) ?>">
     <header class="site-header">
         <div class="container">
             <h1>AIresearch Semantic Workbench</h1>
@@ -47,6 +48,14 @@ $apiEndpoint = $assetBase . '/api/analyse.php';
                     <label for="input-text" class="form-label">Source text</label>
                     <textarea id="input-text" name="text" placeholder="Paste one or more research bios, project updates, or company summaries..." required></textarea>
                     <p class="help">We normalise entities, extract lightweight relations, and cluster synonyms across the supplied text.</p>
+                </div>
+                <div class="form-row">
+                    <label for="input-url" class="form-label">Scrape from URL</label>
+                    <div class="url-input">
+                        <input type="url" id="input-url" name="url" placeholder="https://example.com/article" autocomplete="off">
+                        <button type="button" class="button secondary" id="fetch-url">Fetch &amp; analyse</button>
+                    </div>
+                    <p class="help">We fetch the page content, enrich the shared knowledge graph, and surface the updated triples instantly.</p>
                 </div>
                 <div class="form-row input-meta" id="input-meta" aria-live="polite"></div>
                 <div class="form-row quick-actions">
@@ -163,7 +172,7 @@ $apiEndpoint = $assetBase . '/api/analyse.php';
 
     <footer class="site-footer">
         <div class="container">
-            <p>Powered by the open SemanticEngine. View the <a href="../docs">documentation</a> to extend the pipeline.</p>
+            <p>Powered by the open SemanticEngine. View the <a href="../docs">documentation</a> to extend the pipeline or explore the <a href="<?= htmlspecialchars($assetBase . '/knowledge-graph.php', ENT_QUOTES) ?>">global knowledge graph</a>.</p>
         </div>
     </footer>
 

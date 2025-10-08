@@ -1,5 +1,6 @@
 (function () {
   const apiEndpoint = document.body.dataset.api || 'api/analyse.php';
+  const scrapeEndpoint = document.body.dataset.scrape || 'api/scrape.php';
 
   const SAMPLE_TEXT = {
     bios: `Alice Smith leads the applied ML lab at Horizon Bio. She previously built entity linking systems at Quantum Labs.\n\nBrandon Lee is a materials scientist at Aurora Fusion and collaborates with Alice Smith on advanced plasma diagnostics.`,
@@ -35,6 +36,8 @@
     samplePills: document.querySelectorAll('.chip[data-sample]'),
     continueState: document.getElementById('continue-state'),
     clearSession: document.getElementById('clear-session'),
+    urlInput: document.getElementById('input-url'),
+    urlButton: document.getElementById('fetch-url'),
     insightsCard: document.getElementById('insights-card'),
     insightsList: document.getElementById('insights-list'),
     documentInsightsCard: document.getElementById('document-insights-card'),
@@ -543,6 +546,34 @@
     }
   }
 
+  function applyGraphResult(rawData, { persistState = true, resetStateWhenDisabled = true } = {}) {
+    if (!rawData || typeof rawData !== 'object') {
+      throw new Error('No extraction data received.');
+    }
+
+    const graph = rawData.graph && typeof rawData.graph === 'object' ? rawData.graph : rawData;
+
+    lastResult = graph;
+
+    if (persistState && graph.state && elements.continueState && elements.continueState.checked) {
+      persistedState = graph.state;
+    } else if (resetStateWhenDisabled) {
+      persistedState = null;
+    }
+
+    renderSummary(graph.summary);
+    renderList(elements.relations, graph.relations);
+    renderList(elements.entities, graph.entities);
+    renderTriples(graph.triples);
+    renderSynonyms(graph.synonyms);
+    renderInsights(graph);
+    renderDocumentInsights(graph.documents);
+
+    if (elements.results) {
+      elements.results.hidden = false;
+    }
+  }
+
   async function submitForm(event) {
     event.preventDefault();
     if (!elements.textarea) {
@@ -585,25 +616,7 @@
         throw new Error('Invalid response payload');
       }
 
-      const data = payload.data || {};
-      lastResult = data;
-      if (data.state && elements.continueState && elements.continueState.checked) {
-        persistedState = data.state;
-      } else {
-        persistedState = null;
-      }
-
-      renderSummary(data.summary);
-      renderList(elements.relations, data.relations);
-      renderList(elements.entities, data.entities);
-      renderTriples(data.triples);
-      renderSynonyms(data.synonyms);
-      renderInsights(data);
-      renderDocumentInsights(data.documents);
-
-      if (elements.results) {
-        elements.results.hidden = false;
-      }
+      applyGraphResult(payload.data || {}, { persistState: true, resetStateWhenDisabled: true });
 
       setStatus('Extraction complete.', 'success');
     } catch (error) {
@@ -611,6 +624,60 @@
       setStatus('Unable to extract entities. Please try again.', 'error');
       clearResults();
       persistedState = null;
+    } finally {
+      if (elements.form) {
+        elements.form.classList.remove('is-loading');
+      }
+    }
+  }
+
+  async function handleScrapeRequest() {
+    if (!elements.urlInput) {
+      return;
+    }
+
+    const url = elements.urlInput.value.trim();
+    if (url === '') {
+      setStatus('Enter a URL to scrape.', 'error');
+      return;
+    }
+
+    setStatus('Fetching and analysing the requested page…', 'info');
+    if (elements.form) {
+      elements.form.classList.add('is-loading');
+    }
+
+    try {
+      const response = await fetch(scrapeEndpoint, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url })
+      });
+
+      if (!response.ok) {
+        throw new Error('Request failed');
+      }
+
+      const payload = await response.json();
+      if (!payload || typeof payload !== 'object') {
+        throw new Error('Invalid response payload');
+      }
+
+      applyGraphResult(payload.data || {}, { persistState: false, resetStateWhenDisabled: true });
+
+      const source = (payload.data && payload.data.source) || {};
+      const label = source.title || source.url || url;
+      const characters = typeof source.characters === 'number' ? formatNumber(source.characters) : null;
+      const summary = characters ? `${label} • ${characters} characters analysed.` : label;
+
+      setStatus(`${summary} Knowledge graph updated.`, 'success');
+      elements.urlInput.value = '';
+    } catch (error) {
+      console.error(error);
+      setStatus('Unable to scrape the requested URL. Please try again.', 'error');
     } finally {
       if (elements.form) {
         elements.form.classList.remove('is-loading');
@@ -680,6 +747,19 @@
   if (elements.textarea) {
     elements.textarea.addEventListener('input', updateInputMeta);
     updateInputMeta();
+  }
+
+  if (elements.urlButton) {
+    elements.urlButton.addEventListener('click', handleScrapeRequest);
+  }
+
+  if (elements.urlInput) {
+    elements.urlInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        handleScrapeRequest();
+      }
+    });
   }
 
   if (elements.samplePills && elements.samplePills.length > 0) {
