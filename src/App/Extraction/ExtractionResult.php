@@ -35,6 +35,17 @@ final class ExtractionResult implements JsonSerializable
     private array $documents;
 
     /**
+     * @var array<string, array{
+     *     entity: string,
+     *     facts: array<int, array{direction: string, relation: string, counterpart: string}>,
+     *     synonyms: array<int, string>,
+     *     context: array{as_subject: array<string, int>, as_object: array<string, int>},
+     *     ranking: array{score: float, eligible: bool, signals: array{uniqueness: float, freshness: float, quality: float, authority: float, consistency: float}, support: array{incoming_links: int, outgoing_links: int, fact_count: int}}
+     * }>
+     */
+    private array $crossReferences;
+
+    /**
      * @param array<int, array{subject: string, relation: string, object: string}> $triples
      * @param array<int, array{entity: string, synonyms: array<int, string>}> $synonyms
      * @param array<string, int> $relationFrequency
@@ -42,6 +53,7 @@ final class ExtractionResult implements JsonSerializable
      * @param array<string, int|string> $summary
      * @param array<string, mixed> $state
      * @param array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>}> $documents
+     * @param array<string, array{entity: string, facts: array<int, array{direction: string, relation: string, counterpart: string}>, synonyms: array<int, string>, context: array{as_subject: array<string, int>, as_object: array<string, int>}, ranking: array{score: float, eligible: bool, signals: array{uniqueness: float, freshness: float, quality: float, authority: float, consistency: float}, support: array{incoming_links: int, outgoing_links: int, fact_count: int}}}> $crossReferences
      */
     public function __construct(
         array $triples,
@@ -50,7 +62,8 @@ final class ExtractionResult implements JsonSerializable
         array $entityFrequency,
         array $summary,
         array $state,
-        array $documents = []
+        array $documents = [],
+        array $crossReferences = []
     ) {
         $this->triples = $triples;
         $this->synonyms = $synonyms;
@@ -59,6 +72,7 @@ final class ExtractionResult implements JsonSerializable
         $this->summary = $summary;
         $this->state = $state;
         $this->documents = $documents;
+        $this->crossReferences = $crossReferences;
     }
 
     /**
@@ -118,6 +132,14 @@ final class ExtractionResult implements JsonSerializable
     }
 
     /**
+     * @return array<string, array{entity: string, facts: array<int, array{direction: string, relation: string, counterpart: string}>, synonyms: array<int, string>, context: array{as_subject: array<string, int>, as_object: array<string, int>}, ranking: array{score: float, eligible: bool, signals: array{uniqueness: float, freshness: float, quality: float, authority: float, consistency: float}, support: array{incoming_links: int, outgoing_links: int, fact_count: int}}}>
+     */
+    public function crossReferences(): array
+    {
+        return $this->crossReferences;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function toArray(): array
@@ -130,6 +152,7 @@ final class ExtractionResult implements JsonSerializable
             'summary' => $this->summary,
             'state' => $this->state,
             'documents' => $this->documents,
+            'cross_references' => $this->crossReferences,
         ];
     }
 

@@ -51,4 +51,13 @@ assertTrue(isset($firstDocument['cleaned'], $firstDocument['rewritten']), 'Docum
 assertTrue(is_array($firstDocument['keywords']), 'Document keywords should be an array.');
 assertTrue(is_array($firstDocument['spelling']), 'Document spelling insights should be an array.');
 
+$crossReferences = $secondResult->crossReferences();
+assertTrue(isset($crossReferences['alice smith']), 'Cross references must track initial entities.');
+assertTrue(isset($crossReferences['bob johnson']), 'Cross references must include newly processed entities.');
+assertTrue(is_array($crossReferences['alice smith']['facts']), 'Cross reference facts should be an array payload.');
+$aliceRanking = $crossReferences['alice smith']['ranking'];
+assertTrue(isset($aliceRanking['signals']['quality']), 'Quality signal must exist.');
+assertTrue(is_bool($aliceRanking['eligible']), 'Eligibility flag should be boolean.');
+assertTrue(is_array($aliceRanking['support']), 'Support metadata should be provided.');
+
 echo "Extractor state tests passed\n";
