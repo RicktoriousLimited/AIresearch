@@ -4,8 +4,14 @@
 declare(strict_types=1);
 
 if (PHP_SAPI !== 'cli') {
-    fwrite(STDERR, "The research tool is only available via the command line." . PHP_EOL);
-    exit(1);
+    if (!headers_sent()) {
+        http_response_code(405);
+        header('Content-Type: text/plain; charset=utf-8');
+    }
+
+    echo 'The research tool is only available via the command line.' . PHP_EOL;
+
+    return;
 }
 
 require __DIR__ . '/src/App/bootstrap.php';
