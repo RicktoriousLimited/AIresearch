@@ -46,17 +46,27 @@ managed storefront that can evolve through lightweight extensions.
 
 ## Initial Deliverable
 
-The initial code deliverable introduces the core scaffolding:
+## Current Capabilities
 
-- New PHP namespaces under `Ricktorious\Ecommerce` implementing the
-  architecture above.
-- A `CoreContentExtension` that ships default blocks (hero, product grid) and a
-  seed homepage layout.
-- An example front controller at `web/ricktorious.php` that renders the
-  block-based homepage and exposes a sample AI insight endpoint at
-  `/api/insights`.
-- Behaviour tracker and AI engine stubs capable of ingesting events and
-  computing simple popularity recommendations.
+The storefront now moves beyond scaffolding and demonstrates a cohesive
+commerce experience built on the Ricktorious kernel:
 
-Subsequent iterations will layer in persistence, administrative interfaces, and
-comprehensive analytics dashboards.
+- **Catalogue domain** – `Ricktorious\Ecommerce\Catalog` loads structured
+  product data from JSON, powering featured merchandising blocks and a dynamic
+  catalog page.
+- **Cart and checkout services** – Session-based cart management and a
+  lightweight checkout pipeline live in `Ricktorious\Ecommerce\Checkout`, with
+  orders persisted to `storage/orders` for later analysis.
+- **Commerce extension** – A dedicated `CommerceExtension` wires catalogue,
+  cart, checkout, and API routes into the runtime without bloating the core
+  extension.
+- **Storefront application** – `web/ricktorious.php` now handles product detail
+  views, cart interactions, checkout flows, and JSON API calls while continuing
+  to showcase block-driven content.
+- **Expanded API** – `/api/catalog/products`, `/api/cart/summary`, `/api/cart/add`,
+  `/api/checkout`, and `/api/insights` provide headless integration points for
+  experimentation.
+
+Future work can iterate on persistent storage, authentication, pricing rules,
+inventory updates, and administrative tooling while reusing the extension-first
+composition laid out here.

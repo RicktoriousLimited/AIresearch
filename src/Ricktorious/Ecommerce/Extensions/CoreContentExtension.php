@@ -11,12 +11,14 @@ use Ricktorious\Ecommerce\Core\ContentManager;
 use Ricktorious\Ecommerce\Core\ExtensionInterface;
 use Ricktorious\Ecommerce\AI\PersonalizationEngine;
 use Ricktorious\Ecommerce\Analytics\UserBehaviorTracker;
+use Ricktorious\Ecommerce\Catalog\ProductRepository;
 
 final class CoreContentExtension implements ExtensionInterface
 {
     public function __construct(
         private UserBehaviorTracker $tracker,
-        private PersonalizationEngine $personalization
+        private PersonalizationEngine $personalization,
+        private ProductRepository $products
     ) {
     }
 
@@ -109,6 +111,17 @@ HTML;
 
     public function boot(ContentManager $contentManager): void
     {
+        $featured = array_map(
+            function ($product): array {
+                return [
+                    'title' => $product->name(),
+                    'price' => $product->formattedPrice(),
+                    'image' => $product->primaryImage() ?? 'https://picsum.photos/seed/ricktorious-default/600/600',
+                ];
+            },
+            $this->products->featured(4)
+        );
+
         $contentManager->definePage('home', [
             'metadata' => [
                 'title' => 'Ricktorious Limited Storefront',
@@ -127,23 +140,7 @@ HTML;
                 [
                     'type' => 'core.product_grid',
                     'settings' => [
-                        'products' => [
-                            [
-                                'title' => 'Ricktorious Modular Hoodie',
-                                'price' => '$89',
-                                'image' => 'https://picsum.photos/seed/ricktorious-hoodie/600/600',
-                            ],
-                            [
-                                'title' => 'Blockbuilder Sneakers',
-                                'price' => '$125',
-                                'image' => 'https://picsum.photos/seed/ricktorious-sneakers/600/600',
-                            ],
-                            [
-                                'title' => 'Adaptive Strategy Notebook',
-                                'price' => '$22',
-                                'image' => 'https://picsum.photos/seed/ricktorious-notebook/600/600',
-                            ],
-                        ],
+                        'products' => $featured,
                     ],
                 ],
             ],
