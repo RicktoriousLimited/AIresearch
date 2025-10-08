@@ -106,4 +106,10 @@ $verbs = $engine->getVerbLexicon();
 assertTrue(in_array('develop', $verbs, true));
 assertTrue(in_array('power', $verbs, true));
 
+$engine = new SemanticEngine();
+$text = 'Google Accounts: Sign in. Google Maps – Find local businesses.';
+$triples = $engine->extractRelations($text);
+assertContains(['google accounts', 'tagline', 'sign in'], $triples);
+assertContains(['google maps', 'tagline', 'find local businesses'], $triples);
+
 echo "All tests passed\n";
