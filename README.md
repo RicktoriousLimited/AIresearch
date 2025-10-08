@@ -34,6 +34,17 @@ summaries into the textarea. Click **Run extraction** to see:
 Use the **Download JSON** action to save the raw result, or **Copy summary** to
 move quick stats into other tools.
 
+### Scrape public URLs into the shared knowledge graph
+
+- From the workbench, paste a URL into the new **Scrape from URL** field and
+  click **Fetch & analyse**. The app downloads the page, extracts clean text,
+  and enriches the persistent graph stored in `storage/graphs/`.
+- Visit `http://localhost:8000/knowledge-graph.php` to browse the combined
+  triples, relations, and source list that everyone can see.
+- Automate ingestion by POSTing `{ "url": "https://example.com/article" }` to
+  `/api/scrape.php`; the endpoint merges new entities into the existing graph
+  snapshot and returns the updated state.
+
 ### API
 
 `POST /api/analyse.php`
