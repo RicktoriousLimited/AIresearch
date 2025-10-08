@@ -23,6 +23,20 @@ class SemanticEngine
      */
     private array $entityProfiles = [];
 
+    /**
+     * Aggregated document ranking signals used to prioritise cross references.
+     *
+     * @var array{uniqueness: float, freshness: float, quality: float, consistency: float}
+     */
+    private array $documentSignalSums = [
+        'uniqueness' => 0.0,
+        'freshness' => 0.0,
+        'quality' => 0.0,
+        'consistency' => 0.0,
+    ];
+
+    private int $documentSignalCount = 0;
+
     /** @var array<string, true> */
     private array $verbLexicon = [];
 
@@ -108,6 +122,24 @@ class SemanticEngine
     public function __construct(?EnglishLexicon $englishLexicon = null)
     {
         $this->englishLexicon = $englishLexicon ?? EnglishLexicon::loadDefault();
+    }
+
+    /**
+     * Register document-level ranking signals to influence cross-reference eligibility.
+     *
+     * @param array{uniqueness?: float, freshness?: float, quality?: float, consistency?: float} $signals
+     */
+    public function registerDocumentSignals(array $signals): void
+    {
+        $this->documentSignalCount++;
+
+        foreach (['uniqueness', 'freshness', 'quality', 'consistency'] as $key) {
+            $value = $signals[$key] ?? 0.0;
+            if (!is_numeric($value)) {
+                $value = 0.0;
+            }
+            $this->documentSignalSums[$key] += $this->clampScore((float) $value);
+        }
     }
 
     /**
@@ -468,7 +500,13 @@ class SemanticEngine
     /**
      * Export the engine state.
      *
-     * @return array{graph: array<string, array<string, array<string, true>>>, synonyms: array<string, array<string, true>>}
+     * @return array{
+     *     graph: array<string, array<string, array<string, true>>>,
+     *     synonyms: array<string, array<string, true>>,
+     *     profiles: array<string, array{as_subject: array<string, int>, as_object: array<string, int>}>,
+     *     verbs: array<int, string>,
+     *     document_signals: array{count: int, sums: array{uniqueness: float, freshness: float, quality: float, consistency: float}}
+     * }
      */
     public function toArray(): array
     {
@@ -477,6 +515,10 @@ class SemanticEngine
             'synonyms' => $this->synonyms,
             'profiles' => $this->entityProfiles,
             'verbs' => array_keys($this->verbLexicon),
+            'document_signals' => [
+                'count' => $this->documentSignalCount,
+                'sums' => $this->documentSignalSums,
+            ],
         ];
     }
 
@@ -595,6 +637,24 @@ class SemanticEngine
             }
         }
 
+        if (isset($payload['document_signals']) && is_array($payload['document_signals'])) {
+            $documentSignals = $payload['document_signals'];
+            $count = $documentSignals['count'] ?? 0;
+            if (is_numeric($count) && (int) $count > 0) {
+                $engine->documentSignalCount = (int) $count;
+            }
+
+            if (isset($documentSignals['sums']) && is_array($documentSignals['sums'])) {
+                foreach (['uniqueness', 'freshness', 'quality', 'consistency'] as $key) {
+                    $value = $documentSignals['sums'][$key] ?? 0.0;
+                    if (!is_numeric($value)) {
+                        $value = 0.0;
+                    }
+                    $engine->documentSignalSums[$key] = (float) $value;
+                }
+            }
+        }
+
         return $engine;
     }
 
@@ -644,6 +704,374 @@ class SemanticEngine
         ksort($result);
 
         return $result;
+    }
+
+    /**
+     * Build a cross-reference index describing how entities connect across the graph.
+     *
+     * @return array<string, array{
+     *     entity: string,
+     *     facts: array<int, array{direction: string, relation: string, counterpart: string}>,
+     *     synonyms: array<int, string>,
+     *     context: array{as_subject: array<string, int>, as_object: array<string, int>},
+     *     ranking: array{
+     *         score: float,
+     *         eligible: bool,
+     *         signals: array{uniqueness: float, freshness: float, quality: float, authority: float, consistency: float},
+     *         support: array{incoming_links: int, outgoing_links: int, fact_count: int}
+     *     }
+     * }>
+     */
+    public function buildCrossReferences(): array
+    {
+        $references = [];
+        $documentSignals = $this->aggregateDocumentSignals();
+
+        $ensure = static function (string $entity) use (&$references): void {
+            if (!isset($references[$entity])) {
+                $references[$entity] = [
+                    'entity' => $entity,
+                    'facts' => [],
+                    'synonyms' => [],
+                    'context' => [
+                        'as_subject' => [],
+                        'as_object' => [],
+                    ],
+                ];
+            }
+        };
+
+        foreach ($this->graph as $relation => $subjects) {
+            if (!is_string($relation) || $relation === '' || !is_array($subjects)) {
+                continue;
+            }
+
+            foreach ($subjects as $subject => $objects) {
+                if (!is_string($subject) || $subject === '' || !is_array($objects)) {
+                    continue;
+                }
+
+                foreach ($objects as $object => $flag) {
+                    if (!is_string($object) || $object === '' || $flag !== true) {
+                        continue;
+                    }
+
+                    $ensure($subject);
+                    $ensure($object);
+
+                    $references[$subject]['facts'][] = [
+                        'direction' => 'outgoing',
+                        'relation' => $relation,
+                        'counterpart' => $object,
+                    ];
+
+                    $references[$object]['facts'][] = [
+                        'direction' => 'incoming',
+                        'relation' => $relation,
+                        'counterpart' => $subject,
+                    ];
+                }
+            }
+        }
+
+        foreach ($this->synonyms as $entity => $synonyms) {
+            if (!is_string($entity) || $entity === '' || !is_array($synonyms)) {
+                continue;
+            }
+
+            $ensure($entity);
+
+            $values = [];
+            foreach ($synonyms as $synonym => $flag) {
+                if (!is_string($synonym) || $synonym === '' || $flag !== true) {
+                    continue;
+                }
+                $values[] = $synonym;
+            }
+
+            $merged = array_merge($references[$entity]['synonyms'], $values);
+            $merged = array_values(array_unique($merged));
+            sort($merged);
+            $references[$entity]['synonyms'] = $merged;
+        }
+
+        foreach ($this->entityProfiles as $entity => $profile) {
+            if (!is_string($entity) || $entity === '' || !is_array($profile)) {
+                continue;
+            }
+
+            $ensure($entity);
+
+            $subjectCounts = [];
+            if (isset($profile['as_subject']) && is_array($profile['as_subject'])) {
+                foreach ($profile['as_subject'] as $relation => $count) {
+                    if (!is_string($relation)) {
+                        continue;
+                    }
+                    $subjectCounts[$relation] = (int) $count;
+                }
+                ksort($subjectCounts);
+            }
+
+            $objectCounts = [];
+            if (isset($profile['as_object']) && is_array($profile['as_object'])) {
+                foreach ($profile['as_object'] as $relation => $count) {
+                    if (!is_string($relation)) {
+                        continue;
+                    }
+                    $objectCounts[$relation] = (int) $count;
+                }
+                ksort($objectCounts);
+            }
+
+            $references[$entity]['context'] = [
+                'as_subject' => $subjectCounts,
+                'as_object' => $objectCounts,
+            ];
+        }
+
+        $authorityScores = $this->calculateAuthorityScores($references);
+
+        foreach ($references as $entity => &$payload) {
+            $facts = $payload['facts'];
+            usort(
+                $facts,
+                static function (array $left, array $right): int {
+                    $leftKey = [
+                        $left['relation'] ?? '',
+                        $left['direction'] ?? '',
+                        $left['counterpart'] ?? '',
+                    ];
+                    $rightKey = [
+                        $right['relation'] ?? '',
+                        $right['direction'] ?? '',
+                        $right['counterpart'] ?? '',
+                    ];
+
+                    return $leftKey <=> $rightKey;
+                }
+            );
+            $payload['facts'] = array_values($facts);
+
+            if (!isset($payload['synonyms'])) {
+                $payload['synonyms'] = [];
+            }
+            if (!is_array($payload['synonyms'])) {
+                $payload['synonyms'] = [];
+            }
+
+            $totalFacts = count($payload['facts']);
+            $incomingLinks = 0;
+            $outgoingLinks = 0;
+            $relations = [];
+
+            foreach ($payload['facts'] as $fact) {
+                $relation = (string) ($fact['relation'] ?? '');
+                if ($relation !== '') {
+                    $relations[$relation] = true;
+                }
+
+                $direction = (string) ($fact['direction'] ?? '');
+                if ($direction === 'incoming') {
+                    $incomingLinks++;
+                } elseif ($direction === 'outgoing') {
+                    $outgoingLinks++;
+                }
+            }
+
+            $relationDiversity = $totalFacts > 0 ? $this->clampScore(count($relations) / $totalFacts) : 0.0;
+            $synonymBoost = $payload['synonyms'] === [] ? 0.0 : $this->clampScore(count($payload['synonyms']) / 6);
+            $context = $payload['context'] ?? ['as_subject' => [], 'as_object' => []];
+            $activityScore = $this->computeEntityActivity($context);
+
+            $uniquenessSignal = $this->clampScore(($documentSignals['uniqueness'] * 0.6) + ($relationDiversity * 0.4));
+            $freshnessSignal = $this->clampScore(($documentSignals['freshness'] * 0.7) + ($this->entityFreshnessFromFacts($payload['facts']) * 0.3));
+            $qualitySignal = $this->clampScore(($documentSignals['quality'] * 0.7) + ($activityScore * 0.3));
+            $consistencySignal = $this->clampScore(($documentSignals['consistency'] * 0.6) + ($relationDiversity * 0.2) + ($synonymBoost * 0.2));
+            $authoritySignal = $authorityScores[$entity] ?? 0.35;
+
+            $score = $this->clampScore(($uniquenessSignal + $freshnessSignal + $qualitySignal + $authoritySignal + $consistencySignal) / 5);
+            $payload['ranking'] = [
+                'score' => round($score, 4),
+                'eligible' => $score >= 0.45,
+                'signals' => [
+                    'uniqueness' => round($uniquenessSignal, 4),
+                    'freshness' => round($freshnessSignal, 4),
+                    'quality' => round($qualitySignal, 4),
+                    'authority' => round($authoritySignal, 4),
+                    'consistency' => round($consistencySignal, 4),
+                ],
+                'support' => [
+                    'incoming_links' => $incomingLinks,
+                    'outgoing_links' => $outgoingLinks,
+                    'fact_count' => $totalFacts,
+                ],
+            ];
+        }
+        unset($payload);
+
+        ksort($references);
+
+        return $references;
+    }
+
+    /**
+     * @return array{uniqueness: float, freshness: float, quality: float, consistency: float}
+     */
+    private function aggregateDocumentSignals(): array
+    {
+        if ($this->documentSignalCount <= 0) {
+            return [
+                'uniqueness' => 0.5,
+                'freshness' => 0.5,
+                'quality' => 0.5,
+                'consistency' => 0.5,
+            ];
+        }
+
+        $averages = [];
+        foreach ($this->documentSignalSums as $key => $value) {
+            $averages[$key] = $this->clampScore($value / $this->documentSignalCount);
+        }
+
+        return $averages;
+    }
+
+    /**
+     * @param array<string, array{entity: string, facts: array<int, array{direction: string, relation: string, counterpart: string}>, synonyms: array<int, string>, context: array{as_subject: array<string, int>, as_object: array<string, int>}}> $references
+     * @return array<string, float>
+     */
+    private function calculateAuthorityScores(array $references): array
+    {
+        $incoming = [];
+        $maxIncoming = 0;
+
+        foreach ($references as $entity => $payload) {
+            $facts = $payload['facts'] ?? [];
+            $count = 0;
+            if (is_array($facts)) {
+                foreach ($facts as $fact) {
+                    if (!is_array($fact)) {
+                        continue;
+                    }
+                    $direction = (string) ($fact['direction'] ?? '');
+                    if ($direction === 'incoming') {
+                        $count++;
+                    }
+                }
+            }
+            $incoming[$entity] = $count;
+            if ($count > $maxIncoming) {
+                $maxIncoming = $count;
+            }
+        }
+
+        if ($maxIncoming === 0) {
+            $baseline = 0.35;
+            return array_fill_keys(array_keys($references), $baseline);
+        }
+
+        $scores = [];
+        foreach ($incoming as $entity => $count) {
+            $scores[$entity] = $this->clampScore(log(1 + $count) / log(1 + $maxIncoming));
+        }
+
+        return $scores;
+    }
+
+    /**
+     * @param array{as_subject?: array<string, int>, as_object?: array<string, int>}|mixed $context
+     */
+    private function computeEntityActivity($context): float
+    {
+        if (!is_array($context)) {
+            return 0.0;
+        }
+
+        $subject = $context['as_subject'] ?? [];
+        $object = $context['as_object'] ?? [];
+
+        $subjectTotal = 0;
+        if (is_array($subject)) {
+            foreach ($subject as $count) {
+                if (!is_numeric($count)) {
+                    continue;
+                }
+                $subjectTotal += (int) $count;
+            }
+        }
+
+        $objectTotal = 0;
+        if (is_array($object)) {
+            foreach ($object as $count) {
+                if (!is_numeric($count)) {
+                    continue;
+                }
+                $objectTotal += (int) $count;
+            }
+        }
+
+        $total = $subjectTotal + $objectTotal;
+
+        if ($total <= 0) {
+            return 0.0;
+        }
+
+        return $this->clampScore(min(1.0, $total / 12));
+    }
+
+    /**
+     * @param array<int, array{direction?: string, relation?: string, counterpart?: string}> $facts
+     */
+    private function entityFreshnessFromFacts(array $facts): float
+    {
+        $latestYear = null;
+
+        foreach ($facts as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+
+            $counterpart = (string) ($fact['counterpart'] ?? '');
+            if ($counterpart === '') {
+                continue;
+            }
+
+            $matches = [];
+            $result = preg_match_all('/\b(19|20)\d{2}\b/u', $counterpart, $matches);
+            if ($result === false || $result === 0) {
+                continue;
+            }
+
+            foreach ($matches[0] as $year) {
+                $yearValue = (int) $year;
+                if ($latestYear === null || $yearValue > $latestYear) {
+                    $latestYear = $yearValue;
+                }
+            }
+        }
+
+        if ($latestYear === null) {
+            return 0.5;
+        }
+
+        $currentYear = (int) date('Y');
+        $delta = max(0, $currentYear - $latestYear);
+
+        return $this->clampScore(1 - min(1, $delta / 8));
+    }
+
+    private function clampScore(float $value): float
+    {
+        if ($value < 0) {
+            return 0.0;
+        }
+
+        if ($value > 1) {
+            return 1.0;
+        }
+
+        return $value;
     }
 
     /**

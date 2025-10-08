@@ -40,7 +40,10 @@ final class Extractor
                 continue;
             }
 
-            $documentsMeta[] = $refiner->analyseDocument($text);
+            $analysis = $refiner->analyseDocument($text);
+            $documentsMeta[] = $analysis;
+
+            $engine->registerDocumentSignals($this->deriveDocumentSignals($analysis));
 
             $engine->extractRelations($text);
             $processedCount++;
@@ -142,7 +145,194 @@ final class Extractor
             $entityFrequency,
             $summary,
             $engine->toArray(),
-            $documents
+            $documents,
+            $engine->buildCrossReferences()
         );
+    }
+
+    /**
+     * @param array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>} $analysis
+     * @return array{uniqueness: float, freshness: float, quality: float, consistency: float}
+     */
+    private function deriveDocumentSignals(array $analysis): array
+    {
+        $original = (string) ($analysis['original'] ?? '');
+        $cleaned = (string) ($analysis['cleaned'] ?? '');
+        $rewritten = (string) ($analysis['rewritten'] ?? '');
+        $keywords = $analysis['keywords'] ?? [];
+        $spelling = $analysis['spelling'] ?? [];
+
+        $wordCount = $this->countWords($cleaned !== '' ? $cleaned : $original);
+        $wordCount = max(1, $wordCount);
+
+        $uniqueKeywordCount = 0;
+        $keywordCoverage = 0.0;
+        if (is_array($keywords)) {
+            $uniqueKeywordCount = count($keywords);
+            $keywordCoverage = $this->clampScore($uniqueKeywordCount / max(1, min($wordCount, 60)));
+        }
+
+        $uniqueness = $this->clampScore((0.6 * $this->clampScore($uniqueKeywordCount / 12)) + (0.4 * $keywordCoverage));
+
+        $latestYear = $this->detectLatestYear($original !== '' ? $original : $cleaned);
+        $freshness = 0.45;
+        if ($latestYear !== null) {
+            $currentYear = (int) date('Y');
+            $delta = max(0, $currentYear - $latestYear);
+            $freshness = $this->clampScore(1 - min(1, $delta / 6));
+        } else {
+            $recentHints = $cleaned !== '' ? strtolower($cleaned) : strtolower($original);
+            if ($recentHints !== '') {
+                if (preg_match('/\b(today|latest|breaking|newly|recent|update[d]?)\b/u', $recentHints) === 1) {
+                    $freshness = 0.6;
+                }
+            }
+        }
+
+        $spellingIssues = 0;
+        if (is_array($spelling)) {
+            foreach ($spelling as $issue) {
+                if (!is_array($issue)) {
+                    continue;
+                }
+                $count = (int) ($issue['count'] ?? 0);
+                $spellingIssues += max(0, $count);
+            }
+        }
+
+        $errorRate = $spellingIssues / $wordCount;
+        $quality = $this->clampScore(1 - min(1, $errorRate * 5));
+
+        $originalLength = max(1, mb_strlen($original));
+        $cleanedLength = mb_strlen($cleaned);
+        if ($cleanedLength > 0) {
+            $quality = max($quality, $this->clampScore($cleanedLength / $originalLength));
+        }
+
+        $rewrittenLength = mb_strlen($rewritten);
+        $structureReference = $rewrittenLength > 0 ? $rewritten : $cleaned;
+        $sentenceCount = $this->countSentences($structureReference);
+        $sentenceCount = max(1, $sentenceCount);
+
+        $typeTokenRatio = $this->computeTypeTokenRatio($structureReference);
+        $consistencyBase = 1 - abs($typeTokenRatio - 0.45);
+        $consistencyBase = $this->clampScore($consistencyBase);
+
+        $averageSentenceLength = $wordCount / $sentenceCount;
+        $sentenceBalance = $this->clampScore(1 - min(1, abs($averageSentenceLength - 18) / 18));
+
+        $consistency = $this->clampScore((0.5 * $consistencyBase) + (0.5 * $sentenceBalance));
+
+        return [
+            'uniqueness' => $uniqueness,
+            'freshness' => $freshness,
+            'quality' => $quality,
+            'consistency' => $consistency,
+        ];
+    }
+
+    private function clampScore(float $value): float
+    {
+        if ($value < 0) {
+            return 0.0;
+        }
+
+        if ($value > 1) {
+            return 1.0;
+        }
+
+        return $value;
+    }
+
+    private function countWords(string $text): int
+    {
+        $tokens = preg_split('/\s+/u', trim($text));
+        if ($tokens === false) {
+            return 0;
+        }
+
+        $count = 0;
+        foreach ($tokens as $token) {
+            if ($token === '') {
+                continue;
+            }
+            $count++;
+        }
+
+        return $count;
+    }
+
+    private function countSentences(string $text): int
+    {
+        $normalized = trim($text);
+        if ($normalized === '') {
+            return 0;
+        }
+
+        $segments = preg_split('/(?<=[.!?])\s+/u', $normalized);
+        if ($segments === false) {
+            return 0;
+        }
+
+        $count = 0;
+        foreach ($segments as $segment) {
+            if (trim($segment) === '') {
+                continue;
+            }
+            $count++;
+        }
+
+        return $count;
+    }
+
+    private function detectLatestYear(string $text): ?int
+    {
+        if ($text === '') {
+            return null;
+        }
+
+        $matches = [];
+        $result = preg_match_all('/\b(19|20)\d{2}\b/u', $text, $matches);
+        if ($result === false || $result === 0) {
+            return null;
+        }
+
+        $years = array_map('intval', $matches[0]);
+        if ($years === []) {
+            return null;
+        }
+
+        rsort($years, SORT_NUMERIC);
+
+        return $years[0] ?? null;
+    }
+
+    private function computeTypeTokenRatio(string $text): float
+    {
+        $normalized = strtolower(trim($text));
+        if ($normalized === '') {
+            return 0.0;
+        }
+
+        $tokens = preg_split('/[^a-z0-9]+/u', $normalized);
+        if ($tokens === false) {
+            return 0.0;
+        }
+
+        $total = 0;
+        $unique = [];
+        foreach ($tokens as $token) {
+            if ($token === '') {
+                continue;
+            }
+            $total++;
+            $unique[$token] = true;
+        }
+
+        if ($total === 0) {
+            return 0.0;
+        }
+
+        return count($unique) / $total;
     }
 }
