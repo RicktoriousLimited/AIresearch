@@ -4,15 +4,28 @@ declare(strict_types=1);
 
 namespace App\KnowledgeGraph;
 
+use function array_intersect;
+use function array_map;
+use function array_merge;
 use function array_slice;
+use function array_unique;
 use function array_values;
+use function count;
 use function in_array;
 use function is_array;
 use function is_numeric;
 use function is_string;
+use function levenshtein;
+use function max;
+use function metaphone;
 use function preg_replace;
+use function preg_split;
+use function similar_text;
 use function str_contains;
+use function str_starts_with;
+use function soundex;
 use function strtolower;
+use function strlen;
 use function trim;
 use function usort;
 
@@ -23,6 +36,11 @@ use function usort;
 final class GraphResearcher
 {
     private GraphRepository $repository;
+
+    /**
+     * @var array<string, mixed>|null
+     */
+    private ?array $snapshotCache = null;
 
     public function __construct(?GraphRepository $repository = null)
     {
@@ -43,11 +61,15 @@ final class GraphResearcher
      */
     public function snapshot(): array
     {
+        if ($this->snapshotCache !== null) {
+            return $this->snapshotCache;
+        }
+
         $payload = $this->repository->load();
         $graph = $payload['graph'];
 
         if (!is_array($graph)) {
-            return [
+            $this->snapshotCache = [
                 'triples' => [],
                 'synonyms' => [],
                 'relations' => [],
@@ -55,9 +77,11 @@ final class GraphResearcher
                 'summary' => [],
                 'cross_references' => [],
             ];
+
+            return $this->snapshotCache;
         }
 
-        return [
+        $this->snapshotCache = [
             'triples' => $this->normaliseTriples($graph['triples'] ?? []),
             'synonyms' => $this->normaliseSynonyms($graph['synonyms'] ?? []),
             'relations' => $this->normaliseHistogram($graph['relations'] ?? []),
@@ -65,6 +89,8 @@ final class GraphResearcher
             'summary' => is_array($graph['summary'] ?? null) ? $graph['summary'] : [],
             'cross_references' => $this->normaliseCrossReferences($graph['cross_references'] ?? []),
         ];
+
+        return $this->snapshotCache;
     }
 
     /**
@@ -133,6 +159,123 @@ final class GraphResearcher
         }
 
         return array_slice($rows, 0, $limit);
+    }
+
+    /**
+     * Execute a linguistically-aware search across the knowledge graph.
+     *
+     * @return array{
+     *     query: string,
+     *     entities: array<int, array<string, mixed>>,
+     *     relations: array<int, array<string, mixed>>,
+     *     synonyms: array<int, array<string, mixed>>,
+     *     triples: array<int, array<string, mixed>>,
+     *     summary: array<string, mixed>,
+     *     sources: array<int, array<string, mixed>>,
+     *     updated_at: string|null
+     * }
+     */
+    public function searchGraph(string $query, int $limit = 12): array
+    {
+        $query = trim($query);
+
+        $snapshot = $this->snapshot();
+        $metadata = $this->metadata();
+
+        $result = [
+            'query' => $query,
+            'entities' => [],
+            'relations' => [],
+            'synonyms' => [],
+            'triples' => [],
+            'summary' => $snapshot['summary'],
+            'sources' => $this->sanitiseSources($metadata['sources']),
+            'updated_at' => $metadata['updated_at'],
+        ];
+
+        if ($snapshot['triples'] === [] && $snapshot['synonyms'] === [] && $snapshot['entities'] === []) {
+            return $result;
+        }
+
+        $limit = max(1, $limit);
+
+        if ($query === '') {
+            $result['entities'] = $this->buildDefaultEntitySummaries($limit);
+            $result['relations'] = $this->buildRelationMatches('', $snapshot['relations'], $limit);
+            $result['synonyms'] = $this->buildSynonymMatches('', $snapshot['synonyms'], $limit);
+            $result['triples'] = $this->buildTripleMatches('', $snapshot['triples'], min(50, $limit * 4));
+
+            return $result;
+        }
+
+        $references = $snapshot['cross_references'];
+        $entities = [];
+
+        foreach ($references as $entity => $payload) {
+            if (!is_string($entity) || $entity === '' || !is_array($payload)) {
+                continue;
+            }
+
+            $labelMatch = $this->evaluateMatch($query, $entity);
+
+            $synonymMatch = ['score' => 0.0, 'matched' => null, 'signals' => []];
+            if (isset($payload['synonyms']) && is_array($payload['synonyms'])) {
+                $synonymMatch = $this->evaluateSynonymSet($query, $payload['synonyms']);
+            }
+
+            $factMatch = ['score' => 0.0, 'matched' => null, 'signals' => []];
+            if (isset($payload['facts']) && is_array($payload['facts'])) {
+                $factMatch = $this->evaluateFacts($query, $payload['facts']);
+            }
+
+            $score = max($labelMatch['score'], $synonymMatch['score'], $factMatch['score']);
+            if ($score <= 0.0) {
+                continue;
+            }
+
+            $signals = $this->filterSignals([
+                'label' => $labelMatch['score'],
+                'synonym' => $synonymMatch['score'],
+                'context' => $factMatch['score'],
+            ]);
+
+            $entities[] = [
+                'entity' => $entity,
+                'score' => $score,
+                'signals' => $signals,
+                'matched_synonym' => $synonymMatch['matched'],
+                'matched_fact' => $factMatch['matched'],
+            ];
+        }
+
+        usort(
+            $entities,
+            static function (array $left, array $right): int {
+                if ($left['score'] === $right['score']) {
+                    return $left['entity'] <=> $right['entity'];
+                }
+
+                return $right['score'] <=> $left['score'];
+            }
+        );
+
+        $entities = array_slice($entities, 0, $limit);
+
+        foreach ($entities as &$entityMatch) {
+            $summary = $this->summariseEntity($entityMatch['entity'], 6);
+            $entityMatch['summary'] = $summary;
+            $entityMatch['eligible'] = $summary['eligible'] ?? false;
+            $entityMatch['fact_count'] = $summary['fact_count'] ?? 0;
+            $entityMatch['synonyms'] = $summary['synonyms'] ?? [];
+        }
+        unset($entityMatch);
+
+        $result['entities'] = $entities;
+        $result['relations'] = $this->buildRelationMatches($query, $snapshot['relations'], $limit);
+        $result['synonyms'] = $this->buildSynonymMatches($query, $snapshot['synonyms'], $limit);
+        $result['triples'] = $this->buildTripleMatches($query, $snapshot['triples'], min(50, $limit * 4));
+
+        return $result;
     }
 
     /**
@@ -239,6 +382,493 @@ final class GraphResearcher
                 'as_object' => $this->normaliseHistogram($context['as_object'] ?? []),
             ],
         ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildDefaultEntitySummaries(int $limit): array
+    {
+        $rows = [];
+
+        foreach ($this->listTopEntities($limit) as $entityRow) {
+            $summary = $this->summariseEntity($entityRow['entity'], 6);
+
+            $rows[] = [
+                'entity' => $entityRow['entity'],
+                'score' => $entityRow['score'],
+                'eligible' => $entityRow['eligible'],
+                'fact_count' => $entityRow['fact_count'],
+                'synonym_count' => $entityRow['synonym_count'],
+                'synonyms' => $summary['synonyms'] ?? [],
+                'summary' => $summary,
+                'signals' => ['ranking' => $entityRow['score']],
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * @param array<string, int> $histogram
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildRelationMatches(string $query, array $histogram, int $limit): array
+    {
+        $matches = [];
+        $maxFrequency = 0;
+        foreach ($histogram as $count) {
+            if (is_numeric($count)) {
+                $maxFrequency = max($maxFrequency, (int) $count);
+            }
+        }
+
+        foreach ($histogram as $relation => $count) {
+            if (!is_string($relation)) {
+                continue;
+            }
+
+            $match = $query === '' ? ['score' => 0.0, 'signals' => []] : $this->evaluateMatch($query, $relation);
+            $score = $query === ''
+                ? $this->normaliseFrequencyScore((int) $count, $maxFrequency)
+                : $match['score'];
+
+            if ($query !== '' && $score < 0.2) {
+                continue;
+            }
+
+            $signals = $match['signals'] ?? [];
+            $signals['frequency'] = (float) $count;
+
+            $matches[] = [
+                'relation' => $relation,
+                'count' => (int) $count,
+                'score' => $score,
+                'signals' => $this->filterSignals($signals),
+            ];
+        }
+
+        usort(
+            $matches,
+            static function (array $left, array $right) use ($query): int {
+                if ($left['score'] === $right['score']) {
+                    if ($query === '') {
+                        return $right['count'] <=> $left['count'];
+                    }
+
+                    return $left['relation'] <=> $right['relation'];
+                }
+
+                return $right['score'] <=> $left['score'];
+            }
+        );
+
+        return array_slice($matches, 0, $limit);
+    }
+
+    /**
+     * @param array<int, array{entity: string, synonyms: array<int, string>}> $synonyms
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildSynonymMatches(string $query, array $synonyms, int $limit): array
+    {
+        $matches = [];
+        $maxCount = 0;
+
+        foreach ($synonyms as $pair) {
+            if (!is_array($pair)) {
+                continue;
+            }
+
+            $entity = (string) ($pair['entity'] ?? '');
+            $list = isset($pair['synonyms']) && is_array($pair['synonyms']) ? array_values($pair['synonyms']) : [];
+
+            if ($entity === '' || $list === []) {
+                continue;
+            }
+
+            if ($query === '') {
+                $count = count($list);
+                $maxCount = max($maxCount, $count);
+                $matches[] = [
+                    'entity' => $entity,
+                    'synonyms' => $list,
+                    'score' => (float) $count,
+                    'matched_synonym' => null,
+                    'signals' => ['synonym_count' => (float) $count],
+                ];
+                continue;
+            }
+
+            $synonymMatch = $this->evaluateSynonymSet($query, $list);
+            if ($synonymMatch['score'] < 0.2) {
+                continue;
+            }
+
+            $matches[] = [
+                'entity' => $entity,
+                'synonyms' => $list,
+                'score' => $synonymMatch['score'],
+                'matched_synonym' => $synonymMatch['matched'],
+                'signals' => $this->filterSignals($synonymMatch['signals']),
+            ];
+        }
+
+        usort(
+            $matches,
+            static function (array $left, array $right) use ($query): int {
+                if ($left['score'] === $right['score']) {
+                    return $left['entity'] <=> $right['entity'];
+                }
+
+                if ($query === '') {
+                    return $right['score'] <=> $left['score'];
+                }
+
+                return $right['score'] <=> $left['score'];
+            }
+        );
+
+        if ($query === '') {
+            foreach ($matches as &$match) {
+                $match['score'] = $this->normaliseFrequencyScore((int) ($match['signals']['synonym_count'] ?? 0), $maxCount);
+                $match['signals'] = $this->filterSignals($match['signals']);
+            }
+            unset($match);
+        }
+
+        return array_slice($matches, 0, $limit);
+    }
+
+    /**
+     * @param array<int, array{subject: string, relation: string, object: string}> $triples
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildTripleMatches(string $query, array $triples, int $limit): array
+    {
+        $matches = [];
+
+        foreach ($triples as $triple) {
+            if (!is_array($triple)) {
+                continue;
+            }
+
+            $subject = (string) ($triple['subject'] ?? $triple[0] ?? '');
+            $relation = (string) ($triple['relation'] ?? $triple[1] ?? '');
+            $object = (string) ($triple['object'] ?? $triple[2] ?? '');
+
+            if ($query === '') {
+                $matches[] = [
+                    'subject' => $subject,
+                    'relation' => $relation,
+                    'object' => $object,
+                    'score' => 1.0,
+                    'signals' => ['baseline' => 1.0],
+                ];
+                continue;
+            }
+
+            $subjectMatch = $this->evaluateMatch($query, $subject);
+            $relationMatch = $this->evaluateMatch($query, $relation);
+            $objectMatch = $this->evaluateMatch($query, $object);
+
+            $score = max($subjectMatch['score'], $relationMatch['score'], $objectMatch['score']);
+            if ($score < 0.25) {
+                continue;
+            }
+
+            $matches[] = [
+                'subject' => $subject,
+                'relation' => $relation,
+                'object' => $object,
+                'score' => $score,
+                'signals' => $this->filterSignals([
+                    'subject' => $subjectMatch['score'],
+                    'relation' => $relationMatch['score'],
+                    'object' => $objectMatch['score'],
+                ]),
+            ];
+        }
+
+        if ($query === '') {
+            return array_slice($matches, 0, $limit);
+        }
+
+        usort(
+            $matches,
+            static function (array $left, array $right): int {
+                if ($left['score'] === $right['score']) {
+                    $leftLabel = $left['subject'] . $left['relation'] . $left['object'];
+                    $rightLabel = $right['subject'] . $right['relation'] . $right['object'];
+
+                    return $leftLabel <=> $rightLabel;
+                }
+
+                return $right['score'] <=> $left['score'];
+            }
+        );
+
+        return array_slice($matches, 0, $limit);
+    }
+
+    /**
+     * @param array<int, string> $synonyms
+     * @return array{score: float, matched: string|null, signals: array<string, float>}
+     */
+    private function evaluateSynonymSet(string $query, array $synonyms): array
+    {
+        $bestScore = 0.0;
+        $bestSynonym = null;
+        $bestSignals = [];
+
+        foreach ($synonyms as $synonym) {
+            if (!is_string($synonym) || $synonym === '') {
+                continue;
+            }
+
+            $match = $this->evaluateMatch($query, $synonym);
+            if ($match['score'] <= $bestScore) {
+                continue;
+            }
+
+            $bestScore = $match['score'];
+            $bestSynonym = $synonym;
+            $bestSignals = $match['signals'];
+        }
+
+        return [
+            'score' => $bestScore,
+            'matched' => $bestSynonym,
+            'signals' => $this->filterSignals($bestSignals),
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $facts
+     * @return array{score: float, matched: string|null, signals: array<string, float>}
+     */
+    private function evaluateFacts(string $query, array $facts): array
+    {
+        $bestScore = 0.0;
+        $bestDescription = null;
+        $bestSignals = [];
+
+        foreach ($facts as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+
+            $relation = (string) ($fact['relation'] ?? '');
+            $counterpart = (string) ($fact['counterpart'] ?? '');
+            $direction = (string) ($fact['direction'] ?? '');
+
+            $relationMatch = $this->evaluateMatch($query, $relation);
+            $counterpartMatch = $this->evaluateMatch($query, $counterpart);
+
+            $score = max($relationMatch['score'], $counterpartMatch['score']);
+            if ($score <= $bestScore) {
+                continue;
+            }
+
+            $bestScore = $score;
+            $bestSignals = $this->filterSignals([
+                'relation' => $relationMatch['score'],
+                'counterpart' => $counterpartMatch['score'],
+            ]);
+            $bestDescription = trim($direction . ' ' . trim($relation . ' ' . $counterpart));
+        }
+
+        return [
+            'score' => $bestScore,
+            'matched' => $bestDescription !== '' ? $bestDescription : null,
+            'signals' => $bestSignals,
+        ];
+    }
+
+    /**
+     * @param array<string, float> $signals
+     * @return array<string, float>
+     */
+    private function filterSignals(array $signals): array
+    {
+        $filtered = [];
+        foreach ($signals as $key => $value) {
+            if (!is_string($key)) {
+                continue;
+            }
+
+            $numeric = (float) $value;
+            if ($numeric <= 0.0) {
+                continue;
+            }
+
+            $filtered[$key] = round($numeric, 4);
+        }
+
+        return $filtered;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $sources
+     * @return array<int, array<string, mixed>>
+     */
+    private function sanitiseSources(array $sources): array
+    {
+        return array_map(
+            static function (array $source): array {
+                unset($source['content']);
+                return $source;
+            },
+            $sources
+        );
+    }
+
+    private function normaliseFrequencyScore(int $value, int $maxValue): float
+    {
+        if ($maxValue <= 0) {
+            return 0.0;
+        }
+
+        return max(0.0, min(1.0, $value / $maxValue));
+    }
+
+    /**
+     * @return array{score: float, signals: array<string, float>}
+     */
+    private function evaluateMatch(string $query, string $candidate): array
+    {
+        $query = trim($query);
+        $candidate = trim($candidate);
+
+        if ($query === '' || $candidate === '') {
+            return ['score' => 0.0, 'signals' => []];
+        }
+
+        $normalNeedle = $this->normaliseName($query);
+        $normalCandidate = $this->normaliseName($candidate);
+
+        if ($normalNeedle === '' || $normalCandidate === '') {
+            return ['score' => 0.0, 'signals' => []];
+        }
+
+        $lexical = $this->lexicalSimilarity($normalNeedle, $normalCandidate);
+        $overlap = $this->tokenOverlapScore($normalNeedle, $normalCandidate);
+        $phonetic = $this->phoneticSimilarity($query, $candidate);
+        $affinity = $this->affinityScore($normalNeedle, $normalCandidate);
+
+        $score = ($lexical * 0.45) + ($overlap * 0.25) + ($phonetic * 0.2) + ($affinity * 0.1);
+
+        return [
+            'score' => max(0.0, min(1.0, $score)),
+            'signals' => $this->filterSignals([
+                'lexical' => $lexical,
+                'overlap' => $overlap,
+                'phonetic' => $phonetic,
+                'affinity' => $affinity,
+            ]),
+        ];
+    }
+
+    private function lexicalSimilarity(string $left, string $right): float
+    {
+        if ($left === '' || $right === '') {
+            return 0.0;
+        }
+
+        $percent = 0.0;
+        similar_text($left, $right, $percent);
+
+        $maxLength = max(strlen($left), strlen($right));
+        $levScore = 0.0;
+        if ($maxLength > 0) {
+            $levenshtein = levenshtein($left, $right);
+            $levScore = 1.0 - ($levenshtein / $maxLength);
+        }
+
+        return max($percent / 100.0, max(0.0, $levScore));
+    }
+
+    private function tokenOverlapScore(string $left, string $right): float
+    {
+        $leftTokens = $this->tokenize($left);
+        $rightTokens = $this->tokenize($right);
+
+        if ($leftTokens === [] || $rightTokens === []) {
+            return 0.0;
+        }
+
+        $intersection = array_intersect($leftTokens, $rightTokens);
+        $union = array_unique(array_merge($leftTokens, $rightTokens));
+
+        if ($union === []) {
+            return 0.0;
+        }
+
+        return count($intersection) / count($union);
+    }
+
+    private function phoneticSimilarity(string $left, string $right): float
+    {
+        $leftMeta = metaphone($left);
+        $rightMeta = metaphone($right);
+
+        if ($leftMeta !== '' && $leftMeta === $rightMeta) {
+            return 1.0;
+        }
+
+        $leftSoundex = soundex($left);
+        $rightSoundex = soundex($right);
+
+        if ($leftSoundex !== '' && $leftSoundex === $rightSoundex) {
+            return 0.7;
+        }
+
+        return 0.0;
+    }
+
+    private function affinityScore(string $needle, string $candidate): float
+    {
+        if ($needle === '' || $candidate === '') {
+            return 0.0;
+        }
+
+        if (str_starts_with($candidate, $needle)) {
+            return 1.0;
+        }
+
+        if (str_contains($candidate, $needle)) {
+            return 0.6;
+        }
+
+        return 0.0;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function tokenize(string $value): array
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return [];
+        }
+
+        $parts = preg_split('/[\s-]+/u', $value);
+        if (!is_array($parts)) {
+            return [];
+        }
+
+        $tokens = [];
+        foreach ($parts as $part) {
+            $part = trim((string) $part);
+            if ($part === '') {
+                continue;
+            }
+
+            $tokens[] = $part;
+        }
+
+        return array_values(array_unique($tokens));
     }
 
     /**
