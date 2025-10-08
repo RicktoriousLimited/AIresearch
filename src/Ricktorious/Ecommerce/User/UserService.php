@@ -22,6 +22,32 @@ final class UserService
         $email = strtolower(trim((string) ($payload['email'] ?? '')));
         $password = (string) ($payload['password'] ?? '');
         $profile = (array) ($payload['profile'] ?? []);
+        $rawRoles = $payload['roles'] ?? ($payload['role'] ?? null);
+        if (is_string($rawRoles)) {
+            $rawRoles = [$rawRoles];
+        }
+        if (!is_array($rawRoles)) {
+            $rawRoles = [];
+        }
+
+        $roles = array_values(array_filter(
+            array_unique(array_map(
+                static fn($role): string => strtolower(trim((string) $role)),
+                $rawRoles
+            )),
+            static fn(string $role): bool => $role !== ''
+        ));
+
+        $allowedRoles = ['customer', 'admin'];
+        $roles = array_values(array_intersect($roles, $allowedRoles));
+
+        if ($roles === []) {
+            $roles = ['customer'];
+        }
+
+        if (in_array('admin', $roles, true) && !in_array('customer', $roles, true)) {
+            $roles[] = 'customer';
+        }
 
         if ($email === '' || $password === '') {
             throw new InvalidArgumentException('Email and password are required to register a user.');
@@ -39,7 +65,7 @@ final class UserService
             'usr-' . bin2hex(random_bytes(6)),
             $email,
             password_hash($password, PASSWORD_DEFAULT),
-            roles: ['customer'],
+            roles: $roles,
             profile: $profile
         );
 
