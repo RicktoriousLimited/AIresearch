@@ -109,6 +109,25 @@ $apiEndpoint = $assetBase . '/api/analyse.php';
                     <h3>Synonym groups</h3>
                     <div id="synonyms-list" class="list-block"></div>
                 </article>
+                <article class="card span-3" id="document-insights-card" hidden>
+                    <h3>Document cleanup</h3>
+                    <div class="document-cleanup" id="document-cleaned" hidden>
+                        <h4>Cleaned text</h4>
+                        <pre id="document-cleaned-text"></pre>
+                    </div>
+                    <div class="document-cleanup" id="document-rewrite" hidden>
+                        <h4>Readable rewrite</h4>
+                        <pre id="document-rewrite-text"></pre>
+                    </div>
+                    <div class="document-cleanup" id="document-keywords" hidden>
+                        <h4>Key phrases</h4>
+                        <ul id="document-keywords-list" class="pill-list"></ul>
+                    </div>
+                    <div class="document-cleanup" id="document-spelling" hidden>
+                        <h4>Spelling suggestions</h4>
+                        <ul id="document-spelling-list" class="pill-list"></ul>
+                    </div>
+                </article>
             </div>
         </section>
 

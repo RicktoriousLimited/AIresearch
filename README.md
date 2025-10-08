@@ -117,6 +117,20 @@ language rather than navigation chrome or random character sequences. The
 dictionary also powers new heuristics for rejecting gibberish sentences while
 preserving capitalised proper nouns and acronyms.
 
+## Document refinement toolkit
+
+Every extraction run now bundles a per-document cleanup report alongside the
+knowledge graph payload. The new toolkit:
+
+- Normalises whitespace and bullet lists to make messy notes readable.
+- Produces a plain-language rewrite with consistent casing and sentence breaks.
+- Surfaces top keywords for quick data mining and topic clustering.
+- Flags misspellings with dictionary-backed suggestions for rapid editing.
+
+The workbench UI exposes these insights in the **Document cleanup** panel, and
+the JSON API includes them under the `documents` field for downstream
+automation.
+
 ## Development
 
 - The shared service layer lives under `src/App/Extraction` and wraps the core
