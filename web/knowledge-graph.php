@@ -5,6 +5,7 @@ declare(strict_types=1);
 require __DIR__ . '/../src/App/bootstrap.php';
 
 use App\KnowledgeGraph\GraphRepository;
+use App\KnowledgeGraph\GraphResearcher;
 
 $scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '/knowledge-graph.php');
 $scriptDir = str_replace('\\', '/', dirname($scriptName));
@@ -20,25 +21,32 @@ $assetBase = $basePath === '' ? '' : $basePath;
 
 $stylesPath = $assetBase . '/assets/workbench.css';
 $homePath = $assetBase . '/index.php';
+$apiPath = $assetBase . '/api/research.php';
+$scriptPath = $assetBase . '/assets/knowledge-graph.js';
+
 $stylesVersion = file_exists(__DIR__ . '/assets/workbench.css') ? (string) filemtime(__DIR__ . '/assets/workbench.css') : (string) time();
+$scriptVersion = file_exists(__DIR__ . '/assets/knowledge-graph.js') ? (string) filemtime(__DIR__ . '/assets/knowledge-graph.js') : (string) time();
 
 $repository = new GraphRepository();
-$data = $repository->load();
-$graph = isset($data['graph']) && is_array($data['graph']) ? $data['graph'] : null;
-$sources = isset($data['sources']) && is_array($data['sources']) ? $data['sources'] : [];
-$updatedAt = isset($data['updated_at']) && is_string($data['updated_at']) ? $data['updated_at'] : null;
+$researcher = new GraphResearcher($repository);
 
-$summary = isset($graph['summary']) && is_array($graph['summary']) ? $graph['summary'] : [];
-$relations = isset($graph['relations']) && is_array($graph['relations']) ? $graph['relations'] : [];
-$entities = isset($graph['entities']) && is_array($graph['entities']) ? $graph['entities'] : [];
-$triples = isset($graph['triples']) && is_array($graph['triples']) ? $graph['triples'] : [];
-$synonyms = isset($graph['synonyms']) && is_array($graph['synonyms']) ? $graph['synonyms'] : [];
+$initialSearch = $researcher->searchGraph('', 12);
+$summary = isset($initialSearch['summary']) && is_array($initialSearch['summary']) ? $initialSearch['summary'] : [];
+$sources = isset($initialSearch['sources']) && is_array($initialSearch['sources']) ? $initialSearch['sources'] : [];
+$updatedAt = isset($initialSearch['updated_at']) && is_string($initialSearch['updated_at']) ? $initialSearch['updated_at'] : null;
+$entities = isset($initialSearch['entities']) && is_array($initialSearch['entities']) ? $initialSearch['entities'] : [];
+$relations = isset($initialSearch['relations']) && is_array($initialSearch['relations']) ? $initialSearch['relations'] : [];
+$synonymGroups = isset($initialSearch['synonyms']) && is_array($initialSearch['synonyms']) ? $initialSearch['synonyms'] : [];
+$triples = isset($initialSearch['triples']) && is_array($initialSearch['triples']) ? $initialSearch['triples'] : [];
+
+$hasGraph = $entities !== [] || $relations !== [] || $triples !== [];
 
 $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES);
 $formatNumber = static function ($value): string {
     if (!is_numeric($value)) {
         return '0';
     }
+
     $intValue = (int) round((float) $value);
     return number_format($intValue);
 };
@@ -46,6 +54,7 @@ $formatDate = static function (?string $value): ?string {
     if ($value === null || trim($value) === '') {
         return null;
     }
+
     try {
         $date = new \DateTimeImmutable($value);
     } catch (\Exception $exception) {
@@ -55,10 +64,24 @@ $formatDate = static function (?string $value): ?string {
     return $date->format('F j, Y H:i');
 };
 
-$triplesPreview = array_slice($triples, 0, 50);
-$synonymPreview = array_slice($synonyms, 0, 25);
-$relationsPreview = array_slice($relations, 0, 25, true);
-$entitiesPreview = array_slice($entities, 0, 25, true);
+$initialState = [
+    'endpoints' => [
+        'search' => $apiPath,
+    ],
+    'paths' => [
+        'home' => $homePath,
+        'graph' => $repository->path(),
+    ],
+    'initial' => [
+        'search' => $initialSearch,
+        'hasGraph' => $hasGraph,
+    ],
+];
+
+$initialJson = json_encode($initialState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+if (!is_string($initialJson)) {
+    $initialJson = '{}';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -79,14 +102,25 @@ $entitiesPreview = array_slice($entities, 0, 25, true);
     <main class="container">
         <section class="panel">
             <header class="panel-header">
-                <h2>Shared intelligence</h2>
-                <p>The scraper continuously ingests public URLs, extracts semantic triples, and fuses them into this shared knowledge base. Every visitor can explore the latest state of the graph.</p>
+                <div>
+                    <h2>Shared intelligence</h2>
+                    <p>The scraper continuously ingests public URLs, extracts semantic triples, and fuses them into this shared knowledge base. Explore the latest entities, relations, and supporting sources below.</p>
+                </div>
+                <form class="graph-search" data-graph-search>
+                    <label class="visually-hidden" for="graph-search-input">Search the knowledge graph</label>
+                    <input id="graph-search-input" name="q" type="search" placeholder="Search people, organisations, relations&hellip;" autocomplete="off" spellcheck="false">
+                    <button type="submit" class="button primary">Search</button>
+                </form>
             </header>
 
-            <?php if ($graph === null): ?>
-                <p class="empty-state">No scraped documents yet. Use the <a href="<?= $escape($homePath) ?>">Semantic Workbench</a> to fetch an article and the results will appear here.</p>
-            <?php else: ?>
-                <div class="results-overview is-static">
+            <div class="graph-feedback<?= $hasGraph ? ' is-hidden' : '' ?>" data-graph-feedback role="status">
+                <?php if (!$hasGraph): ?>
+                    <p>No scraped documents yet. Use the <a href="<?= $escape($homePath) ?>">Semantic Workbench</a> to fetch an article and enrich the shared graph.</p>
+                <?php endif; ?>
+            </div>
+
+            <?php if ($hasGraph): ?>
+                <div class="results-overview" data-graph-metrics>
                     <article class="metric-card">
                         <span class="metric-label">Documents processed</span>
                         <span class="metric-value"><?= $escape($formatNumber($summary['documents_processed'] ?? 0)) ?></span>
@@ -95,7 +129,7 @@ $entitiesPreview = array_slice($entities, 0, 25, true);
                     <article class="metric-card">
                         <span class="metric-label">Triples extracted</span>
                         <span class="metric-value"><?= $escape($formatNumber($summary['triples'] ?? count($triples))) ?></span>
-                        <span class="metric-sub">Synonym groups: <?= $escape($formatNumber($summary['synonym_groups'] ?? count($synonyms))) ?></span>
+                        <span class="metric-sub">Synonym groups: <?= $escape($formatNumber($summary['synonym_groups'] ?? count($synonymGroups))) ?></span>
                     </article>
                     <article class="metric-card">
                         <span class="metric-label">Unique entities</span>
@@ -106,133 +140,120 @@ $entitiesPreview = array_slice($entities, 0, 25, true);
                     </article>
                 </div>
 
-                <div class="grid">
-                    <article class="card span-2">
-                        <h3>Sources</h3>
-                        <?php if ($sources === []): ?>
-                            <p>No sources recorded yet.</p>
-                        <?php else: ?>
-                            <ul class="sources-list">
-                                <?php foreach ($sources as $source): ?>
-                                    <?php
-                                    $label = is_string($source['title'] ?? null) && trim((string) $source['title']) !== ''
-                                        ? (string) $source['title']
-                                        : (string) ($source['url'] ?? '');
-                                    $sourceUrl = (string) ($source['url'] ?? '');
-                                    $characters = $formatNumber($source['characters'] ?? 0);
-                                    $fetchedAt = isset($source['fetched_at']) && is_string($source['fetched_at'])
-                                        ? ($formatDate($source['fetched_at']) ?? $source['fetched_at'])
-                                        : null;
-                                    $preview = (string) ($source['preview'] ?? '');
-                                    ?>
-                                    <li>
-                                        <p class="source-title"><a href="<?= $escape($sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $escape($label) ?></a></p>
-                                        <p class="source-meta"><?= $escape($characters) ?> characters<?php if ($fetchedAt): ?> • <?= $escape($fetchedAt) ?><?php endif; ?></p>
-                                        <?php if ($preview !== ''): ?>
-                                            <p class="source-preview"><?= $escape($preview) ?></p>
-                                        <?php endif; ?>
-                                    </li>
-                                <?php endforeach; ?>
-                            </ul>
-                        <?php endif; ?>
+                <div class="grid graph-grid" data-graph-grid>
+                    <article class="card span-3">
+                        <h3>Entity explorer</h3>
+                        <p class="card-subtle" data-graph-entities-empty<?= $entities !== [] ? ' hidden' : '' ?>>Run a search to surface the most relevant entities and supporting evidence.</p>
+                        <div class="entity-results" data-graph-entities>
+                            <?php foreach (array_slice($entities, 0, 6) as $entity): ?>
+                                <?php $entityName = (string) ($entity['entity'] ?? ''); ?>
+                                <?php if ($entityName === '') { continue; } ?>
+                                <button type="button" class="entity-chip" data-entity="<?= $escape($entityName) ?>">
+                                    <span class="entity-chip__name"><?= $escape($entityName) ?></span>
+                                    <?php if (isset($entity['summary']['synonyms']) && is_array($entity['summary']['synonyms']) && $entity['summary']['synonyms'] !== []): ?>
+                                        <span class="entity-chip__meta">Synonyms: <?= $escape(implode(', ', $entity['summary']['synonyms'])) ?></span>
+                                    <?php endif; ?>
+                                </button>
+                            <?php endforeach; ?>
+                        </div>
                     </article>
 
                     <article class="card span-2">
-                        <h3>Relation frequency</h3>
-                        <?php if ($relationsPreview === []): ?>
-                            <p>No relations yet.</p>
-                        <?php else: ?>
-                            <ul class="list-block">
-                                <?php foreach ($relationsPreview as $relation => $count): ?>
-                                    <li>
-                                        <span class="label"><?= $escape((string) $relation) ?></span>
-                                        <span class="value"><?= $escape($formatNumber($count)) ?></span>
-                                    </li>
-                                <?php endforeach; ?>
-                            </ul>
-                        <?php endif; ?>
+                        <h3>Relation signals</h3>
+                        <p class="card-subtle" data-graph-relations-empty<?= $relations !== [] ? ' hidden' : '' ?>>Relation matches will appear here once you start searching.</p>
+                        <ul class="list-block" data-graph-relations>
+                            <?php foreach (array_slice($relations, 0, 10) as $relation): ?>
+                                <?php $label = (string) ($relation['relation'] ?? $relation['label'] ?? ''); ?>
+                                <?php if ($label === '') { continue; } ?>
+                                <li>
+                                    <span class="label"><?= $escape($label) ?></span>
+                                    <?php if (isset($relation['count'])): ?>
+                                        <span class="value"><?= $escape($formatNumber($relation['count'])) ?></span>
+                                    <?php endif; ?>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
                     </article>
 
                     <article class="card span-2">
-                        <h3>Entities encountered</h3>
-                        <?php if ($entitiesPreview === []): ?>
-                            <p>No entities yet.</p>
-                        <?php else: ?>
-                            <ul class="list-block">
-                                <?php foreach ($entitiesPreview as $entity => $count): ?>
-                                    <li>
-                                        <span class="label"><?= $escape((string) $entity) ?></span>
-                                        <span class="value"><?= $escape($formatNumber($count)) ?></span>
-                                    </li>
-                                <?php endforeach; ?>
-                            </ul>
-                        <?php endif; ?>
+                        <h3>Synonym clusters</h3>
+                        <p class="card-subtle" data-graph-synonyms-empty<?= $synonymGroups !== [] ? ' hidden' : '' ?>>Advanced name matching highlights aliases and related spellings.</p>
+                        <ul class="list-block" data-graph-synonyms>
+                            <?php foreach (array_slice($synonymGroups, 0, 8) as $group): ?>
+                                <?php $entityName = (string) ($group['entity'] ?? ''); ?>
+                                <?php $synonyms = isset($group['synonyms']) && is_array($group['synonyms']) ? $group['synonyms'] : []; ?>
+                                <?php if ($entityName === '' || $synonyms === []) { continue; } ?>
+                                <li>
+                                    <span class="label"><?= $escape($entityName) ?></span>
+                                    <span class="value"><?= $escape(implode(', ', $synonyms)) ?></span>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
                     </article>
 
                     <article class="card span-3">
-                        <h3>Triples</h3>
-                        <?php if ($triplesPreview === []): ?>
-                            <p>No triples extracted yet.</p>
-                        <?php else: ?>
-                            <div class="table-wrapper">
-                                <table class="table">
-                                    <thead>
+                        <h3>Highlighted triples</h3>
+                        <p class="card-subtle" data-graph-triples-empty<?= $triples !== [] ? ' hidden' : '' ?>>Entity relationships and evidence snippets will appear here.</p>
+                        <div class="table-wrapper">
+                            <table class="table" data-graph-triples>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Subject</th>
+                                        <th scope="col">Relation</th>
+                                        <th scope="col">Object</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach (array_slice($triples, 0, 12) as $triple): ?>
                                         <tr>
-                                            <th scope="col">Subject</th>
-                                            <th scope="col">Relation</th>
-                                            <th scope="col">Object</th>
+                                            <td><?= $escape((string) ($triple['subject'] ?? $triple[0] ?? '')) ?></td>
+                                            <td><?= $escape((string) ($triple['relation'] ?? $triple[1] ?? '')) ?></td>
+                                            <td><?= $escape((string) ($triple['object'] ?? $triple[2] ?? '')) ?></td>
                                         </tr>
-                                    </thead>
-                                    <tbody>
-                                        <?php foreach ($triplesPreview as $triple): ?>
-                                            <tr>
-                                                <td><?= $escape((string) ($triple['subject'] ?? $triple[0] ?? '')) ?></td>
-                                                <td><?= $escape((string) ($triple['relation'] ?? $triple[1] ?? '')) ?></td>
-                                                <td><?= $escape((string) ($triple['object'] ?? $triple[2] ?? '')) ?></td>
-                                            </tr>
-                                        <?php endforeach; ?>
-                                    </tbody>
-                                </table>
-                                <?php if (count($triples) > count($triplesPreview)): ?>
-                                    <p class="table-note">Showing first <?= $escape((string) count($triplesPreview)) ?> of <?= $escape((string) count($triples)) ?> triples.</p>
-                                <?php endif; ?>
-                            </div>
-                        <?php endif; ?>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
                     </article>
 
-                    <article class="card span-3">
-                        <h3>Synonym groups</h3>
-                        <?php if ($synonymPreview === []): ?>
-                            <p>No synonym groups yet.</p>
-                        <?php else: ?>
-                            <ul class="list-block">
-                                <?php foreach ($synonymPreview as $pair): ?>
-                                    <?php
-                                    $entity = is_array($pair) ? ($pair['entity'] ?? $pair[0] ?? '') : '';
-                                    $synonymList = [];
-                                    if (is_array($pair)) {
-                                        $rawSynonyms = $pair['synonyms'] ?? $pair[1] ?? [];
-                                        if (is_array($rawSynonyms)) {
-                                            foreach ($rawSynonyms as $synonym) {
-                                                if (is_string($synonym)) {
-                                                    $synonymList[] = $synonym;
-                                                }
-                                            }
-                                        }
-                                    }
-                                    ?>
-                                    <li>
-                                        <span class="label"><?= $escape((string) $entity) ?></span>
-                                        <?php if ($synonymList !== []): ?>
-                                            <span class="value"><?= $escape(implode(', ', $synonymList)) ?></span>
-                                        <?php endif; ?>
-                                    </li>
-                                <?php endforeach; ?>
-                            </ul>
-                        <?php endif; ?>
+                    <article class="card span-2">
+                        <h3>Source library</h3>
+                        <p class="card-subtle" data-graph-sources-empty<?= $sources !== [] ? ' hidden' : '' ?>>Scraped URLs and research dossiers populate this feed.</p>
+                        <ul class="sources-list" data-graph-sources>
+                            <?php foreach (array_slice($sources, 0, 6) as $source): ?>
+                                <?php
+                                $label = is_string($source['title'] ?? null) && trim((string) $source['title']) !== ''
+                                    ? (string) $source['title']
+                                    : (string) ($source['url'] ?? '');
+                                $sourceUrl = (string) ($source['url'] ?? '');
+                                $characters = $formatNumber($source['characters'] ?? 0);
+                                $fetchedAt = isset($source['fetched_at']) && is_string($source['fetched_at'])
+                                    ? ($formatDate($source['fetched_at']) ?? $source['fetched_at'])
+                                    : null;
+                                $preview = (string) ($source['preview'] ?? '');
+                                ?>
+                                <li>
+                                    <p class="source-title"><a href="<?= $escape($sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $escape($label) ?></a></p>
+                                    <p class="source-meta"><?= $escape($characters) ?> characters<?php if ($fetchedAt): ?> • <?= $escape($fetchedAt) ?><?php endif; ?></p>
+                                    <?php if ($preview !== ''): ?>
+                                        <p class="source-preview"><?= $escape($preview) ?></p>
+                                    <?php endif; ?>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
                     </article>
                 </div>
             <?php endif; ?>
+        </section>
+
+        <section class="panel">
+            <header class="panel-header">
+                <h2>Entity insights</h2>
+                <p class="panel-subtitle">Select an entity to inspect relation histograms, synonym evidence, and the strongest supporting facts.</p>
+            </header>
+            <div class="entity-detail" data-graph-entity-detail>
+                <p class="empty-state">Choose an entity from the explorer to see a full research summary.</p>
+            </div>
         </section>
     </main>
     <footer class="site-footer">
@@ -240,5 +261,9 @@ $entitiesPreview = array_slice($entities, 0, 25, true);
             <p>Knowledge graph snapshots are stored at <code><?= $escape($repository->path()) ?></code>. Scrape additional URLs from the <a href="<?= $escape($homePath) ?>">Semantic Workbench</a>.</p>
         </div>
     </footer>
+    <script>
+        window.AIKnowledgeGraph = <?= $initialJson ?>;
+    </script>
+    <script src="<?= $escape($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
 </body>
 </html>

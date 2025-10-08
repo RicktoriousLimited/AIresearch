@@ -49,6 +49,19 @@ switch ($method) {
                     'meta' => ['processing_time_ms' => runtime($startTime)],
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
                 return;
+            case 'search':
+                $limit = isset($_GET['limit']) ? max(1, (int) $_GET['limit']) : 12;
+                $query = isset($_GET['q']) && is_string($_GET['q']) ? (string) $_GET['q'] : '';
+                $search = $researcher->searchGraph($query, $limit);
+                $search['sources'] = sanitiseSources($search['sources']);
+
+                echo json_encode([
+                    'data' => [
+                        'search' => $search,
+                    ],
+                    'meta' => ['processing_time_ms' => runtime($startTime)],
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                return;
             case 'summary':
                 $entity = isset($_GET['entity']) && is_string($_GET['entity']) ? trim($_GET['entity']) : '';
                 if ($entity === '') {
