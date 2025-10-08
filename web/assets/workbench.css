@@ -73,6 +73,43 @@ main.container {
     gap: 0.75rem;
 }
 
+.results-overview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.75rem;
+}
+
+.metric-card {
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(129, 140, 248, 0.18));
+    border-radius: 18px;
+    padding: 1.25rem 1.5rem;
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.metric-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: rgba(226, 232, 240, 0.72);
+}
+
+.metric-value {
+    font-size: clamp(1.65rem, 4vw, 2.35rem);
+    font-weight: 700;
+    color: #f8fafc;
+    line-height: 1.1;
+}
+
+.metric-sub {
+    font-size: 0.85rem;
+    color: rgba(148, 163, 184, 0.92);
+}
+
 .workbench-form {
     display: flex;
     flex-direction: column;
@@ -380,7 +417,7 @@ textarea:focus {
     overflow-y: auto;
 }
 
-.list-block li {
+.list-block ul:not(.bar-list) li {
     display: flex;
     justify-content: space-between;
     gap: 0.75rem;
@@ -389,9 +426,60 @@ textarea:focus {
     font-size: 0.95rem;
 }
 
-.list-block li span {
+.list-block ul:not(.bar-list) li span {
     font-weight: 600;
     color: #f8fafc;
+}
+
+.bar-list {
+    gap: 0.85rem;
+}
+
+.bar-list li {
+    background: rgba(15, 23, 42, 0.45);
+    border-radius: 14px;
+    padding: 0.75rem 1rem;
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.bar-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.95rem;
+}
+
+.bar-label {
+    font-weight: 600;
+    color: #f8fafc;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bar-value {
+    color: rgba(226, 232, 240, 0.85);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.bar-meter {
+    position: relative;
+    height: 0.45rem;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.25);
+    overflow: hidden;
+}
+
+.bar-meter span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.65), rgba(129, 140, 248, 0.88));
+    transition: width 0.3s ease;
 }
 
 .document-cleanup {
