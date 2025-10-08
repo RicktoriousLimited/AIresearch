@@ -24,7 +24,7 @@ use function str_replace;
 use function stream_context_create;
 use function trim;
 
-final class WebScraper
+final class WebScraper implements ScraperInterface
 {
     private const USER_AGENT = 'AIresearchBot/1.0 (+https://github.com/)';
 
