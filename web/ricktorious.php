@@ -93,13 +93,38 @@ $app = new Application(
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $uri = $_SERVER['REQUEST_URI'] ?? '/';
 $path = parse_url($uri, PHP_URL_PATH) ?: '/';
-$scriptPath = '/ricktorious.php';
-if ($path === $scriptPath) {
-    $path = '/';
-} elseif (str_starts_with($path, $scriptPath . '/')) {
-    $path = substr($path, strlen($scriptPath));
-    if ($path === '') {
+$scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? $_SERVER['PHP_SELF'] ?? '/ricktorious.php');
+$scriptName = str_replace('\\', '/', $scriptName);
+if ($scriptName === '') {
+    $scriptName = '/ricktorious.php';
+}
+
+$pathInfo = $_SERVER['PATH_INFO'] ?? null;
+if (is_string($pathInfo) && $pathInfo !== '') {
+    $path = '/' . ltrim(str_replace('\\', '/', $pathInfo), '/');
+} else {
+    if ($path === $scriptName) {
         $path = '/';
+    } elseif ($scriptName !== '' && str_starts_with($path, $scriptName . '/')) {
+        $path = substr($path, strlen($scriptName));
+        if ($path === '') {
+            $path = '/';
+        }
+    } else {
+        $scriptDir = rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
+        if ($scriptDir === '.' || $scriptDir === '\\') {
+            $scriptDir = '';
+        }
+        if ($scriptDir !== '' && $scriptDir !== '/') {
+            if ($path === $scriptDir) {
+                $path = '/';
+            } elseif (str_starts_with($path, $scriptDir . '/')) {
+                $path = substr($path, strlen($scriptDir));
+                if ($path === '') {
+                    $path = '/';
+                }
+            }
+        }
     }
 }
 if (str_starts_with($path, '/api/')) {
