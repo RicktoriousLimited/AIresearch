@@ -106,6 +106,21 @@ php index.php sample.txt -f json -e triples -e synonyms
 The CLI continues to support JSON, CSV, and text exports, snapshot persistence,
 and STDIN piping. Run `php index.php --help` for the full option list.
 
+### Research CLI
+
+```bash
+php research.php --list
+php research.php --entity "Alice Smith"
+```
+
+The dedicated research helper reads the shared graph snapshot from
+`storage/graphs/scraped-graph.json` (or a custom path supplied via
+`--graph`). Use `--list` to surface the highest-ranked entities and
+`--entity` to inspect detailed facts, synonyms, relation histograms, and
+supporting signals for a specific person, organisation, or concept. Combine
+flags to list the graph and immediately drill into an entity, and adjust
+`--facts` or `--limit` to control the breadth of the output.
+
 ## Data model
 
 The unified extraction result returned by the UI, API, and CLI consists of:
