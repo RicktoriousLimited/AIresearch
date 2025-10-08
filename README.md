@@ -164,5 +164,16 @@ Then browse to `http://localhost:8000/ricktorious.php` to explore:
   with draft saving, publication workflows, and revision history accessible via
   the enhanced in-memory content manager.
 
+### Headless storefront
+
+The `web/storefront.php` single-page experience consumes the commerce APIs to
+deliver a fully interactive storefront for Ricktorious Limited. Start the same
+development server and open `http://localhost:8000/storefront.php` to try:
+
+- Dynamic catalogue rendering powered by `/api/catalog/products`.
+- Cart and checkout orchestration via `/api/cart/*` and `/api/checkout`.
+- Behavioural telemetry surfaced from `/api/insights` alongside the
+  `/api/analytics/events` endpoint for recording frontend interactions.
+
 Consult `docs/ricktorious-ecommerce.md` for an overview of the platform
 architecture and extension system.
