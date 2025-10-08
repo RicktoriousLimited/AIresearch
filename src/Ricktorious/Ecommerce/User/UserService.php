@@ -8,6 +8,11 @@ use InvalidArgumentException;
 
 final class UserService
 {
+    /**
+     * @var array<int, string>
+     */
+    private const ALLOWED_ROLES = ['customer', 'admin', 'staff', 'partner'];
+
     public function __construct(private UserRepository $repository)
     {
     }
@@ -23,31 +28,7 @@ final class UserService
         $password = (string) ($payload['password'] ?? '');
         $profile = (array) ($payload['profile'] ?? []);
         $rawRoles = $payload['roles'] ?? ($payload['role'] ?? null);
-        if (is_string($rawRoles)) {
-            $rawRoles = [$rawRoles];
-        }
-        if (!is_array($rawRoles)) {
-            $rawRoles = [];
-        }
-
-        $roles = array_values(array_filter(
-            array_unique(array_map(
-                static fn($role): string => strtolower(trim((string) $role)),
-                $rawRoles
-            )),
-            static fn(string $role): bool => $role !== ''
-        ));
-
-        $allowedRoles = ['customer', 'admin'];
-        $roles = array_values(array_intersect($roles, $allowedRoles));
-
-        if ($roles === []) {
-            $roles = ['customer'];
-        }
-
-        if (in_array('admin', $roles, true) && !in_array('customer', $roles, true)) {
-            $roles[] = 'customer';
-        }
+        $roles = $this->normaliseRoles($rawRoles, true);
 
         if ($email === '' || $password === '') {
             throw new InvalidArgumentException('Email and password are required to register a user.');
@@ -123,6 +104,11 @@ final class UserService
             throw new InvalidArgumentException('User not found.');
         }
 
+        $roles = $this->normaliseRoles($roles, true);
+        if ($roles === []) {
+            throw new InvalidArgumentException('At least one supported role must be provided.');
+        }
+
         $updated = $user->withRoles($roles);
         $this->repository->save($updated);
 
@@ -155,6 +141,44 @@ final class UserService
         }
 
         $this->repository->save($user->deactivate());
+    }
+
+    /**
+     * @param mixed $rawRoles
+     *
+     * @return array<int, string>
+     */
+    private function normaliseRoles(mixed $rawRoles, bool $ensureCustomer = false): array
+    {
+        if (is_string($rawRoles)) {
+            $rawRoles = [$rawRoles];
+        }
+
+        if (!is_array($rawRoles)) {
+            $rawRoles = [];
+        }
+
+        $roles = array_values(array_filter(
+            array_map(
+                static fn($role): string => strtolower(trim((string) $role)),
+                $rawRoles
+            ),
+            static fn(string $role): bool => $role !== ''
+        ));
+
+        $roles = array_values(array_intersect($roles, self::ALLOWED_ROLES));
+
+        if ($ensureCustomer) {
+            if ($roles === []) {
+                $roles[] = 'customer';
+            }
+
+            if (in_array('admin', $roles, true) && !in_array('customer', $roles, true)) {
+                $roles[] = 'customer';
+            }
+        }
+
+        return array_values(array_unique($roles));
     }
 }
 

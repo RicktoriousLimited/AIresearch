@@ -1,0 +1,61 @@
+{
+    "id": "ord-lab-1001",
+    "customer": {
+        "name": "Aurora Chen",
+        "email": "aurora.chen@example.com",
+        "address": "88 Skyline Way\nBirmingham, UK"
+    },
+    "items": [
+        {
+            "product_id": "prod-hoodie",
+            "product_name": "Ricktorious Modular Hoodie",
+            "unit_price": 89,
+            "quantity": 1,
+            "line_total": 89
+        },
+        {
+            "product_id": "prod-notebook",
+            "product_name": "Adaptive Strategy Notebook",
+            "unit_price": 22,
+            "quantity": 1,
+            "line_total": 22
+        }
+    ],
+    "total": 111,
+    "currency": "$",
+    "formatted_total": "$111.00",
+    "created_at": "2024-04-28T09:30:00+00:00",
+    "channel": "storefront",
+    "status": "processing",
+    "metadata": {
+        "channel": "storefront",
+        "status": "processing",
+        "source": "client_hub"
+    },
+    "timeline": [
+        {
+            "status": "created",
+            "timestamp": "2024-04-28T09:30:00+00:00",
+            "context": {
+                "channel": "storefront"
+            }
+        },
+        {
+            "status": "paid",
+            "timestamp": "2024-04-28T09:30:05+00:00",
+            "context": {
+                "payment": "card",
+                "gateway": "stripe"
+            }
+        },
+        {
+            "status": "processing",
+            "timestamp": "2024-04-28T09:32:14+00:00",
+            "context": {
+                "warehouse": "Birmingham-lab",
+                "actor": "ops-automation"
+            }
+        }
+    ],
+    "shipments": []
+}

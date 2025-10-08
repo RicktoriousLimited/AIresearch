@@ -1,1 +1,26 @@
-[]
+[
+    {
+        "id": "sale-7f3c1",
+        "order_id": "ord-lab-0998",
+        "customer_id": "cust-lina",
+        "recorded_at": "2024-04-18T11:18:00+00:00",
+        "metadata": {
+            "operator": "amelia.cho",
+            "location": "Austin lab pop-up",
+            "payment_method": "card",
+            "terminal": "register-2"
+        }
+    },
+    {
+        "id": "sale-5c901",
+        "order_id": "ord-lab-1002",
+        "customer_id": "cust-benicio",
+        "recorded_at": "2024-04-20T15:40:00+00:00",
+        "metadata": {
+            "operator": "jules.hart",
+            "location": "Seattle lab",
+            "payment_method": "invoice",
+            "terminal": "portal-sync"
+        }
+    }
+]

@@ -1,0 +1,104 @@
+{
+    "id": "ord-lab-1002",
+    "customer": {
+        "name": "Benicio Alvarez",
+        "email": "benicio@northwind.ai",
+        "address": "450 Market Street\nSeattle, USA"
+    },
+    "items": [
+        {
+            "product_id": "prod-membership",
+            "product_name": "Ricktorious Collective Membership",
+            "unit_price": 299,
+            "quantity": 1,
+            "line_total": 299
+        },
+        {
+            "product_id": "prod-playbook",
+            "product_name": "AI Commerce Playbook",
+            "unit_price": 42,
+            "quantity": 1,
+            "line_total": 42
+        }
+    ],
+    "total": 341,
+    "currency": "$",
+    "formatted_total": "$341.00",
+    "created_at": "2024-04-20T14:05:00+00:00",
+    "channel": "partner_portal",
+    "status": "shipped",
+    "metadata": {
+        "channel": "partner_portal",
+        "status": "shipped",
+        "source": "partner-alignment"
+    },
+    "timeline": [
+        {
+            "status": "created",
+            "timestamp": "2024-04-20T14:05:00+00:00",
+            "context": {
+                "channel": "partner_portal"
+            }
+        },
+        {
+            "status": "paid",
+            "timestamp": "2024-04-20T14:05:08+00:00",
+            "context": {
+                "payment": "invoice",
+                "terms": "net15"
+            }
+        },
+        {
+            "status": "processing",
+            "timestamp": "2024-04-20T15:12:00+00:00",
+            "context": {
+                "warehouse": "Seattle-lab",
+                "actor": "jules.hart"
+            }
+        },
+        {
+            "status": "fulfilled",
+            "timestamp": "2024-04-20T15:38:00+00:00",
+            "context": {
+                "actor": "jules.hart",
+                "notes": "Bundled membership welcome kit"
+            }
+        },
+        {
+            "status": "shipped",
+            "timestamp": "2024-04-20T15:42:00+00:00",
+            "context": {
+                "carrier": "UPS",
+                "tracking": "UPS-1A2B3C4D5E"
+            }
+        }
+    ],
+    "shipments": [
+        {
+            "id": "shp-lab-7520",
+            "order_id": "ord-lab-1002",
+            "carrier": "UPS",
+            "service": "ground",
+            "speed": "standard",
+            "tracking_number": "UPS-1A2B3C4D5E",
+            "label_url": "https://labels.ricktorious.local/ord-lab-1002/5ac8c0d1",
+            "cost": 14.5,
+            "currency": "$",
+            "created_at": "2024-04-20T15:42:00+00:00",
+            "estimated_delivery": "2024-04-25T15:42:00+00:00",
+            "address": {
+                "name": "Benicio Alvarez",
+                "line1": "450 Market Street",
+                "line2": "Floor 12",
+                "city": "Seattle",
+                "state": "WA",
+                "postal_code": "98101",
+                "country": "US"
+            },
+            "status": "label_created",
+            "metadata": {
+                "warehouse": "Seattle-lab"
+            }
+        }
+    ]
+}

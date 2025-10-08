@@ -1,1 +1,44 @@
-{}
+{
+    "cust-aurora": {
+        "id": "cust-aurora",
+        "name": "Aurora Chen",
+        "email": "aurora.chen@example.com",
+        "phone": "+44 7700 900100",
+        "company": "Skyline Ventures",
+        "tags": ["client", "vip"],
+        "metadata": {
+            "lifecycle_stage": "client",
+            "source": "client_hub"
+        },
+        "created_at": "2024-04-15T10:15:00+00:00",
+        "updated_at": "2024-05-01T08:00:00+00:00"
+    },
+    "cust-benicio": {
+        "id": "cust-benicio",
+        "name": "Benicio Alvarez",
+        "email": "benicio@northwind.ai",
+        "phone": "+1 206 555 0114",
+        "company": "Northwind AI",
+        "tags": ["partner", "enterprise"],
+        "metadata": {
+            "lifecycle_stage": "partner",
+            "owner": "jules.hart"
+        },
+        "created_at": "2024-03-22T12:05:00+00:00",
+        "updated_at": "2024-04-20T16:00:00+00:00"
+    },
+    "cust-lina": {
+        "id": "cust-lina",
+        "name": "Lina Torres",
+        "email": "lina@futureforms.io",
+        "phone": "+1 512 555 0144",
+        "company": "Future Forms",
+        "tags": ["pos", "event"],
+        "metadata": {
+            "lifecycle_stage": "prospect",
+            "source": "in_person"
+        },
+        "created_at": "2024-04-10T18:22:00+00:00",
+        "updated_at": "2024-04-18T11:20:00+00:00"
+    }
+}
