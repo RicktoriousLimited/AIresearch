@@ -70,6 +70,17 @@ commerce experience built on the Ricktorious kernel:
   `/api/pos/sale` endpoints, persisting unified customer profiles, interaction
   history, and in-person sales ledgers that feed personalisation and analytics
   surfaces.
+- **Fulfilment orchestration** – The fulfilment extension provides
+  `/api/orders/*` and `/api/shipping/quotes` endpoints layered on top of the new
+  `OrderRepository`, `OrderProcessor`, and `ShippingService` components. Orders
+  can transition through multi-step workflows, generate shipment labels, and
+  persist carrier metadata for future analysis.
+- **User directory** – The user management extension introduces a dedicated
+  identity store under `storage/users`, with APIs to register shoppers,
+  authenticate sessions, and elevate operators with administrative roles.
+- **Content lifecycle tooling** – The content manager now tracks drafts,
+  revisions, and publication history so editors can stage block layouts before
+  pushing them live.
 
 Future work can iterate on persistent storage, authentication, pricing rules,
 inventory updates, and administrative tooling while reusing the extension-first

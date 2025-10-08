@@ -17,10 +17,17 @@ use Ricktorious\Ecommerce\Core\Application;
 use Ricktorious\Ecommerce\Core\BlockRegistry;
 use Ricktorious\Ecommerce\Core\ContentManager;
 use Ricktorious\Ecommerce\Core\ExtensionManager;
+use Ricktorious\Ecommerce\Extensions\FulfillmentExtension;
 use Ricktorious\Ecommerce\Extensions\CommerceExtension;
 use Ricktorious\Ecommerce\Extensions\CoreContentExtension;
 use Ricktorious\Ecommerce\Extensions\OperationsExtension;
+use Ricktorious\Ecommerce\Extensions\UserManagementExtension;
 use Ricktorious\Ecommerce\POS\PointOfSaleService;
+use Ricktorious\Ecommerce\Orders\OrderRepository;
+use Ricktorious\Ecommerce\Orders\OrderProcessor;
+use Ricktorious\Ecommerce\Shipping\ShippingService;
+use Ricktorious\Ecommerce\User\UserRepository;
+use Ricktorious\Ecommerce\User\UserService;
 
 session_start();
 
@@ -40,14 +47,21 @@ $ordersDirectory = __DIR__ . '/../storage/orders';
 $crmCustomersPath = __DIR__ . '/../storage/crm/customers.json';
 $crmInteractionsPath = __DIR__ . '/../storage/crm/interactions.json';
 $posLedgerPath = __DIR__ . '/../storage/pos/transactions.json';
+$shipmentsPath = __DIR__ . '/../storage/shipping/shipments.json';
+$usersPath = __DIR__ . '/../storage/users/users.json';
 
 $repository = new ProductRepository($catalogPath);
 $cart = Cart::fromArray($storedCart);
 $checkoutService = new CheckoutService($ordersDirectory, $repository);
+$orderRepository = new OrderRepository($ordersDirectory);
+$shippingService = new ShippingService($shipmentsPath);
+$orderProcessor = new OrderProcessor($orderRepository, $shippingService);
 $customerRepository = new CustomerRepository($crmCustomersPath);
 $interactionRepository = new InteractionRepository($crmInteractionsPath);
 $crmService = new CRMService($customerRepository, $interactionRepository);
 $posService = new PointOfSaleService($checkoutService, $repository, $crmService, $posLedgerPath);
+$userRepository = new UserRepository($usersPath);
+$userService = new UserService($userRepository);
 
 $blockRegistry = new BlockRegistry();
 $contentManager = new ContentManager();
@@ -59,9 +73,13 @@ $router = new AdhocApiRouter();
 $coreExtension = new CoreContentExtension($behaviorTracker, $personalization, $repository);
 $commerceExtension = new CommerceExtension($repository, $cart, $checkoutService, $behaviorTracker);
 $operationsExtension = new OperationsExtension($crmService, $posService);
+$fulfillmentExtension = new FulfillmentExtension($orderRepository, $orderProcessor, $shippingService);
+$userExtension = new UserManagementExtension($userService);
 $extensionManager->addExtension($coreExtension);
 $extensionManager->addExtension($commerceExtension);
 $extensionManager->addExtension($operationsExtension);
+$extensionManager->addExtension($fulfillmentExtension);
+$extensionManager->addExtension($userExtension);
 
 $app = new Application(
     $blockRegistry,
