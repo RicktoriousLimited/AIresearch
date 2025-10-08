@@ -17,6 +17,7 @@
   };
 
   let lastResult = null;
+  let persistedState = null;
 
   function setStatus(message, tone = 'info') {
     if (!elements.status) {
@@ -29,6 +30,7 @@
 
   function clearResults() {
     lastResult = null;
+    persistedState = null;
     if (elements.results) {
       elements.results.hidden = true;
     }
@@ -162,13 +164,18 @@
     }
 
     try {
+      const requestPayload = { text };
+      if (persistedState) {
+        requestPayload.state = persistedState;
+      }
+
       const response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ text })
+        body: JSON.stringify(requestPayload)
       });
 
       if (!response.ok) {
@@ -182,6 +189,11 @@
 
       const data = payload.data || {};
       lastResult = data;
+      if (data.state) {
+        persistedState = data.state;
+      } else {
+        persistedState = null;
+      }
       renderSummary(data.summary);
       renderList(elements.relations, data.relations);
       renderList(elements.entities, data.entities);

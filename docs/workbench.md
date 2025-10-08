@@ -19,14 +19,16 @@ primary surfaces and how they interact.
 
 ### `App\Extraction\Extractor`
 
-A thin orchestration layer that accepts one or many documents, routes them
-through `SemanticEngine::extractRelations`, and returns a structured
-`ExtractionResult`. The result includes:
+A thin orchestration layer that accepts one or many documents, optionally
+rehydrates previous engine state, routes content through
+`SemanticEngine::extractRelations`, and returns a structured `ExtractionResult`.
+The result includes:
 
 - Canonical triples ready for display or export.
 - Synonym clusters derived from the engine's internal synonym store.
 - Relation and entity frequency histograms for quick analytics.
 - A summary payload with document counts, triple totals, and timestamps.
+- A serialised engine `state` snapshot for incremental ingestion.
 
 ### Web experience
 
@@ -39,16 +41,18 @@ through `SemanticEngine::extractRelations`, and returns a structured
 ### API
 
 - `web/api/analyse.php` accepts `POST` payloads containing either `text` (single
-  document) or `documents` (array of strings).
+  document) or `documents` (array of strings). Supplying a `state` field from a
+  previous response continues building the same knowledge graph over time.
 - Responses are JSON by default and support optional filtering by passing an
-  `include` field with any of `triples`, `synonyms`, `relations`, `entities`, or
-  `summary`.
+  `include` field with any of `triples`, `synonyms`, `relations`, `entities`,
+  `summary`, or `state`.
 
 ### CLI
 
 The CLI continues to read files and STDIN, allowing analysts to integrate the
 engine into cron jobs, ETL pipelines, or local scripts. Snapshotting via
-`--snapshot` remains unchanged.
+`--snapshot` remains unchanged and offers an alternative to the API `state`
+payload for long-running analyses.
 
 ## Extending the engine
 

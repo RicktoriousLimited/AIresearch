@@ -59,15 +59,22 @@ Response (truncated):
     "relations": { "isa": 1, "synonym": 2 },
     "entities": { "alice smith": 3, "senior data scientist": 1, "ally smith": 1 },
     "summary": {
+      "documents_received": 1,
       "documents_processed": 1,
       "triples": 4,
       "synonym_groups": 1,
       "unique_entities": 3,
       "generated_at": "2024-05-30T12:34:56+00:00"
+    },
+    "state": {
+      "graph": { "isa": { "alice smith": { "senior data scientist": true } } },
+      "synonyms": { "alice smith": { "ally smith": true } }
+      // ...
     }
   },
   "meta": {
     "documents": 1,
+    "documents_processed": 1,
     "processing_time_ms": 4
   }
 }
@@ -75,7 +82,9 @@ Response (truncated):
 
 Supply an array via `documents` to analyse multiple snippets at once. Use the
 optional `include` field with any of `triples`, `synonyms`, `relations`,
-`entities`, or `summary` to limit the response payload.
+`entities`, `summary`, or `state` to limit the response payload. Provide the
+`state` field from a previous response to incrementally extend the same
+knowledge graph with new documents over time.
 
 ### CLI
 
@@ -94,7 +103,8 @@ The unified extraction result returned by the UI, API, and CLI consists of:
 - `synonyms` – array of `{entity, synonyms[]}`.
 - `relations` – relation frequency histogram.
 - `entities` – entity frequency histogram.
-- `summary` – metadata about the run including timestamps and document count.
+- `summary` – metadata about the run including timestamps and document counts.
+- `state` – serialised `SemanticEngine` snapshot for continuing ingestion.
 
 All entity names are normalised and lowercased to ensure consistent matching.
 
