@@ -342,7 +342,7 @@ class SemanticEngine
                 continue;
             }
 
-            if (preg_match('/^(?P<label>.+?)(?:\s*[:\-\x{2013}\x{2014}]\s*)(?P<desc>.+)$/u', $sentence, $matches)) {
+            if (preg_match('/^(?P<label>.+?)(?:\s*:\s*|\s+[\-\x{2013}\x{2014}]\s+)(?P<desc>.+)$/u', $sentence, $matches)) {
                 $labelRaw = trim($matches['label']);
                 $descriptionRaw = trim($matches['desc']);
                 if ($labelRaw !== '' && $descriptionRaw !== '' && $this->containsAlpha($labelRaw) && $this->containsAlpha($descriptionRaw)) {
