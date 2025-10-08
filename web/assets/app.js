@@ -1,4 +1,10 @@
-const API_BASE = '/ricktorious.php';
+const API_BASE = (() => {
+  const base = document.body?.dataset?.apiBase || 'ricktorious.php';
+  if (base.endsWith('/')) {
+    return base.replace(/\/+$/, '') || 'ricktorious.php';
+  }
+  return base;
+})();
 const endpoints = {
   products: `${API_BASE}/api/catalog/products`,
   cartSummary: `${API_BASE}/api/cart/summary`,
