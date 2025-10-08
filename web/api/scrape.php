@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../src/App/bootstrap.php';
 
-use App\Extraction\Extractor;
-use App\KnowledgeGraph\GraphRepository;
-use App\Scraping\WebScraper;
+use App\KnowledgeGraph\ResearchService;
 
 $startTime = microtime(true);
 
@@ -49,66 +47,39 @@ if ($url === '' || filter_var($url, FILTER_VALIDATE_URL) === false) {
     return;
 }
 
-try {
-    $scraper = new WebScraper();
-    $scrapeResult = $scraper->scrape($url);
-} catch (\Throwable $exception) {
-    http_response_code(502);
-    echo json_encode([
-        'error' => 'Failed to fetch the requested URL.',
-        'details' => $exception->getMessage(),
-    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    return;
-}
-
-$repository = new GraphRepository();
-$current = $repository->load();
-$state = null;
-
-if (isset($current['graph']['state']) && is_array($current['graph']['state'])) {
-    $state = $current['graph']['state'];
-}
+$service = new ResearchService();
 
 try {
-    $extractor = new Extractor();
-    $result = $extractor->analyse($scrapeResult->text(), $state);
+    $ingestion = $service->ingestFromUrl($url);
 } catch (\Throwable $exception) {
     http_response_code(500);
     echo json_encode([
-        'error' => 'Failed to analyse the scraped document.',
+        'error' => 'Unable to ingest source.',
         'details' => $exception->getMessage(),
     ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     return;
 }
 
-$sources = $current['sources'] ?? [];
-$sourceRecord = array_merge(
-    $scrapeResult->toMetaArray(),
-    [
-        'fetched_at' => (new \DateTimeImmutable())->format(DATE_ATOM),
-    ]
-);
-
-$sources = $repository->upsertSource($sources, $sourceRecord);
-
-try {
-    $repository->save($result, $sources);
-} catch (\Throwable $exception) {
-    http_response_code(500);
-    echo json_encode([
-        'error' => 'Unable to persist knowledge graph.',
-        'details' => $exception->getMessage(),
-    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-    return;
-}
+$sourceRecord = sanitiseSource($ingestion['source']);
+$sources = array_map('sanitiseSource', $ingestion['sources']);
 
 echo json_encode([
     'data' => [
         'source' => $sourceRecord,
-        'graph' => $result->toArray(),
+        'graph' => $ingestion['graph'],
         'sources' => $sources,
     ],
     'meta' => [
         'processing_time_ms' => (int) round((microtime(true) - $startTime) * 1000),
     ],
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+/**
+ * @param array<string, mixed> $source
+ * @return array<string, mixed>
+ */
+function sanitiseSource(array $source): array
+{
+    unset($source['content']);
+    return $source;
+}

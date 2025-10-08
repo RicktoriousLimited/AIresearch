@@ -11,7 +11,7 @@ use SemanticEngine;
 /**
  * High-level orchestration around the SemanticEngine for consistent results.
  */
-final class Extractor
+final class Extractor implements ExtractorInterface
 {
     /**
      * Analyse a collection of documents.

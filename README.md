@@ -111,6 +111,7 @@ and STDIN piping. Run `php index.php --help` for the full option list.
 ```bash
 php research.php --list
 php research.php --entity "Alice Smith"
+php research.php --refresh --max-age=24
 ```
 
 The dedicated research helper reads the shared graph snapshot from
@@ -119,7 +120,27 @@ The dedicated research helper reads the shared graph snapshot from
 `--entity` to inspect detailed facts, synonyms, relation histograms, and
 supporting signals for a specific person, organisation, or concept. Combine
 flags to list the graph and immediately drill into an entity, and adjust
-`--facts` or `--limit` to control the breadth of the output.
+`--facts` or `--limit` to control the breadth of the output. Run with
+`--refresh` to re-verify every stored source, rebuild the knowledge base, and
+automatically prune pages that have disappeared or no longer resolve. Pair it
+with `--max-age` to only re-scrape sources older than a set number of hours.
+
+### Research service API
+
+The `/api/research.php` endpoint exposes the most common research
+workflows:
+
+- `GET /api/research.php?action=list&limit=20` – top ranked entities plus the
+  current source list.
+- `GET /api/research.php?action=summary&entity=alice%20smith` – full entity
+  summary including relation histograms and sample facts.
+- `POST /api/research.php` with `{ "action": "refresh", "max_age_hours": 72 }`
+  – re-scrape stored sources, drop unreachable pages, and rebuild the graph
+  from the surviving content in a single request.
+
+Responses always include timing metadata and omit raw page content, keeping the
+API lightweight while guaranteeing the on-disk snapshot stays in sync with the
+live sources.
 
 ## Data model
 

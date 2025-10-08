@@ -12,6 +12,7 @@ require __DIR__ . '/src/App/bootstrap.php';
 
 use App\KnowledgeGraph\GraphRepository;
 use App\KnowledgeGraph\GraphResearcher;
+use App\KnowledgeGraph\ResearchService;
 
 /**
  * @param array<int, string> $argv
@@ -21,7 +22,9 @@ use App\KnowledgeGraph\GraphResearcher;
  *     list: bool,
  *     limit: int,
  *     facts: int,
- *     help: bool
+ *     help: bool,
+ *     refresh: bool,
+ *     max_age: int
  * }
  */
 function parseArguments(array $argv): array
@@ -36,6 +39,8 @@ function parseArguments(array $argv): array
         'limit' => 10,
         'facts' => 12,
         'help' => false,
+        'refresh' => false,
+        'max_age' => 168,
     ];
 
     while ($args !== []) {
@@ -71,6 +76,10 @@ function parseArguments(array $argv): array
             case '--list':
                 $options['list'] = true;
                 continue 2;
+            case '-r':
+            case '--refresh':
+                $options['refresh'] = true;
+                continue 2;
             case '-n':
             case '--limit':
                 $value = array_shift($args);
@@ -88,6 +97,14 @@ function parseArguments(array $argv): array
                     exit(1);
                 }
                 $options['facts'] = max(1, (int) $value);
+                continue 2;
+            case '--max-age':
+                $value = array_shift($args);
+                if ($value === null) {
+                    fwrite(STDERR, "Missing value for --max-age option." . PHP_EOL);
+                    exit(1);
+                }
+                $options['max_age'] = max(0, (int) $value);
                 continue 2;
         }
 
@@ -111,8 +128,18 @@ function parseArguments(array $argv): array
             continue;
         }
 
+        if (strpos($arg, '--max-age=') === 0) {
+            $options['max_age'] = max(0, (int) substr($arg, 10));
+            continue;
+        }
+
         if ($arg === '--list') {
             $options['list'] = true;
+            continue;
+        }
+
+        if ($arg === '--refresh') {
+            $options['refresh'] = true;
             continue;
         }
 
@@ -135,11 +162,14 @@ Options:
   -n, --limit N        Maximum number of entities to show when listing (default 10).
   -e, --entity NAME    Summarise a specific entity (exact name or synonym).
   -f, --facts N        Number of facts to display for an entity summary (default 12).
+  -r, --refresh        Re-verify stored sources and rebuild the knowledge graph.
+      --max-age HOURS  Maximum age in hours before a source is re-scraped during refresh (default 168).
 
 Examples:
   php research.php --list
   php research.php --entity "Alice Smith"
   php research.php --graph data/custom.json --entity "Horizon Lab"
+  php research.php --refresh --list --max-age=24
 USAGE;
 
     fwrite(STDOUT, $usage . PHP_EOL);
@@ -202,6 +232,34 @@ function renderList(GraphResearcher $researcher, int $limit): void
                 $synonyms
             )
         );
+    }
+}
+
+/**
+ * @param array{
+ *     summary: array{refreshed: int, removed: int, skipped: int, active: int},
+ *     removed_sources: array<int, array<string, string>>
+ * } $report
+ */
+function renderRefreshSummary(array $report): void
+{
+    $summary = $report['summary'];
+    fwrite(STDOUT, 'Sources refreshed: ' . $summary['refreshed'] . PHP_EOL);
+    fwrite(STDOUT, 'Sources skipped:   ' . $summary['skipped'] . PHP_EOL);
+    fwrite(STDOUT, 'Sources removed:   ' . $summary['removed'] . PHP_EOL);
+    fwrite(STDOUT, 'Active sources:    ' . $summary['active'] . PHP_EOL);
+
+    if ($report['removed_sources'] !== []) {
+        fwrite(STDOUT, PHP_EOL . 'Removed URLs:' . PHP_EOL);
+        foreach ($report['removed_sources'] as $removed) {
+            $url = (string) ($removed['url'] ?? '');
+            $reason = (string) ($removed['reason'] ?? '');
+            fwrite(STDOUT, '  - ' . $url);
+            if ($reason !== '') {
+                fwrite(STDOUT, ' (' . $reason . ')');
+            }
+            fwrite(STDOUT, PHP_EOL);
+        }
     }
 }
 
@@ -280,7 +338,7 @@ if ($options['help']) {
     exit(0);
 }
 
-if (!$options['list'] && $options['entity'] === null) {
+if (!$options['list'] && $options['entity'] === null && !$options['refresh']) {
     printUsage();
     exit(1);
 }
@@ -288,6 +346,16 @@ if (!$options['list'] && $options['entity'] === null) {
 $repository = $options['graph'] !== null
     ? new GraphRepository($options['graph'])
     : new GraphRepository();
+
+$service = new ResearchService($repository);
+
+if ($options['refresh']) {
+    $report = $service->refreshSources($options['max_age']);
+    renderRefreshSummary($report);
+    if ($options['list'] || $options['entity']) {
+        fwrite(STDOUT, PHP_EOL);
+    }
+}
 
 $researcher = new GraphResearcher($repository);
 

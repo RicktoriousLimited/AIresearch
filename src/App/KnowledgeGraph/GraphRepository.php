@@ -72,7 +72,32 @@ final class GraphRepository
                 if (!isset($source['url']) || !is_string($source['url'])) {
                     continue;
                 }
-                $sources[] = $source;
+
+                $normalised = [
+                    'url' => $source['url'],
+                    'title' => isset($source['title']) && is_string($source['title']) ? $source['title'] : '',
+                    'characters' => isset($source['characters']) ? (int) $source['characters'] : 0,
+                    'paragraphs' => isset($source['paragraphs']) ? (int) $source['paragraphs'] : 0,
+                    'preview' => isset($source['preview']) && is_string($source['preview']) ? $source['preview'] : '',
+                ];
+
+                if (isset($source['content']) && is_string($source['content'])) {
+                    $normalised['content'] = $source['content'];
+                }
+
+                if (isset($source['fetched_at']) && is_string($source['fetched_at'])) {
+                    $normalised['fetched_at'] = $source['fetched_at'];
+                }
+
+                if (isset($source['verified_at']) && is_string($source['verified_at'])) {
+                    $normalised['verified_at'] = $source['verified_at'];
+                }
+
+                if (isset($source['status']) && is_string($source['status'])) {
+                    $normalised['status'] = $source['status'];
+                }
+
+                $sources[] = $normalised;
             }
         }
 
