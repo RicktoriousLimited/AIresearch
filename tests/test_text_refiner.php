@@ -95,4 +95,14 @@ $gibberishCleaned = $refiner->cleanDocument($gibberish);
 assertTrue(strpos($gibberishCleaned, 'asdf qwer zxcv') === false, 'Expected meaningless text to be removed.');
 assertTrue(strpos($gibberishCleaned, 'This is a meaningful sentence') !== false, 'Expected meaningful text to remain.');
 
+$unknownVocabulary = <<<TEXT
+Xyzzor is qliph.
+
+asdf qwer zxcv
+TEXT;
+
+$unknownCleaned = $refiner->cleanDocument($unknownVocabulary);
+assertTrue(strpos($unknownCleaned, 'Xyzzor is qliph.') !== false, 'Expected structured sentence to remain.');
+assertTrue(strpos($unknownCleaned, 'asdf qwer zxcv') === false, 'Expected gibberish to still be filtered.');
+
 echo "TextRefiner tests passed\n";

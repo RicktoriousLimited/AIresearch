@@ -542,6 +542,7 @@ final class TextRefiner
         $recognized = 0;
         $capitalized = 0;
         $allCapitalized = true;
+        $stopwordCount = 0;
 
         foreach ($tokens as $token) {
             if ($token === '') {
@@ -551,6 +552,9 @@ final class TextRefiner
             $candidateCount++;
 
             $lower = strtolower($token);
+            if (isset(self::$stopwords[$lower])) {
+                $stopwordCount++;
+            }
             if ($this->lexicon->contains($lower)) {
                 $recognized++;
                 continue;
@@ -579,6 +583,44 @@ final class TextRefiner
             return false;
         }
 
+        if ($this->containsBasicSentenceStructure($normalized, $candidateCount, $stopwordCount, $capitalized)) {
+            return false;
+        }
+
         return true;
+    }
+
+    private function containsBasicSentenceStructure(string $line, int $tokenCount, int $stopwordCount, int $capitalizedTokenCount): bool
+    {
+        if ($tokenCount < 3) {
+            return false;
+        }
+
+        $lowerLine = strtolower($line);
+        $hasVerb = preg_match(
+            '/\b(?:am|is|are|was|were|be|been|being|has|have|had|do|does|did|can|could|will|would|shall|should|may|might|must|[a-z]{3,}(?:ing|ed))\b/u',
+            $lowerLine
+        ) === 1;
+
+        if (!$hasVerb) {
+            return false;
+        }
+
+        if ($stopwordCount >= 2) {
+            return true;
+        }
+
+        if ($stopwordCount >= 1 && $capitalizedTokenCount >= 1) {
+            return true;
+        }
+
+        if (
+            $stopwordCount >= 1
+            && preg_match('/\b(?:[a-z]*[0-9][a-z0-9]*)\b/iu', $line) === 1
+        ) {
+            return true;
+        }
+
+        return false;
     }
 }
