@@ -129,3 +129,14 @@ php index.php -f csv -e synonyms sample.txt
 The command validates option values and reports descriptive errors when inputs
 cannot be read or when no text is provided. Use `php index.php --help` to view a
 summary of all available options.
+
+## Ricktorious Limited Ecommerce Initiative
+
+The repository now includes a prototype ecommerce kernel for Ricktorious
+Limited. Explore `docs/ricktorious-ecommerce.md` for the architectural vision
+and run the interactive storefront via `php -S 0.0.0.0:8000 -t web` and visiting
+`/ricktorious.php`. The prototype ships with:
+
+- Extension-driven block registry (`src/Ricktorious/Ecommerce`).
+- Behaviour tracking and a stub personalisation engine.
+- An ad-hoc JSON API at `/api/insights` exposing per-user engagement metrics.
