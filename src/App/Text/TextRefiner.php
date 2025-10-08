@@ -436,6 +436,10 @@ final class TextRefiner
                 continue;
             }
 
+            if ($this->looksLikeMeaninglessText($line)) {
+                continue;
+            }
+
             $filtered[] = $line;
             $previousWasBlank = false;
         }
@@ -507,5 +511,74 @@ final class TextRefiner
         }
 
         return false;
+    }
+
+    private function looksLikeMeaninglessText(string $line): bool
+    {
+        $normalized = trim($line);
+        if ($normalized === '') {
+            return true;
+        }
+
+        $normalized = preg_replace('/^[\-*•·]+\s*/u', '', $normalized);
+        if (!is_string($normalized)) {
+            $normalized = trim($line);
+        }
+
+        if ($normalized === '') {
+            return true;
+        }
+
+        if (preg_match('/[a-z]/i', $normalized) !== 1) {
+            return true;
+        }
+
+        if (preg_match_all('/[A-Za-z][A-Za-z\']*/u', $normalized, $matches) === 0) {
+            return true;
+        }
+
+        $tokens = $matches[0] ?? [];
+        $candidateCount = 0;
+        $recognized = 0;
+        $capitalized = 0;
+        $allCapitalized = true;
+
+        foreach ($tokens as $token) {
+            if ($token === '') {
+                continue;
+            }
+
+            $candidateCount++;
+
+            $lower = strtolower($token);
+            if ($this->lexicon->contains($lower)) {
+                $recognized++;
+                continue;
+            }
+
+            if (preg_match('/^[A-Z][A-Za-z\']*$/u', $token) === 1 || preg_match('/^[A-Z]{2,}$/u', $token) === 1) {
+                $capitalized++;
+            } else {
+                $allCapitalized = false;
+            }
+        }
+
+        if ($candidateCount === 0) {
+            return true;
+        }
+
+        if ($recognized > 0) {
+            return false;
+        }
+
+        if ($candidateCount === $capitalized && $capitalized > 0) {
+            return false;
+        }
+
+        if ($capitalized >= 2 && $allCapitalized) {
+            return false;
+        }
+
+        return true;
     }
 }
