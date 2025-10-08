@@ -56,26 +56,10 @@ final class CommerceExtension implements ExtensionInterface
         });
 
         $router->addRoute('GET', '/api/cart/summary', function (): array {
-            $items = [];
-            foreach ($this->cart->detailedItems($this->products) as $item) {
-                $product = $item['product'];
-                $items[] = [
-                    'product' => $product->toArray(),
-                    'quantity' => $item['quantity'],
-                    'line_total' => $item['line_total'],
-                ];
-            }
-
-            $total = $this->cart->total($this->products);
-
             return [
                 'status' => 200,
                 'headers' => ['Content-Type' => 'application/json'],
-                'body' => [
-                    'items' => $items,
-                    'total' => $total,
-                    'formatted_total' => '$' . number_format($total, 2),
-                ],
+                'body' => $this->cartSummary(),
             ];
         });
 
@@ -97,6 +81,7 @@ final class CommerceExtension implements ExtensionInterface
                 'product' => $product->id(),
                 'quantity' => $quantity,
                 'channel' => 'api',
+                'block' => 'api.cart',
             ]);
 
             return [
@@ -105,7 +90,75 @@ final class CommerceExtension implements ExtensionInterface
                 'body' => [
                     'message' => 'Product added to cart',
                     'cart' => $this->cart->toArray(),
+                    'summary' => $this->cartSummary(),
                 ],
+            ];
+        });
+
+        $router->addRoute('POST', '/api/cart/update', function (array $query, array $payload): array {
+            $items = (array) ($payload['items'] ?? []);
+            foreach ($items as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                $productId = (string) ($entry['product'] ?? '');
+                if ($productId === '') {
+                    continue;
+                }
+
+                $quantity = (int) ($entry['quantity'] ?? 0);
+                $this->cart->updateQuantity($productId, $quantity);
+            }
+
+            $this->tracker->recordEvent($query['user'] ?? 'guest', 'cart.updated', [
+                'items' => $this->cart->items(),
+                'channel' => 'api',
+                'block' => 'api.cart',
+            ]);
+
+            return [
+                'status' => 200,
+                'headers' => ['Content-Type' => 'application/json'],
+                'body' => $this->cartSummary(),
+            ];
+        });
+
+        $router->addRoute('POST', '/api/cart/remove', function (array $query, array $payload): array {
+            $productId = (string) ($payload['product'] ?? '');
+            if ($productId === '') {
+                return [
+                    'status' => 422,
+                    'headers' => ['Content-Type' => 'application/json'],
+                    'body' => ['error' => 'product is required'],
+                ];
+            }
+
+            $this->cart->removeProduct($productId);
+            $this->tracker->recordEvent($query['user'] ?? 'guest', 'cart.removed', [
+                'product' => $productId,
+                'channel' => 'api',
+                'block' => 'api.cart',
+            ]);
+
+            return [
+                'status' => 200,
+                'headers' => ['Content-Type' => 'application/json'],
+                'body' => $this->cartSummary(),
+            ];
+        });
+
+        $router->addRoute('POST', '/api/cart/clear', function (array $query): array {
+            $this->cart->clear();
+            $this->tracker->recordEvent($query['user'] ?? 'guest', 'cart.cleared', [
+                'channel' => 'api',
+                'block' => 'api.cart',
+            ]);
+
+            return [
+                'status' => 200,
+                'headers' => ['Content-Type' => 'application/json'],
+                'body' => $this->cartSummary(),
             ];
         });
 
@@ -131,6 +184,8 @@ final class CommerceExtension implements ExtensionInterface
             $this->tracker->recordEvent($query['user'] ?? 'guest', 'order.completed', [
                 'order' => $order['id'],
                 'total' => $order['total'],
+                'channel' => 'api',
+                'block' => 'api.checkout',
             ]);
             $this->cart->clear();
 
@@ -140,5 +195,52 @@ final class CommerceExtension implements ExtensionInterface
                 'body' => $order,
             ];
         });
+
+        $router->addRoute('POST', '/api/analytics/events', function (array $query, array $payload): array {
+            $event = trim((string) ($payload['event'] ?? ''));
+            if ($event === '') {
+                return [
+                    'status' => 422,
+                    'headers' => ['Content-Type' => 'application/json'],
+                    'body' => ['error' => 'event is required'],
+                ];
+            }
+
+            $metadata = (array) ($payload['payload'] ?? []);
+            $this->tracker->recordEvent($query['user'] ?? 'guest', $event, $metadata);
+
+            return [
+                'status' => 204,
+                'headers' => ['Content-Type' => 'application/json'],
+                'body' => null,
+            ];
+        });
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function cartSummary(): array
+    {
+        $items = [];
+        foreach ($this->cart->detailedItems($this->products) as $item) {
+            $product = $item['product'];
+            $lineTotal = (float) $item['line_total'];
+            $items[] = [
+                'product' => $product->toArray(),
+                'quantity' => $item['quantity'],
+                'line_total' => $lineTotal,
+                'formatted_line_total' => '$' . number_format($lineTotal, 2),
+            ];
+        }
+
+        $total = $this->cart->total($this->products);
+
+        return [
+            'items' => $items,
+            'total' => $total,
+            'formatted_total' => '$' . number_format($total, 2),
+            'item_count' => $this->cart->itemCount(),
+        ];
     }
 }

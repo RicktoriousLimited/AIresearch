@@ -93,8 +93,14 @@ $app = new Application(
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $uri = $_SERVER['REQUEST_URI'] ?? '/';
 $path = parse_url($uri, PHP_URL_PATH) ?: '/';
-if ($path === '/ricktorious.php') {
+$scriptPath = '/ricktorious.php';
+if ($path === $scriptPath) {
     $path = '/';
+} elseif (str_starts_with($path, $scriptPath . '/')) {
+    $path = substr($path, strlen($scriptPath));
+    if ($path === '') {
+        $path = '/';
+    }
 }
 if (str_starts_with($path, '/api/')) {
     $payload = $_POST;
