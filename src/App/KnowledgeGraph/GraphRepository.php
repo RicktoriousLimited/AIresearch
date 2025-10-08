@@ -9,6 +9,8 @@ use DateTimeImmutable;
 use RuntimeException;
 
 use function array_values;
+use function chmod;
+use function clearstatcache;
 use function dirname;
 use function file_get_contents;
 use function file_put_contents;
@@ -19,7 +21,12 @@ use function is_string;
 use function json_decode;
 use function json_encode;
 use function mkdir;
+use function rename;
+use function strlen;
+use function tempnam;
 use function trim;
+use function unlink;
+use const LOCK_EX;
 
 final class GraphRepository
 {
@@ -131,7 +138,20 @@ final class GraphRepository
             throw new RuntimeException('Failed to encode graph payload.');
         }
 
-        file_put_contents($this->path, $json);
+        $temporaryPath = $this->writeAtomically($json);
+
+        if (is_file($this->path) && !@unlink($this->path)) {
+            @unlink($temporaryPath);
+            throw new RuntimeException('Unable to replace existing graph snapshot.');
+        }
+
+        if (!@rename($temporaryPath, $this->path)) {
+            @unlink($temporaryPath);
+            throw new RuntimeException('Failed to persist graph snapshot.');
+        }
+
+        @chmod($this->path, 0664);
+        clearstatcache(true, $this->path);
     }
 
     /**
@@ -178,5 +198,22 @@ final class GraphRepository
         if (!mkdir($directory, 0775, true) && !is_dir($directory)) {
             throw new RuntimeException('Unable to create graph storage directory.');
         }
+    }
+
+    private function writeAtomically(string $json): string
+    {
+        $directory = dirname($this->path);
+        $temporary = tempnam($directory, 'graph_');
+        if ($temporary === false) {
+            throw new RuntimeException('Unable to create temporary graph snapshot.');
+        }
+
+        $bytesWritten = file_put_contents($temporary, $json, LOCK_EX);
+        if ($bytesWritten === false || $bytesWritten < strlen($json)) {
+            @unlink($temporary);
+            throw new RuntimeException('Failed to write graph snapshot to disk.');
+        }
+
+        return $temporary;
     }
 }
