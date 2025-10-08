@@ -62,6 +62,15 @@ assertContains(['high-speed train', 'isa', 'transport system'], $triples);
 assertTrue($engine->queryIsA('High-Speed Train', 'transport system'));
 
 $engine = new SemanticEngine();
+$text = 'Officials told the BBC they kept the arrangement because that\'s what works for their interests.';
+$triples = $engine->extractRelations($text);
+foreach ($triples as $triple) {
+    if ($triple[1] === 'worksat') {
+        throw new AssertionError('Unexpected worksat triple for complement clause subjects');
+    }
+}
+
+$engine = new SemanticEngine();
 $text = 'Alice Smith works at Ricktorious Limited. Alice Smith lives in Birmingham. Carla Rossi leads the Horizon Lab. Horizon Lab focuses on Responsible AI Research. Horizon Lab located in London, United Kingdom. Alice Smith collaborates with Bob Hernandez.';
 $triples = $engine->extractRelations($text);
 assertContains(['alice smith', 'worksat', 'ricktorious limited'], $triples);

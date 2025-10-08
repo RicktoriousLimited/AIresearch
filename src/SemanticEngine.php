@@ -244,6 +244,44 @@ class SemanticEngine
                 }
 
                 $subjectRaw = $matches['subject'];
+                if ($pattern['relation'] === 'works_at') {
+                    $normalizedSubject = $this->normalizeEntity($subjectRaw);
+                    $tokens = preg_split('/\s+/u', $normalizedSubject);
+                    if ($tokens === false) {
+                        $tokens = [];
+                    }
+
+                    $complementisers = [
+                        'what' => true,
+                        'that' => true,
+                        'whether' => true,
+                        'because' => true,
+                    ];
+
+                    $hasComplementiser = false;
+                    foreach ($tokens as $token) {
+                        if ($token === '') {
+                            continue;
+                        }
+                        if (isset($complementisers[$token])) {
+                            $hasComplementiser = true;
+                            break;
+                        }
+                    }
+
+                    $tokenLimit = 6;
+                    $tokenCount = 0;
+                    foreach ($tokens as $token) {
+                        if ($token !== '') {
+                            $tokenCount++;
+                        }
+                    }
+
+                    if ($normalizedSubject === '' || $hasComplementiser || $tokenCount > $tokenLimit) {
+                        continue 2;
+                    }
+                }
+
                 $objectRaw = $matches['object'];
                 $this->addTriple($subjectRaw, $pattern['relation'], $objectRaw);
                 $subject = $this->normalizeEntity($subjectRaw);
