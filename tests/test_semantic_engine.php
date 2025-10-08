@@ -87,4 +87,23 @@ assertContains(['alice smith', 'livesin', 'birmingham'], $livesInTriples);
 $collaboratesTriples = $engine->iterTriples('collaborates_with');
 assertContains(['alice smith', 'collaborateswith', 'bob hernandez'], $collaboratesTriples);
 
+$engine = new SemanticEngine();
+$text = 'Dr. Alice Smith developed neural algorithms. Neural algorithms power robotics platforms.';
+$triples = $engine->extractRelations($text);
+assertContains(['alice smith', 'action-develop', 'neural algorithms'], $triples);
+assertContains(['neural algorithms', 'action-power', 'robotics platforms'], $triples);
+
+$profiles = $engine->getEntityProfiles();
+assertTrue(isset($profiles['alice smith']), 'Expected profile for Alice Smith');
+assertTrue(isset($profiles['neural algorithms']), 'Expected profile for neural algorithms');
+assertTrue(isset($profiles['robotics platforms']), 'Expected profile for robotics platforms');
+assertEquals(['action-develop' => 1], $profiles['alice smith']['as_subject']);
+assertEquals(['action-develop' => 1], $profiles['neural algorithms']['as_object']);
+assertEquals(['action-power' => 1], $profiles['neural algorithms']['as_subject']);
+assertEquals(['action-power' => 1], $profiles['robotics platforms']['as_object']);
+
+$verbs = $engine->getVerbLexicon();
+assertTrue(in_array('develop', $verbs, true));
+assertTrue(in_array('power', $verbs, true));
+
 echo "All tests passed\n";
