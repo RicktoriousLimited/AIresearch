@@ -130,13 +130,26 @@ The command validates option values and reports descriptive errors when inputs
 cannot be read or when no text is provided. Use `php index.php --help` to view a
 summary of all available options.
 
-## Ricktorious Limited Ecommerce Initiative
+## Ricktorious Limited Ecommerce Experience
 
-The repository now includes a prototype ecommerce kernel for Ricktorious
-Limited. Explore `docs/ricktorious-ecommerce.md` for the architectural vision
-and run the interactive storefront via `php -S 0.0.0.0:8000 -t web` and visiting
-`/ricktorious.php`. The prototype ships with:
+The prototype storefront has evolved into a fully interactive ecommerce
+experience. Launch it locally with:
 
-- Extension-driven block registry (`src/Ricktorious/Ecommerce`).
-- Behaviour tracking and a stub personalisation engine.
-- An ad-hoc JSON API at `/api/insights` exposing per-user engagement metrics.
+```
+php -S 0.0.0.0:8000 -t web
+```
+
+Then browse to `http://localhost:8000/ricktorious.php` to explore:
+
+- **Dynamic catalogue** – Products are sourced from `storage/catalog/products.json`
+  and rendered via reusable blocks and catalog templates.
+- **Session-aware cart and checkout** – Visitors can add items to a cart,
+  update quantities, and complete a lightweight checkout flow that persists
+  orders as JSON payloads under `storage/orders`.
+- **API surface** – The ad-hoc router now exposes catalogue, cart, checkout,
+  and personalisation endpoints for experimentation with headless clients.
+- **Personalisation telemetry** – Behaviour is tracked across page views,
+  cart updates, and orders to feed the bundled AI recommendation engine.
+
+Consult `docs/ricktorious-ecommerce.md` for an overview of the platform
+architecture and extension system.

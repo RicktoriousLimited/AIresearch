@@ -1,0 +1,67 @@
+[
+    {
+        "id": "prod-hoodie",
+        "slug": "modular-hoodie",
+        "name": "Ricktorious Modular Hoodie",
+        "description": "A premium, modular hoodie engineered for adaptive commerce workshops and late-night prototyping sessions.",
+        "price": 89,
+        "currency": "$",
+        "images": [
+            "https://picsum.photos/seed/ricktorious-hoodie/800/800"
+        ],
+        "tags": ["apparel", "modular"],
+        "inventory": 12
+    },
+    {
+        "id": "prod-sneakers",
+        "slug": "blockbuilder-sneakers",
+        "name": "Blockbuilder Sneakers",
+        "description": "Lightweight sneakers with flexible soles optimised for marathon brainstorming sessions across the Ricktorious campus.",
+        "price": 125,
+        "currency": "$",
+        "images": [
+            "https://picsum.photos/seed/ricktorious-sneakers/800/800"
+        ],
+        "tags": ["apparel", "footwear"],
+        "inventory": 18
+    },
+    {
+        "id": "prod-notebook",
+        "slug": "strategy-notebook",
+        "name": "Adaptive Strategy Notebook",
+        "description": "A dot-grid notebook with embedded prompts to help product teams plan AI-first commerce experiments.",
+        "price": 22,
+        "currency": "$",
+        "images": [
+            "https://picsum.photos/seed/ricktorious-notebook/800/800"
+        ],
+        "tags": ["stationery"],
+        "inventory": 56
+    },
+    {
+        "id": "prod-playbook",
+        "slug": "ai-commerce-playbook",
+        "name": "AI Commerce Playbook",
+        "description": "A 200-page playbook covering the Ricktorious approach to predictive merchandising, experimentation, and data governance.",
+        "price": 42,
+        "currency": "$",
+        "images": [
+            "https://picsum.photos/seed/ricktorious-playbook/800/800"
+        ],
+        "tags": ["books", "guides"],
+        "inventory": 33
+    },
+    {
+        "id": "prod-membership",
+        "slug": "collective-membership",
+        "name": "Ricktorious Collective Membership",
+        "description": "Annual membership unlocking private labs, office hours with our AI research guild, and early access to experimental commerce modules.",
+        "price": 299,
+        "currency": "$",
+        "images": [
+            "https://picsum.photos/seed/ricktorious-membership/800/800"
+        ],
+        "tags": ["membership", "services"],
+        "inventory": 200
+    }
+]
