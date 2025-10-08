@@ -1,4 +1,9 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    require __DIR__ . '/web/storefront.php';
+    return;
+}
+
 require __DIR__ . '/src/SemanticEngine.php';
 
 function printUsage(): void
