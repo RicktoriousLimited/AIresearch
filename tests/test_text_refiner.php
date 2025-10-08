@@ -53,4 +53,36 @@ $analysis = $refiner->analyseDocument($raw);
 assertTrue(isset($analysis['cleaned'], $analysis['rewritten'], $analysis['keywords'], $analysis['spelling']), 'Analysis payload should expose all fields.');
 assertTrue($analysis['rewritten'] !== '', 'Rewritten text should not be empty.');
 
+$bbcNav = <<<TEXT
+BBC Homepage
+Skip to content
+Accessibility Help
+Sign in
+Notifications
+Home
+News
+Sport
+Weather
+iPlayer
+Sounds
+Bitesize
+More menu
+Search BBC
+
+Conservatives would scrap stamp duty, Badenoch announces
+Kemi Badenoch said the Conservatives would scrap stamp duty on primary residences to boost home ownership.
+
+Published 8 October 2025, 14:11 BST
+Updated 1 hour ago
+Media caption, Standing ovation as Badenoch says Tories would scrap stamp duty
+
+She said scrapping stamp duty will unlock a fairer society and help people of all ages.
+TEXT;
+
+$navCleaned = $refiner->cleanDocument($bbcNav);
+assertTrue(strpos($navCleaned, 'BBC Homepage') === false, 'Expected boilerplate headers to be removed.');
+assertTrue(strpos($navCleaned, 'Skip to content') === false, 'Expected navigation prompts to be removed.');
+assertTrue(strpos($navCleaned, 'Conservatives would scrap stamp duty') !== false, 'Expected article headline to remain.');
+assertTrue(strpos($navCleaned, 'She said scrapping stamp duty') !== false, 'Expected article body to remain.');
+
 echo "TextRefiner tests passed\n";

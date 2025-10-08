@@ -47,6 +47,93 @@ final class TextRefiner
         'with' => true,
     ];
 
+    /** @var array<string, bool> */
+    private static array $boilerplateVocabulary = [
+        'accept' => true,
+        'accessibility' => true,
+        'additional' => true,
+        'bitesize' => true,
+        'best' => true,
+        'cookies' => true,
+        'contact' => true,
+        'copyright' => true,
+        'download' => true,
+        'elsewhere' => true,
+        'emails' => true,
+        'guidance' => true,
+        'help' => true,
+        'homepage' => true,
+        'iplayer' => true,
+        'menu' => true,
+        'mobile' => true,
+        'more' => true,
+        'notifications' => true,
+        'parental' => true,
+        'policy' => true,
+        'privacy' => true,
+        'reject' => true,
+        'services' => true,
+        'sign' => true,
+        'skip' => true,
+        'smart' => true,
+        'sounds' => true,
+        'speakers' => true,
+        'terms' => true,
+        'use' => true,
+        'watchlistadd' => true,
+        'weather' => true,
+    ];
+
+    /** @var array<string, bool> */
+    private static array $boilerplatePhrases = [
+        'accept additional cookies' => true,
+        'reject additional cookies' => true,
+        'let me choose' => true,
+        'bbc homepage' => true,
+        'skip to content' => true,
+        'accessibility help' => true,
+        'sign in' => true,
+        'search bbc' => true,
+        'top stories' => true,
+        'view comments' => true,
+        'related topics' => true,
+        'bbc news services' => true,
+        'on your mobile' => true,
+        'on smart speakers' => true,
+        'get news alerts' => true,
+        'contact bbc news' => true,
+        'terms of use' => true,
+        'privacy policy' => true,
+        'accessibility help' => true,
+        'parental guidance' => true,
+        'contact the bbc' => true,
+        'make an editorial complaint' => true,
+        'bbc emails for you' => true,
+        'copyright © 2025 bbc' => true,
+        'copyright © 2024 bbc' => true,
+        'copyright © 2023 bbc' => true,
+    ];
+
+    /** @var array<int, string> */
+    private static array $boilerplatePatterns = [
+        '/^watchlistadd\b/i',
+        '/^subscribeadd\b/i',
+        '/^published\s+\d{1,2}/i',
+        '/^updated\s+\d{1,2}/i',
+        '/^media caption/i',
+        '/^more to explore/i',
+        '/^elsewhere on the bbc/i',
+        '/^best of the bbc/i',
+        '/^bbc news$/i',
+        '/^home$/i',
+        '/^news$/i',
+        '/^sport$/i',
+        '/^weather$/i',
+        '/^iplayer$/i',
+        '/^sounds$/i',
+        '/^bitesize$/i',
+    ];
+
     public function __construct(?EnglishLexicon $lexicon = null)
     {
         $this->lexicon = $lexicon ?? EnglishLexicon::loadDefault();
@@ -84,10 +171,12 @@ final class TextRefiner
             $cleanedLines[] = $normalized;
         }
 
-        $result = implode("\n", $cleanedLines);
+        $filtered = $this->filterContextualLines($cleanedLines);
+
+        $result = implode("\n", $filtered);
         $result = preg_replace("/\n{3,}/", "\n\n", $result);
         if (!is_string($result)) {
-            $result = implode("\n", $cleanedLines);
+            $result = implode("\n", $filtered);
         }
 
         return trim($result);
@@ -322,5 +411,101 @@ final class TextRefiner
     private function looksLikeName(string $token): bool
     {
         return preg_match('/^[a-z]+$/', $token) === 1 && strlen($token) >= 3;
+    }
+
+    /**
+     * @param array<int, string> $lines
+     * @return array<int, string>
+     */
+    private function filterContextualLines(array $lines): array
+    {
+        $filtered = [];
+        $previousWasBlank = true;
+
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+            if ($trimmed === '') {
+                if (!$previousWasBlank) {
+                    $filtered[] = '';
+                    $previousWasBlank = true;
+                }
+                continue;
+            }
+
+            if ($this->looksLikeBoilerplate($line)) {
+                continue;
+            }
+
+            $filtered[] = $line;
+            $previousWasBlank = false;
+        }
+
+        return $filtered;
+    }
+
+    private function looksLikeBoilerplate(string $line): bool
+    {
+        if ($line === '') {
+            return true;
+        }
+
+        if (preg_match('/[.!?]/u', $line) === 1) {
+            return false;
+        }
+
+        $normalized = strtolower(trim($line));
+        if ($normalized === '') {
+            return true;
+        }
+
+        foreach (self::$boilerplatePatterns as $pattern) {
+            if (preg_match($pattern, $normalized) === 1) {
+                return true;
+            }
+        }
+
+        if (isset(self::$boilerplatePhrases[$normalized])) {
+            return true;
+        }
+
+        $stripped = preg_replace('/[^a-z0-9\s]+/u', ' ', $normalized);
+        if (!is_string($stripped)) {
+            $stripped = $normalized;
+        }
+
+        $stripped = trim(preg_replace('/\s+/', ' ', $stripped) ?? $stripped);
+        if ($stripped === '') {
+            return true;
+        }
+
+        $tokens = explode(' ', $stripped);
+        $tokenCount = 0;
+        $boilerplateMatches = 0;
+        foreach ($tokens as $token) {
+            if ($token === '') {
+                continue;
+            }
+
+            $tokenCount++;
+            if (isset(self::$boilerplateVocabulary[$token])) {
+                $boilerplateMatches++;
+            }
+        }
+
+        if ($tokenCount === 0) {
+            return true;
+        }
+
+        $ratio = $boilerplateMatches / $tokenCount;
+
+        if ($ratio >= 0.6 && $tokenCount <= 8) {
+            return true;
+        }
+
+        if ($tokenCount <= 3 && $ratio >= 0.5) {
+            return true;
+        }
+
+        return false;
     }
 }
