@@ -115,6 +115,10 @@ final class CommerceExtension implements ExtensionInterface
                     'name' => (string) ($payload['name'] ?? ''),
                     'email' => (string) ($payload['email'] ?? ''),
                     'address' => (string) ($payload['address'] ?? ''),
+                ], [
+                    'channel' => 'api',
+                    'status' => 'paid',
+                    'source' => 'headless_checkout',
                 ]);
             } catch (\Throwable $exception) {
                 return [

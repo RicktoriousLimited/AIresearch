@@ -20,10 +20,11 @@ final class CheckoutService
 
     /**
      * @param array<string, string> $customer
+     * @param array<string, mixed>  $metadata
      *
      * @return array<string, mixed>
      */
-    public function createOrder(Cart $cart, array $customer): array
+    public function createOrder(Cart $cart, array $customer, array $metadata = []): array
     {
         if ($cart->isEmpty()) {
             throw new RuntimeException('Cannot checkout with an empty cart.');
@@ -50,6 +51,9 @@ final class CheckoutService
         $orderId = 'ord-' . bin2hex(random_bytes(6));
         $total = $cart->total($this->products);
 
+        $channel = (string) ($metadata['channel'] ?? 'storefront');
+        $status = (string) ($metadata['status'] ?? 'paid');
+
         $order = [
             'id' => $orderId,
             'customer' => [
@@ -62,6 +66,9 @@ final class CheckoutService
             'currency' => $currency,
             'formatted_total' => $currency . number_format($total, 2),
             'created_at' => date(DATE_ATOM),
+            'channel' => $channel,
+            'status' => $status,
+            'metadata' => $metadata,
         ];
 
         $path = rtrim($this->ordersDirectory, '/');

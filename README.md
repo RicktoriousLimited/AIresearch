@@ -150,6 +150,9 @@ Then browse to `http://localhost:8000/ricktorious.php` to explore:
   and personalisation endpoints for experimentation with headless clients.
 - **Personalisation telemetry** – Behaviour is tracked across page views,
   cart updates, and orders to feed the bundled AI recommendation engine.
+- **Operations hub** – A CRM and point-of-sale extension unifies customer
+  profiles, interaction logs, and in-person sales captured via `/api/crm/*`
+  and `/api/pos/sale` endpoints.
 
 Consult `docs/ricktorious-ecommerce.md` for an overview of the platform
 architecture and extension system.

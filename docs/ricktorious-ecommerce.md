@@ -66,6 +66,10 @@ commerce experience built on the Ricktorious kernel:
 - **Expanded API** – `/api/catalog/products`, `/api/cart/summary`, `/api/cart/add`,
   `/api/checkout`, and `/api/insights` provide headless integration points for
   experimentation.
+- **Operations suite** – A CRM/POS extension exposes `/api/crm/*` and
+  `/api/pos/sale` endpoints, persisting unified customer profiles, interaction
+  history, and in-person sales ledgers that feed personalisation and analytics
+  surfaces.
 
 Future work can iterate on persistent storage, authentication, pricing rules,
 inventory updates, and administrative tooling while reusing the extension-first

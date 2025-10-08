@@ -9,6 +9,9 @@ use Ricktorious\Ecommerce\Analytics\UserBehaviorTracker;
 use Ricktorious\Ecommerce\Catalog\ProductRepository;
 use Ricktorious\Ecommerce\Checkout\Cart;
 use Ricktorious\Ecommerce\Checkout\CheckoutService;
+use Ricktorious\Ecommerce\CRM\CRMService;
+use Ricktorious\Ecommerce\CRM\CustomerRepository;
+use Ricktorious\Ecommerce\CRM\InteractionRepository;
 use Ricktorious\Ecommerce\Core\AdhocApiRouter;
 use Ricktorious\Ecommerce\Core\Application;
 use Ricktorious\Ecommerce\Core\BlockRegistry;
@@ -16,6 +19,8 @@ use Ricktorious\Ecommerce\Core\ContentManager;
 use Ricktorious\Ecommerce\Core\ExtensionManager;
 use Ricktorious\Ecommerce\Extensions\CommerceExtension;
 use Ricktorious\Ecommerce\Extensions\CoreContentExtension;
+use Ricktorious\Ecommerce\Extensions\OperationsExtension;
+use Ricktorious\Ecommerce\POS\PointOfSaleService;
 
 session_start();
 
@@ -32,10 +37,17 @@ if (!is_array($storedCart)) {
 
 $catalogPath = __DIR__ . '/../storage/catalog/products.json';
 $ordersDirectory = __DIR__ . '/../storage/orders';
+$crmCustomersPath = __DIR__ . '/../storage/crm/customers.json';
+$crmInteractionsPath = __DIR__ . '/../storage/crm/interactions.json';
+$posLedgerPath = __DIR__ . '/../storage/pos/transactions.json';
 
 $repository = new ProductRepository($catalogPath);
 $cart = Cart::fromArray($storedCart);
 $checkoutService = new CheckoutService($ordersDirectory, $repository);
+$customerRepository = new CustomerRepository($crmCustomersPath);
+$interactionRepository = new InteractionRepository($crmInteractionsPath);
+$crmService = new CRMService($customerRepository, $interactionRepository);
+$posService = new PointOfSaleService($checkoutService, $repository, $crmService, $posLedgerPath);
 
 $blockRegistry = new BlockRegistry();
 $contentManager = new ContentManager();
@@ -46,8 +58,10 @@ $router = new AdhocApiRouter();
 
 $coreExtension = new CoreContentExtension($behaviorTracker, $personalization, $repository);
 $commerceExtension = new CommerceExtension($repository, $cart, $checkoutService, $behaviorTracker);
+$operationsExtension = new OperationsExtension($crmService, $posService);
 $extensionManager->addExtension($coreExtension);
 $extensionManager->addExtension($commerceExtension);
+$extensionManager->addExtension($operationsExtension);
 
 $app = new Application(
     $blockRegistry,
@@ -676,6 +690,10 @@ if ($path === '/checkout') {
                     'name' => $name,
                     'email' => $email,
                     'address' => $address,
+                ], [
+                    'channel' => 'storefront',
+                    'status' => 'paid',
+                    'source' => 'web_checkout',
                 ]);
                 $behaviorTracker->recordEvent($userId, 'order.completed', [
                     'order' => $order['id'],
