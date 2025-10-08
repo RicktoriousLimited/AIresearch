@@ -736,6 +736,10 @@ class SemanticEngine
             return $result;
         }
 
+        if (!$this->isReasonableSpan($subjectTokens, $subjectRaw, 8, 80) || !$this->isReasonableSpan($objectTokens, $objectRaw, 12, 120)) {
+            return $result;
+        }
+
         $verbBase = $this->normalizeVerb($verbToken);
         if ($verbBase === '') {
             return $result;
@@ -938,5 +942,59 @@ class SemanticEngine
         }
 
         return false;
+    }
+
+    /**
+     * Basic sanity checks for extracted subject/object spans.
+     *
+     * @param array<int, string> $tokens
+     */
+    private function isReasonableSpan(array $tokens, string $rawText, int $maxTokens, int $maxLength): bool
+    {
+        if ($rawText === '') {
+            return false;
+        }
+
+        if (strlen($rawText) > $maxLength) {
+            return false;
+        }
+
+        if ($this->looksLikeUrl($rawText)) {
+            return false;
+        }
+
+        if (!$this->containsAlpha($rawText)) {
+            return false;
+        }
+
+        $meaningfulTokens = 0;
+        $alphabeticTokens = 0;
+
+        foreach ($tokens as $token) {
+            $normalized = $this->norm($token);
+            if ($normalized === '') {
+                continue;
+            }
+
+            $meaningfulTokens++;
+            if (preg_match('/[a-z]/i', $normalized) === 1) {
+                $alphabeticTokens++;
+            }
+
+            if ($meaningfulTokens > $maxTokens) {
+                return false;
+            }
+        }
+
+        if ($meaningfulTokens === 0 || $alphabeticTokens === 0) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function looksLikeUrl(string $text): bool
+    {
+        return preg_match('/https?:\/\/|www\./i', $text) === 1;
     }
 }
