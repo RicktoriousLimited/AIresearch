@@ -170,11 +170,17 @@ Then browse to `http://localhost:8000/ricktorious.php` to explore:
   the shared commerce services so every stakeholder can manage the platform
   without leaving the browser.
 
-### Headless storefront
+### Unified storefront & experience hub
 
-The `web/storefront.php` single-page experience consumes the commerce APIs to
-deliver a fully interactive storefront for Ricktorious Limited. Start the same
-development server and open `http://localhost:8000/storefront.php` to try:
+The Ricktorious ecommerce front controller now serves both the immersive
+storefront and the operational experience hub. Start the development server and
+open `http://localhost:8000/ricktorious.php` to launch the single-page
+storefront that consumes the commerce APIs.
+
+The classic portal remains available at
+`http://localhost:8000/ricktorious.php/experience`, and the legacy
+`storefront.php` entry point simply bootstraps the same integrated system for
+backwards compatibility.
 
 - Dynamic catalogue rendering powered by `/api/catalog/products`.
 - Cart and checkout orchestration via `/api/cart/*` and `/api/checkout`.

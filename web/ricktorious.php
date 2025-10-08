@@ -79,6 +79,57 @@ if ($scriptName === '') {
     $scriptName = '/ricktorious.php';
 }
 
+$assetVersion = (string) (file_exists(__DIR__ . '/assets/styles.css') ? filemtime(__DIR__ . '/assets/styles.css') : time());
+$scriptDir = rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
+if ($scriptDir === '' || $scriptDir === '.') {
+    $scriptDir = '';
+} elseif ($scriptDir === '/') {
+    $scriptDir = '';
+}
+
+$documentRoot = (string) ($_SERVER['DOCUMENT_ROOT'] ?? '');
+$basePath = '';
+if ($documentRoot !== '') {
+    $docRootReal = realpath($documentRoot) ?: $documentRoot;
+    $dirReal = realpath(__DIR__) ?: __DIR__;
+    if (strpos($dirReal, $docRootReal) === 0) {
+        $basePath = str_replace('\\', '/', substr($dirReal, strlen($docRootReal)));
+    }
+}
+
+if ($basePath === '') {
+    $basePath = $scriptDir;
+}
+
+$basePath = '/' . ltrim((string) $basePath, '/');
+if ($basePath === '/' || $basePath === '') {
+    $basePath = '';
+}
+
+if (!function_exists('build_public_path')) {
+    /**
+     * @param string $basePath
+     * @param string $path
+     */
+    function build_public_path(string $basePath, string $path): string
+    {
+        $path = '/' . ltrim($path, '/');
+        $fullPath = ($basePath !== '' ? $basePath : '') . $path;
+        $normalised = preg_replace('#//+#', '/', $fullPath);
+
+        return $normalised !== '' ? $normalised : $path;
+    }
+}
+
+$scriptBasename = trim(strrchr($scriptName, '/'), '/') ?: ltrim($scriptName, '/');
+if ($scriptBasename === '') {
+    $scriptBasename = 'ricktorious.php';
+}
+
+$apiBasePath = build_public_path($basePath, $scriptBasename);
+$stylesPath = build_public_path($basePath, 'assets/styles.css');
+$scriptPath = build_public_path($basePath, 'assets/app.js');
+
 $pathInfo = $_SERVER['PATH_INFO'] ?? null;
 if (is_string($pathInfo) && $pathInfo !== '') {
     $path = '/' . ltrim(str_replace('\\', '/', $pathInfo), '/');
@@ -199,6 +250,227 @@ function format_datetime(?string $timestamp): string
     return escape(date('M j, Y H:i', $time));
 }
 
+/**
+ * @param array<string, mixed> $options
+ */
+function render_storefront_page(array $options): void
+{
+    $stylesPath = (string) ($options['styles'] ?? 'assets/styles.css');
+    $scriptPath = (string) ($options['script'] ?? 'assets/app.js');
+    $apiBase = (string) ($options['api'] ?? 'ricktorious.php');
+    $assetVersion = (string) ($options['asset_version'] ?? (string) time());
+    $cartCount = (int) ($options['cart_count'] ?? 0);
+
+    $https = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    $scheme = $https ? 'https' : 'http';
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? 'example.com');
+    $pageScript = (string) ($_SERVER['SCRIPT_NAME'] ?? '/ricktorious.php');
+    if ($pageScript === '') {
+        $pageScript = '/ricktorious.php';
+    }
+
+    echo '<!DOCTYPE html>';
+    ?>
+    <html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Ricktorious Limited — Adaptive Commerce Experience</title>
+        <meta name="description" content="Deploy the Ricktorious Limited adaptive commerce demo with personalised merchandising, realtime cart APIs, and integrated checkout workflows.">
+        <meta property="og:title" content="Ricktorious Limited — Adaptive Commerce Experience">
+        <meta property="og:description" content="Explore the adaptive commerce playground with catalogue APIs, behavioural insights, and a live checkout flow you can deploy today.">
+        <meta property="og:type" content="website">
+        <meta property="og:url" content="<?= escape($scheme) ?>://<?= escape($host) ?><?= escape($pageScript) ?>">
+        <meta name="theme-color" content="#38bdf8">
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="<?= escape($stylesPath) ?>?v=<?= escape($assetVersion) ?>">
+    </head>
+    <body data-api-base="<?= escape($apiBase) ?>">
+    <header class="site-header">
+        <div class="shell header-shell">
+            <div class="brand">Ricktorious Limited</div>
+            <nav class="primary-nav" aria-label="Primary">
+                <a href="#home">Home</a>
+                <a href="#catalog">Catalog</a>
+                <a href="#insights">Insights</a>
+                <a href="#checkout">Checkout</a>
+            </nav>
+            <div class="header-actions">
+                <button type="button" class="button ghost" id="cart-button" aria-expanded="false">
+                    Cart <span class="badge" id="cart-count"><?= escape((string) $cartCount) ?></span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <section class="hero" id="home">
+            <div class="shell hero-shell">
+                <div class="hero-copy">
+                    <p class="eyebrow">Ricktorious Commerce Lab</p>
+                    <h1>Launch an AI-personalised storefront in minutes.</h1>
+                    <p class="lead">The Ricktorious Limited experience blends adaptive merchandising, behavioural telemetry, and extension-ready APIs so you can pilot new retail ideas without reinventing the platform.</p>
+                    <div class="hero-actions">
+                        <a class="button primary" href="#catalog">Browse products</a>
+                        <a class="button ghost" href="#insights">View insights</a>
+                    </div>
+                    <dl class="metrics">
+                        <div>
+                            <dt>Realtime cart engine</dt>
+                            <dd>Session aware &amp; API driven</dd>
+                        </div>
+                        <div>
+                            <dt>Operational tooling</dt>
+                            <dd>CRM, POS &amp; fulfilment APIs</dd>
+                        </div>
+                        <div>
+                            <dt>Personalisation</dt>
+                            <dd>Behavioural insights per visitor</dd>
+                        </div>
+                    </dl>
+                </div>
+                <div class="hero-media" aria-hidden="true">
+                    <div class="hero-card">Personalised drops</div>
+                    <div class="hero-card">Commerce extensions</div>
+                    <div class="hero-card">Fulfilment orchestration</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="catalog" id="catalog">
+            <div class="shell catalog-shell">
+                <header class="section-header">
+                    <div>
+                        <h2>Catalog</h2>
+                        <p>Products are sourced from the Ricktorious content engine and delivered through the headless commerce API.</p>
+                    </div>
+                    <div class="catalog-controls">
+                        <label>
+                            <span class="control-label">Search</span>
+                            <input type="search" id="search-input" placeholder="Search products">
+                        </label>
+                        <label>
+                            <span class="control-label">Category</span>
+                            <select id="tag-filter">
+                                <option value="all">All categories</option>
+                            </select>
+                        </label>
+                    </div>
+                </header>
+                <div class="product-grid" id="product-grid" aria-live="polite"></div>
+                <div class="empty-state" id="empty-state" hidden>
+                    <h3>No products found</h3>
+                    <p>Try adjusting the search or choose another category to explore Ricktorious drops.</p>
+                    <button type="button" class="button ghost" id="reset-filters">Reset filters</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="insights" id="insights">
+            <div class="shell insights-shell">
+                <header class="section-header">
+                    <div>
+                        <h2>Visitor telemetry</h2>
+                        <p>Every interaction can be captured for recommendations and experimentation. These insights are sourced directly from the behavioural tracker.</p>
+                    </div>
+                </header>
+                <div class="insight-grid" id="insight-panels">
+                    <article class="insight-card">
+                        <h3>Total events</h3>
+                        <p class="metric" id="insight-events">0</p>
+                        <p class="muted">Events captured across cart, checkout, and content interactions for this session.</p>
+                    </article>
+                    <article class="insight-card">
+                        <h3>Popular blocks</h3>
+                        <ul class="tag-list" id="insight-blocks"></ul>
+                        <p class="muted">Block level engagement recorded by the AI personalisation engine.</p>
+                    </article>
+                </div>
+            </div>
+        </section>
+
+        <section class="checkout" id="checkout">
+            <div class="shell checkout-shell">
+                <header class="section-header">
+                    <div>
+                        <h2>Checkout</h2>
+                        <p>Complete an order using the Ricktorious checkout API. Orders are persisted to the storage layer ready for fulfilment workflows.</p>
+                    </div>
+                </header>
+                <div class="messages" id="checkout-messages" hidden></div>
+                <form id="checkout-form" class="checkout-form" novalidate>
+                    <label>
+                        <span>Name</span>
+                        <input type="text" name="name" id="checkout-name" placeholder="Ada Lovelace" required>
+                    </label>
+                    <label>
+                        <span>Email</span>
+                        <input type="email" name="email" id="checkout-email" placeholder="ada@ricktorious.example" required>
+                    </label>
+                    <label class="full">
+                        <span>Delivery address</span>
+                        <textarea name="address" id="checkout-address" rows="4" placeholder="123 Commerce Avenue, Innovation District" required></textarea>
+                    </label>
+                    <label>
+                        <span>City</span>
+                        <input type="text" name="city" id="checkout-city" placeholder="Ricktorious City" required>
+                    </label>
+                    <label>
+                        <span>Postcode</span>
+                        <input type="text" name="postcode" id="checkout-postcode" placeholder="RC1 2AI" required>
+                    </label>
+                    <label>
+                        <span>Country</span>
+                        <input type="text" name="country" id="checkout-country" placeholder="United Kingdom" required>
+                    </label>
+                    <label class="full">
+                        <span>Notes</span>
+                        <textarea name="notes" id="checkout-notes" rows="3" placeholder="Delivery instructions, gift notes..."></textarea>
+                    </label>
+                    <button type="submit" class="button primary">Place order</button>
+                </form>
+            </div>
+        </section>
+    </main>
+
+    <div class="cart-overlay" id="cart-overlay" aria-hidden="true">
+        <div class="cart-panel" role="dialog" aria-modal="true" aria-labelledby="cart-title">
+            <header class="cart-header">
+                <h2 id="cart-title">Your cart</h2>
+                <button type="button" class="icon-button" id="cart-close" aria-label="Close cart">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </header>
+            <div class="cart-body" id="cart-body" aria-live="polite"></div>
+            <footer class="cart-footer">
+                <div class="cart-total">
+                    <span>Total</span>
+                    <strong id="cart-total">$0.00</strong>
+                </div>
+                <div class="cart-actions">
+                    <button type="button" class="button ghost" id="cart-clear">Clear cart</button>
+                    <a class="button primary" href="#checkout" id="cart-checkout">Checkout</a>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <footer class="site-footer">
+        <div class="shell footer-shell">
+            <p>&copy; <?= escape(date('Y')) ?> Ricktorious Limited. Built on the adaptive commerce kernel with extensible APIs for catalogue, cart, checkout, and fulfilment.</p>
+        </div>
+    </footer>
+
+    <div class="toast" id="app-toast" role="status" aria-live="polite" hidden></div>
+
+    <script defer src="<?= escape($scriptPath) ?>?v=<?= escape($assetVersion) ?>"></script>
+    </body>
+    </html>
+    <?php
+}
+
 function render_status_badge(string $status): string
 {
     $slug = strtolower(trim($status));
@@ -220,10 +492,11 @@ function render_layout(string $title, string $content, array $options = []): voi
 {
     $description = (string) ($options['description'] ?? 'Extension-driven ecommerce playground for Ricktorious Limited.');
     $cartCount = (int) ($options['cart_count'] ?? 0);
-    $active = (string) ($options['active'] ?? 'home');
+    $active = (string) ($options['active'] ?? 'storefront');
 
     $navigation = [
-        ['href' => '/', 'label' => 'Home', 'key' => 'home'],
+        ['href' => '/', 'label' => 'Storefront', 'key' => 'storefront'],
+        ['href' => '/experience', 'label' => 'Experience', 'key' => 'experience'],
         ['href' => '/catalog', 'label' => 'Catalog', 'key' => 'catalog'],
         ['href' => '/client-hub', 'label' => 'Client hub', 'key' => 'client'],
         ['href' => '/operations', 'label' => 'Staff ops', 'key' => 'operations'],
@@ -635,7 +908,7 @@ HTML;
 
 $app->boot();
 
-if ($path === '/' || $path === '') {
+$renderClassicHome = static function () use ($app, $repository, $blockRegistry, $behaviorTracker, $cart, $userId): void {
     $featured = array_map(
         static fn($product) => [
             'title' => $product->name(),
@@ -651,7 +924,7 @@ if ($path === '/' || $path === '') {
     ]);
 
     $recommended = $app->personalizationEngine()->recommendBlocks($userId, array_keys($blockRegistry->all()));
-    $behaviorTracker->recordEvent($userId, 'page.view', ['page' => 'home']);
+    $behaviorTracker->recordEvent($userId, 'page.view', ['page' => 'experience']);
 
     $insightsHtml = '<section class="block" style="background: rgba(15,23,42,0.7); border-radius: 16px; padding: 2rem;">'
         . '<h2>Personalisation insights</h2>'
@@ -669,9 +942,27 @@ if ($path === '/' || $path === '') {
     render_layout($page['title'], $content, [
         'description' => (string) ($page['metadata']['description'] ?? ''),
         'cart_count' => $cart->itemCount(),
-        'active' => 'home',
+        'active' => 'experience',
     ]);
     $_SESSION['ricktorious_cart'] = $cart->toArray();
+};
+
+if ($path === '/' || $path === '') {
+    render_storefront_page([
+        'styles' => $stylesPath,
+        'script' => $scriptPath,
+        'api' => $apiBasePath,
+        'asset_version' => $assetVersion,
+        'cart_count' => $cart->itemCount(),
+    ]);
+    $behaviorTracker->recordEvent($userId, 'page.view', ['page' => 'storefront']);
+    $_SESSION['ricktorious_cart'] = $cart->toArray();
+
+    return;
+}
+
+if ($path === '/experience') {
+    $renderClassicHome();
 
     return;
 }
