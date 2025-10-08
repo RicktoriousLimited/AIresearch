@@ -21,6 +21,7 @@
     textarea: document.getElementById('input-text'),
     status: document.getElementById('status'),
     results: document.getElementById('results'),
+    overview: document.getElementById('results-overview'),
     summary: document.getElementById('summary-list'),
     relations: document.getElementById('relations-chart'),
     entities: document.getElementById('entities-chart'),
@@ -44,7 +45,13 @@
     documentKeywords: document.getElementById('document-keywords'),
     documentKeywordsList: document.getElementById('document-keywords-list'),
     documentSpelling: document.getElementById('document-spelling'),
-    documentSpellingList: document.getElementById('document-spelling-list')
+    documentSpellingList: document.getElementById('document-spelling-list'),
+    metricDocumentsProcessed: document.querySelector('[data-metric-value="documents_processed"]'),
+    metricDocumentsSubmitted: document.querySelector('[data-metric-sub="documents_received"]'),
+    metricTriples: document.querySelector('[data-metric-value="triples"]'),
+    metricTriplesDensity: document.querySelector('[data-metric-sub="triples-density"]'),
+    metricEntities: document.querySelector('[data-metric-value="unique_entities"]'),
+    metricSynonyms: document.querySelector('[data-metric-sub="synonym_groups"]')
   };
 
   let lastResult = null;
@@ -78,6 +85,27 @@
     }
     if (elements.synonyms) {
       elements.synonyms.innerHTML = '';
+    }
+    if (elements.overview) {
+      elements.overview.hidden = true;
+    }
+    if (elements.metricDocumentsProcessed) {
+      elements.metricDocumentsProcessed.textContent = '0';
+    }
+    if (elements.metricDocumentsSubmitted) {
+      elements.metricDocumentsSubmitted.textContent = 'Submitted: 0';
+    }
+    if (elements.metricTriples) {
+      elements.metricTriples.textContent = '0';
+    }
+    if (elements.metricTriplesDensity) {
+      elements.metricTriplesDensity.textContent = '– per document';
+    }
+    if (elements.metricEntities) {
+      elements.metricEntities.textContent = '0';
+    }
+    if (elements.metricSynonyms) {
+      elements.metricSynonyms.textContent = 'Synonym groups: 0';
     }
     if (elements.insightsList) {
       elements.insightsList.innerHTML = '';
@@ -139,6 +167,54 @@
     });
 
     elements.summary.innerHTML = fragments.join('');
+
+    renderOverview(summary);
+  }
+
+  function renderOverview(summary) {
+    if (!elements.overview) {
+      return;
+    }
+
+    if (!summary || typeof summary !== 'object') {
+      elements.overview.hidden = true;
+      return;
+    }
+
+    const documentsProcessed = Math.max(0, Number(summary.documents_processed ?? 0));
+    const documentsReceived = Math.max(0, Number(summary.documents_received ?? documentsProcessed));
+    const triples = Math.max(0, Number(summary.triples ?? 0));
+    const uniqueEntities = Math.max(0, Number(summary.unique_entities ?? 0));
+    const synonymGroups = Math.max(0, Number(summary.synonym_groups ?? 0));
+    const density = documentsProcessed > 0 ? (triples / documentsProcessed).toFixed(1) : null;
+
+    if (elements.metricDocumentsProcessed) {
+      elements.metricDocumentsProcessed.textContent = formatNumber(documentsProcessed);
+    }
+    if (elements.metricDocumentsSubmitted) {
+      elements.metricDocumentsSubmitted.textContent = `Submitted: ${formatNumber(documentsReceived)}`;
+    }
+    if (elements.metricTriples) {
+      elements.metricTriples.textContent = formatNumber(triples);
+    }
+    if (elements.metricTriplesDensity) {
+      elements.metricTriplesDensity.textContent = density !== null ? `${density} per document` : 'No documents processed yet';
+    }
+    if (elements.metricEntities) {
+      elements.metricEntities.textContent = formatNumber(uniqueEntities);
+    }
+    if (elements.metricSynonyms) {
+      elements.metricSynonyms.textContent = `Synonym groups: ${formatNumber(synonymGroups)}`;
+    }
+
+    const hasData =
+      documentsProcessed > 0 ||
+      documentsReceived > 0 ||
+      triples > 0 ||
+      uniqueEntities > 0 ||
+      synonymGroups > 0;
+
+    elements.overview.hidden = !hasData;
   }
 
   function renderList(container, data) {
@@ -152,12 +228,30 @@
       return;
     }
 
-    const sorted = entries.sort((a, b) => b[1] - a[1]).slice(0, 25);
+    const sorted = entries
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .slice(0, 25);
+    const maxValue = sorted.length > 0 ? Math.max(...sorted.map(([, value]) => Number(value) || 0)) : 0;
+
     const items = sorted.map(([label, value]) => {
-      return `<li><span>${escapeHtml(label)}</span><span>${escapeHtml(String(value))}</span></li>`;
+      const numericValue = Number(value);
+      const safeValue = Number.isFinite(numericValue) ? numericValue : 0;
+      const width = maxValue > 0 ? Math.max(8, Math.round((safeValue / maxValue) * 100)) : 8;
+      const safeLabel = escapeHtml(label);
+      const displayValue = escapeHtml(formatNumber(safeValue));
+
+      return `
+        <li>
+          <div class="bar-header">
+            <span class="bar-label">${safeLabel}</span>
+            <span class="bar-value">${displayValue}</span>
+          </div>
+          <div class="bar-meter"><span style="width:${width}%"></span></div>
+        </li>
+      `;
     });
 
-    container.innerHTML = `<ul>${items.join('')}</ul>`;
+    container.innerHTML = `<ul class="bar-list">${items.join('')}</ul>`;
   }
 
   function renderTriples(triples) {
@@ -382,6 +476,14 @@
   function formatCount(count, unit) {
     const plural = count === 1 ? unit : unit + 's';
     return `${count} ${plural}`;
+  }
+
+  function formatNumber(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) {
+      return '0';
+    }
+    return number.toLocaleString();
   }
 
   function updateInputMeta() {

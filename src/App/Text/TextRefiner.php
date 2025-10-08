@@ -51,26 +51,34 @@ final class TextRefiner
     private static array $boilerplateVocabulary = [
         'accept' => true,
         'accessibility' => true,
+        'account' => true,
         'additional' => true,
+        'advertisement' => true,
+        'advertisements' => true,
         'bitesize' => true,
         'best' => true,
+        'bookmark' => true,
         'cookies' => true,
         'contact' => true,
         'copyright' => true,
         'download' => true,
         'elsewhere' => true,
+        'email' => true,
         'emails' => true,
         'guidance' => true,
         'help' => true,
         'homepage' => true,
         'iplayer' => true,
+        'login' => true,
         'menu' => true,
         'mobile' => true,
         'more' => true,
+        'newsletter' => true,
         'notifications' => true,
         'parental' => true,
         'policy' => true,
         'privacy' => true,
+        'register' => true,
         'reject' => true,
         'services' => true,
         'sign' => true,
@@ -87,6 +95,8 @@ final class TextRefiner
     /** @var array<string, bool> */
     private static array $boilerplatePhrases = [
         'accept additional cookies' => true,
+        'advertisement' => true,
+        'advertisements' => true,
         'reject additional cookies' => true,
         'let me choose' => true,
         'bbc homepage' => true,
@@ -94,9 +104,14 @@ final class TextRefiner
         'accessibility help' => true,
         'sign in' => true,
         'search bbc' => true,
+        'search the web' => true,
+        'search query' => true,
         'top stories' => true,
         'view comments' => true,
         'related topics' => true,
+        'related articles' => true,
+        'return to homepage' => true,
+        'back to homepage' => true,
         'bbc news services' => true,
         'on your mobile' => true,
         'on smart speakers' => true,
@@ -104,7 +119,6 @@ final class TextRefiner
         'contact bbc news' => true,
         'terms of use' => true,
         'privacy policy' => true,
-        'accessibility help' => true,
         'parental guidance' => true,
         'contact the bbc' => true,
         'make an editorial complaint' => true,
@@ -116,6 +130,10 @@ final class TextRefiner
 
     /** @var array<int, string> */
     private static array $boilerplatePatterns = [
+        '/^ad\b/i',
+        '/^advertisement\b/i',
+        '/^advertorial\b/i',
+        '/^related\.{2,}$/i',
         '/^watchlistadd\b/i',
         '/^subscribeadd\b/i',
         '/^published\s+\d{1,2}/i',
@@ -134,6 +152,53 @@ final class TextRefiner
         '/^bitesize$/i',
     ];
 
+    /** @var array<string, bool> */
+    private static array $navigationVocabulary = [
+        'about' => true,
+        'account' => true,
+        'advertisement' => true,
+        'advertisements' => true,
+        'apps' => true,
+        'archive' => true,
+        'back' => true,
+        'careers' => true,
+        'categories' => true,
+        'contact' => true,
+        'deals' => true,
+        'events' => true,
+        'finance' => true,
+        'games' => true,
+        'home' => true,
+        'homepage' => true,
+        'latest' => true,
+        'live' => true,
+        'login' => true,
+        'mail' => true,
+        'main' => true,
+        'market' => true,
+        'markets' => true,
+        'menu' => true,
+        'more' => true,
+        'movies' => true,
+        'news' => true,
+        'privacy' => true,
+        'return' => true,
+        'search' => true,
+        'settings' => true,
+        'shop' => true,
+        'skip' => true,
+        'signin' => true,
+        'sign' => true,
+        'sports' => true,
+        'subscribe' => true,
+        'technology' => true,
+        'terms' => true,
+        'topics' => true,
+        'trending' => true,
+        'video' => true,
+        'weather' => true,
+    ];
+
     public function __construct(?EnglishLexicon $lexicon = null)
     {
         $this->lexicon = $lexicon ?? EnglishLexicon::loadDefault();
@@ -144,6 +209,8 @@ final class TextRefiner
         if ($text === '') {
             return '';
         }
+
+        $text = $this->preNormalizeDocument($text);
 
         $lines = preg_split('/\r\n|\r|\n/', $text);
         if ($lines === false) {
@@ -421,6 +488,7 @@ final class TextRefiner
     {
         $filtered = [];
         $previousWasBlank = true;
+        $seen = [];
 
         foreach ($lines as $line) {
             $trimmed = trim($line);
@@ -436,8 +504,21 @@ final class TextRefiner
                 continue;
             }
 
+            if ($this->looksLikeNavigationCluster($line)) {
+                continue;
+            }
+
             if ($this->looksLikeMeaninglessText($line)) {
                 continue;
+            }
+
+            $signature = $this->lineSignature($line);
+            if ($signature !== '' && isset($seen[$signature])) {
+                continue;
+            }
+
+            if ($signature !== '') {
+                $seen[$signature] = true;
             }
 
             $filtered[] = $line;
@@ -485,6 +566,8 @@ final class TextRefiner
         $tokens = explode(' ', $stripped);
         $tokenCount = 0;
         $boilerplateMatches = 0;
+        $navigationMatches = 0;
+        $uniqueTokens = [];
         foreach ($tokens as $token) {
             if ($token === '') {
                 continue;
@@ -494,6 +577,10 @@ final class TextRefiner
             if (isset(self::$boilerplateVocabulary[$token])) {
                 $boilerplateMatches++;
             }
+            if (isset(self::$navigationVocabulary[$token])) {
+                $navigationMatches++;
+            }
+            $uniqueTokens[$token] = true;
         }
 
         if ($tokenCount === 0) {
@@ -507,6 +594,14 @@ final class TextRefiner
         }
 
         if ($tokenCount <= 3 && $ratio >= 0.5) {
+            return true;
+        }
+
+        if ($navigationMatches >= 2 && $navigationMatches >= ($tokenCount / 2)) {
+            return true;
+        }
+
+        if (count($uniqueTokens) === 1 && $tokenCount <= 4) {
             return true;
         }
 
@@ -537,12 +632,18 @@ final class TextRefiner
             return true;
         }
 
+        if (preg_match('/https?:\/\//i', $normalized) === 1) {
+            return true;
+        }
+
         $tokens = $matches[0] ?? [];
         $candidateCount = 0;
         $recognized = 0;
         $capitalized = 0;
         $allCapitalized = true;
         $stopwordCount = 0;
+        $navigationMatches = 0;
+        $lowerTokens = [];
 
         foreach ($tokens as $token) {
             if ($token === '') {
@@ -565,6 +666,12 @@ final class TextRefiner
             } else {
                 $allCapitalized = false;
             }
+
+            if (isset(self::$navigationVocabulary[$lower])) {
+                $navigationMatches++;
+            }
+
+            $lowerTokens[$lower] = true;
         }
 
         if ($candidateCount === 0) {
@@ -573,6 +680,14 @@ final class TextRefiner
 
         if ($recognized > 0) {
             return false;
+        }
+
+        if (count($lowerTokens) === 1 && $candidateCount <= 4) {
+            return true;
+        }
+
+        if ($navigationMatches >= 2 && $navigationMatches >= ($candidateCount / 2)) {
+            return true;
         }
 
         if ($candidateCount === $capitalized && $capitalized > 0) {
@@ -622,5 +737,90 @@ final class TextRefiner
         }
 
         return false;
+    }
+
+    private function looksLikeNavigationCluster(string $line): bool
+    {
+        $normalized = strtolower(trim($line));
+        if ($normalized === '') {
+            return true;
+        }
+
+        if (preg_match('/\d/', $normalized) === 1) {
+            return false;
+        }
+
+        if (preg_match('/[.!?]/', $normalized) === 1) {
+            return false;
+        }
+
+        $tokens = preg_split('/\s+/u', $normalized);
+        if ($tokens === false) {
+            $tokens = [$normalized];
+        }
+
+        $tokenCount = 0;
+        $navigationMatches = 0;
+        foreach ($tokens as $token) {
+            if ($token === '') {
+                continue;
+            }
+
+            $tokenCount++;
+            if (isset(self::$navigationVocabulary[$token])) {
+                $navigationMatches++;
+            }
+        }
+
+        if ($tokenCount === 0) {
+            return true;
+        }
+
+        if ($navigationMatches >= 2 && $navigationMatches >= ($tokenCount / 2)) {
+            return true;
+        }
+
+        if ($tokenCount <= 5 && $navigationMatches >= 2) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function lineSignature(string $line): string
+    {
+        $normalized = strtolower(trim(preg_replace('/\s+/u', ' ', $line) ?? ''));
+        if ($normalized === '') {
+            return '';
+        }
+
+        $normalized = preg_replace('/[^a-z0-9]+/u', '', $normalized);
+        if (!is_string($normalized)) {
+            return '';
+        }
+
+        if (strlen($normalized) > 48) {
+            return '';
+        }
+
+        return $normalized;
+    }
+
+    private function preNormalizeDocument(string $text): string
+    {
+        $text = str_replace(["\u{00A0}", "\u{200B}", "\u{200C}", "\u{200D}"], ' ', $text);
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        $text = preg_replace('/<\s*br\s*\/?>/i', "\n", $text);
+        $text = preg_replace('/<\s*\/p\s*>/i', "\n\n", $text);
+        $text = preg_replace('/<\s*(?:div|section|article|header|footer|nav)\b[^>]*>/i', "\n", $text);
+        $text = preg_replace('/<\s*li\b[^>]*>/i', "\n- ", $text);
+        $text = preg_replace('/<\s*\/li\s*>/i', '', $text);
+        $text = preg_replace('/<\/?(?:span|strong|em|b|i|u|small|sup|sub)\b[^>]*>/i', '', $text);
+
+        $text = strip_tags(is_string($text) ? $text : '');
+        $text = preg_replace('/\r\n?/', "\n", $text);
+
+        return is_string($text) ? $text : '';
     }
 }

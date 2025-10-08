@@ -84,6 +84,23 @@ $apiEndpoint = $assetBase . '/api/analyse.php';
                     <button type="button" class="button tertiary" id="copy-summary">Copy summary</button>
                 </div>
             </header>
+            <div class="results-overview" id="results-overview" hidden>
+                <article class="metric-card">
+                    <span class="metric-label">Documents processed</span>
+                    <span class="metric-value" data-metric-value="documents_processed">0</span>
+                    <span class="metric-sub" data-metric-sub="documents_received">Submitted: 0</span>
+                </article>
+                <article class="metric-card">
+                    <span class="metric-label">Triples extracted</span>
+                    <span class="metric-value" data-metric-value="triples">0</span>
+                    <span class="metric-sub" data-metric-sub="triples-density">– per document</span>
+                </article>
+                <article class="metric-card">
+                    <span class="metric-label">Unique entities</span>
+                    <span class="metric-value" data-metric-value="unique_entities">0</span>
+                    <span class="metric-sub" data-metric-sub="synonym_groups">Synonym groups: 0</span>
+                </article>
+            </div>
             <div class="grid">
                 <article class="card span-3" id="insights-card" hidden>
                     <h3>Highlights</h3>
