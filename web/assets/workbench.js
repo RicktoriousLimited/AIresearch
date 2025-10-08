@@ -1,6 +1,21 @@
 (function () {
   const apiEndpoint = document.body.dataset.api || 'api/analyse.php';
 
+  const SAMPLE_TEXT = {
+    bios: `Alice Smith leads the applied ML lab at Horizon Bio. She previously built entity linking systems at Quantum Labs.\n\nBrandon Lee is a materials scientist at Aurora Fusion and collaborates with Alice Smith on advanced plasma diagnostics.`,
+    updates: `Week 18 update – Project Helios\n- Completed integration tests for the updated relation extractor.\n- Alice Smith onboarded two new annotators to extend the synonym lexicon.\n- Brandon Lee submitted spectroscopy results that revealed three new compound interactions.`,
+    company: `Aurora Fusion is a deep-tech company focused on compact fusion reactors. The R&D group partners with Horizon Bio on plasma containment techniques and maintains collaborations with Quantum Labs in Cambridge.`
+  };
+
+  const SUMMARY_LABELS = {
+    documents_received: 'Documents submitted',
+    documents_processed: 'Documents processed',
+    triples: 'Triples extracted',
+    synonym_groups: 'Synonym groups',
+    unique_entities: 'Unique entities',
+    generated_at: 'Generated at'
+  };
+
   const elements = {
     form: document.getElementById('workbench-form'),
     textarea: document.getElementById('input-text'),
@@ -13,7 +28,14 @@
     synonyms: document.getElementById('synonyms-list'),
     downloadJson: document.getElementById('download-json'),
     copySummary: document.getElementById('copy-summary'),
-    resetButton: document.getElementById('reset-button')
+    resetButton: document.getElementById('reset-button'),
+    inputMeta: document.getElementById('input-meta'),
+    fileInput: document.getElementById('file-upload'),
+    samplePills: document.querySelectorAll('.chip[data-sample]'),
+    continueState: document.getElementById('continue-state'),
+    clearSession: document.getElementById('clear-session'),
+    insightsCard: document.getElementById('insights-card'),
+    insightsList: document.getElementById('insights-list')
   };
 
   let lastResult = null;
@@ -25,12 +47,11 @@
     }
 
     elements.status.textContent = message;
-    elements.status.className = 'status ' + tone;
+    elements.status.className = tone ? 'status ' + tone : 'status';
   }
 
   function clearResults() {
     lastResult = null;
-    persistedState = null;
     if (elements.results) {
       elements.results.hidden = true;
     }
@@ -49,6 +70,12 @@
     if (elements.synonyms) {
       elements.synonyms.innerHTML = '';
     }
+    if (elements.insightsList) {
+      elements.insightsList.innerHTML = '';
+    }
+    if (elements.insightsCard) {
+      elements.insightsCard.hidden = true;
+    }
   }
 
   function renderSummary(summary) {
@@ -56,14 +83,21 @@
       return;
     }
 
-    const entries = Object.entries(summary || {});
-    if (entries.length === 0) {
+    if (!summary || typeof summary !== 'object') {
       elements.summary.innerHTML = '<p>No summary data.</p>';
       return;
     }
 
-    const fragments = entries.map(([label, value]) => {
-      const safeLabel = escapeHtml(label.replace(/_/g, ' '));
+    const keys = Object.keys(SUMMARY_LABELS).filter((key) => Object.prototype.hasOwnProperty.call(summary, key));
+    if (keys.length === 0) {
+      elements.summary.innerHTML = '<p>No summary data.</p>';
+      return;
+    }
+
+    const fragments = keys.map((key) => {
+      const label = SUMMARY_LABELS[key];
+      const value = summary[key];
+      const safeLabel = escapeHtml(label);
       const safeValue = escapeHtml(String(value));
       return `<div><dt>${safeLabel}</dt><dd>${safeValue}</dd></div>`;
     });
@@ -136,6 +170,73 @@
     elements.synonyms.innerHTML = `<ul>${items.join('')}</ul>`;
   }
 
+  function renderInsights(data) {
+    if (!elements.insightsCard || !elements.insightsList) {
+      return;
+    }
+
+    const insights = [];
+    const relations = data.relations || {};
+    const entities = data.entities || {};
+    const summary = data.summary || {};
+    const triples = Array.isArray(data.triples) ? data.triples : [];
+    const documentsProcessed = Number(summary.documents_processed || 0);
+    const synonymGroups = Number(summary.synonym_groups || 0);
+    const topRelation = getTopEntry(relations);
+    const topEntity = getTopEntry(entities);
+
+    if (topRelation) {
+      insights.push({
+        title: capitalize(topRelation.label),
+        description: `Most frequent relation with ${formatCount(topRelation.count, 'occurrence')}.`
+      });
+    }
+
+    if (topEntity) {
+      insights.push({
+        title: capitalize(topEntity.label),
+        description: `Entity mentioned ${formatCount(topEntity.count, 'time')}.`
+      });
+    }
+
+    if (triples.length > 0 && documentsProcessed > 0) {
+      const ratio = (triples.length / documentsProcessed).toFixed(1);
+      insights.push({
+        title: `${triples.length} triples`,
+        description: `≈${ratio} triples per document processed.`
+      });
+    }
+
+    if (synonymGroups > 0) {
+      insights.push({
+        title: `${synonymGroups} synonym groups`,
+        description: 'Use them to consolidate author aliases and product names.'
+      });
+    }
+
+    if (insights.length === 0) {
+      elements.insightsList.innerHTML = '<li><span>No highlights yet. Run an extraction to surface quick insights.</span></li>';
+      elements.insightsCard.hidden = false;
+      return;
+    }
+
+    const items = insights.slice(0, 4).map((insight) => {
+      return `<li><strong>${escapeHtml(insight.title)}</strong><span>${escapeHtml(insight.description)}</span></li>`;
+    });
+
+    elements.insightsList.innerHTML = items.join('');
+    elements.insightsCard.hidden = false;
+  }
+
+  function getTopEntry(map) {
+    const entries = Object.entries(map || {});
+    if (entries.length === 0) {
+      return null;
+    }
+    const [label, count] = entries.sort((a, b) => b[1] - a[1])[0];
+    return { label, count };
+  }
+
   function escapeHtml(value) {
     return String(value)
       .replace(/&/g, '&amp;')
@@ -143,6 +244,75 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  function capitalize(value) {
+    if (typeof value !== 'string' || value.length === 0) {
+      return '';
+    }
+    return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
+  function formatCount(count, unit) {
+    const plural = count === 1 ? unit : unit + 's';
+    return `${count} ${plural}`;
+  }
+
+  function updateInputMeta() {
+    if (!elements.textarea || !elements.inputMeta) {
+      return;
+    }
+
+    const text = elements.textarea.value;
+    const trimmed = text.trim();
+    const characters = text.length;
+    const words = trimmed === '' ? 0 : trimmed.split(/\s+/).length;
+    const documents = trimmed === '' ? 0 : trimmed.split(/\n{2,}/).length;
+
+    elements.inputMeta.innerHTML = `
+      <span><strong>${characters}</strong> characters</span>
+      <span><strong>${words}</strong> words</span>
+      <span><strong>${documents}</strong> documents</span>
+    `;
+  }
+
+  function injectSample(id) {
+    if (!elements.textarea || !Object.prototype.hasOwnProperty.call(SAMPLE_TEXT, id)) {
+      return;
+    }
+    elements.textarea.value = SAMPLE_TEXT[id];
+    updateInputMeta();
+    setStatus('Loaded sample text. Press “Run extraction” to analyse it.', 'success');
+  }
+
+  function resetSession() {
+    persistedState = null;
+    clearResults();
+    setStatus('Knowledge graph session cleared. Future runs will start fresh.', 'info');
+    updateInputMeta();
+  }
+
+  async function handleFileSelection(event) {
+    if (!elements.textarea) {
+      return;
+    }
+
+    const file = event.target.files && event.target.files[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const text = await file.text();
+      elements.textarea.value = text;
+      updateInputMeta();
+      setStatus(`Loaded ${file.name} (${text.length} characters).`, 'success');
+    } catch (error) {
+      console.error(error);
+      setStatus('Unable to read the selected file.', 'error');
+    } finally {
+      event.target.value = '';
+    }
   }
 
   async function submitForm(event) {
@@ -165,14 +335,14 @@
 
     try {
       const requestPayload = { text };
-      if (persistedState) {
+      if (persistedState && elements.continueState && elements.continueState.checked) {
         requestPayload.state = persistedState;
       }
 
       const response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
-          'Accept': 'application/json',
+          Accept: 'application/json',
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(requestPayload)
@@ -189,16 +359,18 @@
 
       const data = payload.data || {};
       lastResult = data;
-      if (data.state) {
+      if (data.state && elements.continueState && elements.continueState.checked) {
         persistedState = data.state;
       } else {
         persistedState = null;
       }
+
       renderSummary(data.summary);
       renderList(elements.relations, data.relations);
       renderList(elements.entities, data.entities);
       renderTriples(data.triples);
       renderSynonyms(data.synonyms);
+      renderInsights(data);
 
       if (elements.results) {
         elements.results.hidden = false;
@@ -209,6 +381,7 @@
       console.error(error);
       setStatus('Unable to extract entities. Please try again.', 'error');
       clearResults();
+      persistedState = null;
     } finally {
       if (elements.form) {
         elements.form.classList.remove('is-loading');
@@ -250,6 +423,12 @@
 
   if (elements.form) {
     elements.form.addEventListener('submit', submitForm);
+    elements.form.addEventListener('reset', () => {
+      setStatus('', '');
+      clearResults();
+      persistedState = null;
+      updateInputMeta();
+    });
   }
 
   if (elements.downloadJson) {
@@ -264,6 +443,32 @@
     elements.resetButton.addEventListener('click', () => {
       setStatus('', '');
       clearResults();
+      persistedState = null;
+      updateInputMeta();
     });
+  }
+
+  if (elements.textarea) {
+    elements.textarea.addEventListener('input', updateInputMeta);
+    updateInputMeta();
+  }
+
+  if (elements.samplePills && elements.samplePills.length > 0) {
+    elements.samplePills.forEach((button) => {
+      button.addEventListener('click', () => {
+        const sampleId = button.getAttribute('data-sample');
+        if (sampleId) {
+          injectSample(sampleId);
+        }
+      });
+    });
+  }
+
+  if (elements.fileInput) {
+    elements.fileInput.addEventListener('change', handleFileSelection);
+  }
+
+  if (elements.clearSession) {
+    elements.clearSession.addEventListener('click', resetSession);
   }
 })();

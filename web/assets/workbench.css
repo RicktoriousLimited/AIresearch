@@ -77,6 +77,128 @@ main.container {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+    position: relative;
+}
+
+.workbench-form.is-loading::after {
+    content: 'Analysing…';
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.78);
+    border-radius: 20px;
+    display: grid;
+    place-items: center;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.form-intro p {
+    margin: 0;
+    color: rgba(226, 232, 240, 0.92);
+}
+
+.input-meta {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    font-size: 0.85rem;
+    color: rgba(148, 163, 184, 0.95);
+}
+
+.input-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.12);
+    font-weight: 600;
+}
+
+.input-meta strong {
+    color: #f8fafc;
+}
+
+.quick-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+}
+
+.file-picker {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.65rem 1rem;
+    border-radius: 16px;
+    border: 1px dashed rgba(148, 163, 184, 0.35);
+    cursor: pointer;
+    background: rgba(15, 23, 42, 0.55);
+    transition: border-color 0.2s ease, background 0.2s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.file-picker:hover {
+    border-color: rgba(129, 140, 248, 0.9);
+    background: rgba(30, 64, 175, 0.35);
+}
+
+.file-picker input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.file-label {
+    font-weight: 600;
+}
+
+.sample-pills {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.chip {
+    border: none;
+    border-radius: 999px;
+    padding: 0.5rem 1.15rem;
+    font-weight: 600;
+    background: rgba(56, 189, 248, 0.18);
+    color: #e0f2fe;
+    cursor: pointer;
+    transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.chip:hover {
+    transform: translateY(-1px);
+    background: rgba(56, 189, 248, 0.3);
+}
+
+.options-row {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+}
+
+.toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+    font-weight: 600;
+    color: rgba(226, 232, 240, 0.95);
+}
+
+.toggle input {
+    accent-color: #38bdf8;
+    width: 1.15rem;
+    height: 1.15rem;
 }
 
 .form-label {
@@ -142,6 +264,11 @@ textarea:focus {
     border: 1px solid rgba(148, 163, 184, 0.24);
 }
 
+.button.small {
+    padding: 0.5rem 1.1rem;
+    font-size: 0.85rem;
+}
+
 .button:hover {
     transform: translateY(-1px);
     opacity: 0.95;
@@ -167,6 +294,21 @@ textarea:focus {
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 
+.grid .span-3 {
+    grid-column: span 3;
+}
+
+.grid .span-2 {
+    grid-column: span 2;
+}
+
+@media (max-width: 960px) {
+    .grid .span-3,
+    .grid .span-2 {
+        grid-column: span 1;
+    }
+}
+
 .card {
     background: rgba(15, 23, 42, 0.55);
     border-radius: 18px;
@@ -181,6 +323,30 @@ textarea:focus {
 .card h3 {
     margin: 0;
     font-size: 1.25rem;
+}
+
+.insights-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.insights-list li {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.insights-list strong {
+    font-size: 1.1rem;
+    color: #f8fafc;
+}
+
+.insights-list span {
+    font-size: 0.85rem;
+    color: rgba(148, 163, 184, 0.9);
 }
 
 .summary-list {
@@ -276,6 +442,22 @@ td {
     color: #38bdf8;
 }
 
+.guidance {
+    background: rgba(15, 23, 42, 0.55);
+}
+
+.guidance-list {
+    margin: 0;
+    padding-left: 1.1rem;
+    display: grid;
+    gap: 0.75rem;
+    color: rgba(226, 232, 240, 0.92);
+}
+
+.guidance-list strong {
+    color: #f8fafc;
+}
+
 @media (max-width: 720px) {
     .panel {
         padding: 1.5rem;
@@ -288,6 +470,11 @@ td {
     .form-actions {
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .options-row {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
     .button {
