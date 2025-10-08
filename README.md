@@ -177,3 +177,17 @@ development server and open `http://localhost:8000/storefront.php` to try:
 
 Consult `docs/ricktorious-ecommerce.md` for an overview of the platform
 architecture and extension system.
+
+### Deploy in minutes
+
+- **Docker** – Build and run the bundled `Dockerfile` (or use
+  `docker compose up`) to start an Apache + PHP 8.2 container that serves the
+  storefront from the `web/` document root with persistent storage mounts.
+- **Shared hosting** – Upload the `web/`, `src/`, and `storage/` directories
+  and point your virtual host at `web/`. Ensure the storage directory remains
+  writable for order capture and telemetry.
+- **Health checks** – `/health.php` exposes a lightweight JSON heartbeat that
+  load balancers and uptime monitors can call.
+
+See `docs/deployment.md` for the full deployment checklist and environment
+notes.

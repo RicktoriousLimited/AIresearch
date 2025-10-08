@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  ricktorious:
+    build: .
+    ports:
+      - "8080:80"
+    volumes:
+      - ./storage:/var/www/html/storage
+    environment:
+      APACHE_DOCUMENT_ROOT: /var/www/html/web
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(file_exists('/var/www/html/web/health.php') ? 0 : 1);"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

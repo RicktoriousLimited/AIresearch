@@ -4,6 +4,17 @@ declare(strict_types=1);
 session_start();
 
 $assetVersion = (string) (file_exists(__DIR__ . '/assets/styles.css') ? filemtime(__DIR__ . '/assets/styles.css') : time());
+
+$scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '/storefront.php');
+$scriptDir = rtrim(str_replace('\\', '/', dirname($scriptName)), '/');
+if ($scriptDir === '' || $scriptDir === '.') {
+    $scriptDir = '';
+} elseif ($scriptDir === '/') {
+    $scriptDir = '';
+}
+
+$apiBase = ($scriptDir !== '' ? $scriptDir : '') . '/ricktorious.php';
+$apiBase = preg_replace('#//+#', '/', $apiBase) ?: '/ricktorious.php';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -11,12 +22,23 @@ $assetVersion = (string) (file_exists(__DIR__ . '/assets/styles.css') ? filemtim
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Ricktorious Limited — Adaptive Commerce Experience</title>
+    <meta name="description" content="Deploy the Ricktorious Limited adaptive commerce demo with personalised merchandising, realtime cart APIs, and integrated checkout workflows.">
+    <meta property="og:title" content="Ricktorious Limited — Adaptive Commerce Experience">
+    <meta property="og:description" content="Explore the adaptive commerce playground with catalogue APIs, behavioural insights, and a live checkout flow you can deploy today.">
+    <meta property="og:type" content="website">
+    <?php
+    $https = isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
+    $scheme = $https ? 'https' : 'http';
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? 'example.com');
+    ?>
+    <meta property="og:url" content="<?= htmlspecialchars($scheme) ?>://<?= htmlspecialchars($host) ?><?= htmlspecialchars($scriptName) ?>">
+    <meta name="theme-color" content="#38bdf8">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/web/assets/styles.css?v=<?= htmlspecialchars($assetVersion, ENT_QUOTES) ?>">
+    <link rel="stylesheet" href="assets/styles.css?v=<?= htmlspecialchars($assetVersion, ENT_QUOTES) ?>">
 </head>
-<body>
+<body data-api-base="<?= htmlspecialchars($apiBase, ENT_QUOTES) ?>">
 <header class="site-header">
     <div class="shell header-shell">
         <div class="brand">Ricktorious Limited</div>
@@ -178,6 +200,6 @@ $assetVersion = (string) (file_exists(__DIR__ . '/assets/styles.css') ? filemtim
 
 <div class="toast" id="app-toast" role="status" aria-live="polite" hidden></div>
 
-<script defer src="/web/assets/app.js?v=<?= htmlspecialchars($assetVersion, ENT_QUOTES) ?>"></script>
+<script defer src="assets/app.js?v=<?= htmlspecialchars($assetVersion, ENT_QUOTES) ?>"></script>
 </body>
 </html>

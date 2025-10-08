@@ -1,0 +1,12 @@
+.git
+.github
+node_modules
+vendor
+tests
+storage/orders/*
+storage/shipping/*
+storage/pos/*
+storage/users/*
+*.log
+Dockerfile
+composer.lock
