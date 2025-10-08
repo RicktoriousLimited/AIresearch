@@ -82,6 +82,20 @@ commerce experience built on the Ricktorious kernel:
   revisions, and publication history so editors can stage block layouts before
   pushing them live.
 
+### Unified digital workplace
+
+- **Client success hub** – `/client-hub` empowers shoppers to register
+  accounts, inspect live order timelines, and review personalisation telemetry
+  without leaving the storefront.
+- **Operations mission control** – `/operations` surfaces real-time order
+  backlogs, shipment ledgers, CRM profiles, and POS activity so staff can
+  progress fulfilment and manage customers from one console. Detailed order
+  views support manual status transitions and shipment creation.
+- **Partner innovation hub** – `/partners` packages APIs, merchandising feeds,
+  and onboarding checklists so alliances teams can extend the commerce stack
+  into external storefronts and marketplaces while monitoring shared revenue
+  and fulfilment metrics.
+
 Future work can iterate on persistent storage, authentication, pricing rules,
 inventory updates, and administrative tooling while reusing the extension-first
 composition laid out here.

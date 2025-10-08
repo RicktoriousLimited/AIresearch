@@ -1,1 +1,54 @@
-[]
+[
+    {
+        "id": "shp-lab-7520",
+        "order_id": "ord-lab-1002",
+        "carrier": "UPS",
+        "service": "ground",
+        "speed": "standard",
+        "tracking_number": "UPS-1A2B3C4D5E",
+        "label_url": "https://labels.ricktorious.local/ord-lab-1002/5ac8c0d1",
+        "cost": 14.5,
+        "currency": "$",
+        "created_at": "2024-04-20T15:42:00+00:00",
+        "estimated_delivery": "2024-04-25T15:42:00+00:00",
+        "address": {
+            "name": "Benicio Alvarez",
+            "line1": "450 Market Street",
+            "line2": "Floor 12",
+            "city": "Seattle",
+            "state": "WA",
+            "postal_code": "98101",
+            "country": "US"
+        },
+        "status": "label_created",
+        "metadata": {
+            "warehouse": "Seattle-lab"
+        }
+    },
+    {
+        "id": "shp-lab-7611",
+        "order_id": "ord-lab-0998",
+        "carrier": "FedEx",
+        "service": "express",
+        "speed": "express",
+        "tracking_number": "FDX-7F8E9D2C3B",
+        "label_url": "https://labels.ricktorious.local/ord-lab-0998/98fd2aa1",
+        "cost": 24.9,
+        "currency": "$",
+        "created_at": "2024-04-18T11:15:00+00:00",
+        "estimated_delivery": "2024-04-20T11:15:00+00:00",
+        "address": {
+            "name": "Lina Torres",
+            "line1": "19 Innovation Plaza",
+            "line2": "",
+            "city": "Austin",
+            "state": "TX",
+            "postal_code": "73301",
+            "country": "US"
+        },
+        "status": "label_created",
+        "metadata": {
+            "warehouse": "Austin-pop-up"
+        }
+    }
+]

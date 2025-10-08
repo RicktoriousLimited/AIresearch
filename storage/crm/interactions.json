@@ -1,1 +1,34 @@
-[]
+[
+    {
+        "id": "int-aurora-consult",
+        "customer_id": "cust-aurora",
+        "type": "consultation.booked",
+        "payload": {
+            "topic": "AI merchandising roadmap",
+            "owner": "noor.khan"
+        },
+        "recorded_at": "2024-04-30T11:00:00+00:00"
+    },
+    {
+        "id": "int-benicio-partner",
+        "customer_id": "cust-benicio",
+        "type": "partner.pipeline",
+        "payload": {
+            "stage": "integration",
+            "notes": "Sandbox credentials issued",
+            "owner": "jules.hart"
+        },
+        "recorded_at": "2024-04-20T16:10:00+00:00"
+    },
+    {
+        "id": "int-lina-pos",
+        "customer_id": "cust-lina",
+        "type": "pos.sale",
+        "payload": {
+            "order_id": "ord-lab-0998",
+            "location": "Austin lab pop-up",
+            "operator": "amelia.cho"
+        },
+        "recorded_at": "2024-04-18T11:18:00+00:00"
+    }
+]

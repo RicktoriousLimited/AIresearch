@@ -131,6 +131,29 @@ final class ShippingService
     }
 
     /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function shipments(): array
+    {
+        $contents = file_get_contents($this->shipmentsPath);
+        if ($contents === false) {
+            return [];
+        }
+
+        $decoded = json_decode($contents, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        usort(
+            $decoded,
+            static fn(array $a, array $b): int => strcmp((string) ($b['created_at'] ?? ''), (string) ($a['created_at'] ?? ''))
+        );
+
+        return $decoded;
+    }
+
+    /**
      * @param array<string, mixed> $shipment
      */
     private function persistShipment(array $shipment): void

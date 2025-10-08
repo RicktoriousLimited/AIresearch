@@ -163,6 +163,12 @@ Then browse to `http://localhost:8000/ricktorious.php` to explore:
 - **Content governance** – `/api/content/*` endpoints wrap the block registry
   with draft saving, publication workflows, and revision history accessible via
   the enhanced in-memory content manager.
+- **Multi-portal experience** – `/ricktorious.php/client-hub`,
+  `/ricktorious.php/operations`, and `/ricktorious.php/partners` introduce a
+  client success centre, staff operations console, and partner innovation hub.
+  Each page layers tailored analytics, workflows, and API guidance on top of
+  the shared commerce services so every stakeholder can manage the platform
+  without leaving the browser.
 
 ### Headless storefront
 

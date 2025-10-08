@@ -110,6 +110,29 @@ final class PointOfSaleService
     }
 
     /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function ledger(): array
+    {
+        $contents = file_get_contents($this->ledgerPath);
+        if ($contents === false) {
+            return [];
+        }
+
+        $decoded = json_decode($contents, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        usort(
+            $decoded,
+            static fn(array $a, array $b): int => strcmp((string) ($b['recorded_at'] ?? ''), (string) ($a['recorded_at'] ?? ''))
+        );
+
+        return $decoded;
+    }
+
+    /**
      * @param array<string, mixed> $entry
      */
     private function appendLedger(array $entry): void
