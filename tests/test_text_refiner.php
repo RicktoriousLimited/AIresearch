@@ -85,4 +85,14 @@ assertTrue(strpos($navCleaned, 'Skip to content') === false, 'Expected navigatio
 assertTrue(strpos($navCleaned, 'Conservatives would scrap stamp duty') !== false, 'Expected article headline to remain.');
 assertTrue(strpos($navCleaned, 'She said scrapping stamp duty') !== false, 'Expected article body to remain.');
 
+$gibberish = <<<TEXT
+asdf qwer zxcv
+
+This is a meaningful sentence that should survive.
+TEXT;
+
+$gibberishCleaned = $refiner->cleanDocument($gibberish);
+assertTrue(strpos($gibberishCleaned, 'asdf qwer zxcv') === false, 'Expected meaningless text to be removed.');
+assertTrue(strpos($gibberishCleaned, 'This is a meaningful sentence') !== false, 'Expected meaningful text to remain.');
+
 echo "TextRefiner tests passed\n";
