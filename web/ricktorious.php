@@ -4,29 +4,16 @@ declare(strict_types=1);
 
 require __DIR__ . '/../src/Ricktorious/Ecommerce/bootstrap.php';
 
-use Ricktorious\Ecommerce\AI\PersonalizationEngine;
 use Ricktorious\Ecommerce\Analytics\UserBehaviorTracker;
 use Ricktorious\Ecommerce\Catalog\ProductRepository;
 use Ricktorious\Ecommerce\Checkout\Cart;
 use Ricktorious\Ecommerce\Checkout\CheckoutService;
 use Ricktorious\Ecommerce\CRM\CRMService;
-use Ricktorious\Ecommerce\CRM\CustomerRepository;
-use Ricktorious\Ecommerce\CRM\InteractionRepository;
-use Ricktorious\Ecommerce\Core\AdhocApiRouter;
-use Ricktorious\Ecommerce\Core\Application;
 use Ricktorious\Ecommerce\Core\BlockRegistry;
-use Ricktorious\Ecommerce\Core\ContentManager;
-use Ricktorious\Ecommerce\Core\ExtensionManager;
-use Ricktorious\Ecommerce\Extensions\FulfillmentExtension;
-use Ricktorious\Ecommerce\Extensions\CommerceExtension;
-use Ricktorious\Ecommerce\Extensions\CoreContentExtension;
-use Ricktorious\Ecommerce\Extensions\OperationsExtension;
-use Ricktorious\Ecommerce\Extensions\UserManagementExtension;
-use Ricktorious\Ecommerce\POS\PointOfSaleService;
-use Ricktorious\Ecommerce\Orders\OrderRepository;
 use Ricktorious\Ecommerce\Orders\OrderProcessor;
+use Ricktorious\Ecommerce\Orders\OrderRepository;
+use Ricktorious\Ecommerce\POS\PointOfSaleService;
 use Ricktorious\Ecommerce\Shipping\ShippingService;
-use Ricktorious\Ecommerce\User\UserRepository;
 use Ricktorious\Ecommerce\User\UserService;
 
 session_start();
@@ -50,45 +37,38 @@ $posLedgerPath = __DIR__ . '/../storage/pos/transactions.json';
 $shipmentsPath = __DIR__ . '/../storage/shipping/shipments.json';
 $usersPath = __DIR__ . '/../storage/users/users.json';
 
-$repository = new ProductRepository($catalogPath);
-$cart = Cart::fromArray($storedCart);
-$checkoutService = new CheckoutService($ordersDirectory, $repository);
-$orderRepository = new OrderRepository($ordersDirectory);
-$shippingService = new ShippingService($shipmentsPath);
-$orderProcessor = new OrderProcessor($orderRepository, $shippingService);
-$customerRepository = new CustomerRepository($crmCustomersPath);
-$interactionRepository = new InteractionRepository($crmInteractionsPath);
-$crmService = new CRMService($customerRepository, $interactionRepository);
-$posService = new PointOfSaleService($checkoutService, $repository, $crmService, $posLedgerPath);
-$userRepository = new UserRepository($usersPath);
-$userService = new UserService($userRepository);
+$kernel = ricktorious_ecommerce_kernel([
+    'paths' => [
+        'catalog' => $catalogPath,
+        'orders' => $ordersDirectory,
+        'crm' => [
+            'customers' => $crmCustomersPath,
+            'interactions' => $crmInteractionsPath,
+        ],
+        'pos_ledger' => $posLedgerPath,
+        'shipping_ledger' => $shipmentsPath,
+        'users' => $usersPath,
+    ],
+    'session' => [
+        'user_id' => $userId,
+        'cart' => $storedCart,
+    ],
+]);
 
-$blockRegistry = new BlockRegistry();
-$contentManager = new ContentManager();
-$extensionManager = new ExtensionManager();
-$behaviorTracker = new UserBehaviorTracker();
-$personalization = new PersonalizationEngine($behaviorTracker);
-$router = new AdhocApiRouter();
+$container = $kernel->container();
+$app = $kernel->application();
 
-$coreExtension = new CoreContentExtension($behaviorTracker, $personalization, $repository);
-$commerceExtension = new CommerceExtension($repository, $cart, $checkoutService, $behaviorTracker);
-$operationsExtension = new OperationsExtension($crmService, $posService);
-$fulfillmentExtension = new FulfillmentExtension($orderRepository, $orderProcessor, $shippingService);
-$userExtension = new UserManagementExtension($userService);
-$extensionManager->addExtension($coreExtension);
-$extensionManager->addExtension($commerceExtension);
-$extensionManager->addExtension($operationsExtension);
-$extensionManager->addExtension($fulfillmentExtension);
-$extensionManager->addExtension($userExtension);
-
-$app = new Application(
-    $blockRegistry,
-    $contentManager,
-    $extensionManager,
-    $router,
-    $behaviorTracker,
-    $personalization
-);
+$repository = $container->get(ProductRepository::class);
+$cart = $container->get(Cart::class);
+$checkoutService = $container->get(CheckoutService::class);
+$orderRepository = $container->get(OrderRepository::class);
+$orderProcessor = $container->get(OrderProcessor::class);
+$shippingService = $container->get(ShippingService::class);
+$crmService = $container->get(CRMService::class);
+$posService = $container->get(PointOfSaleService::class);
+$userService = $container->get(UserService::class);
+$blockRegistry = $container->get(BlockRegistry::class);
+$behaviorTracker = $container->get(UserBehaviorTracker::class);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $uri = $_SERVER['REQUEST_URI'] ?? '/';
