@@ -44,4 +44,11 @@ $summary = $secondResult->summary();
 assertEquals(1, $summary['documents_processed'], 'documents_processed should count the new payload only.');
 assertTrue(($summary['triples'] ?? 0) >= count($combinedTriples), 'Summary triple count should reflect accumulated knowledge.');
 
+$documents = $secondResult->documents();
+assertTrue(count($documents) >= 1, 'Expected at least one document analysis payload.');
+$firstDocument = $documents[0];
+assertTrue(isset($firstDocument['cleaned'], $firstDocument['rewritten']), 'Document analysis should expose cleaned and rewritten text.');
+assertTrue(is_array($firstDocument['keywords']), 'Document keywords should be an array.');
+assertTrue(is_array($firstDocument['spelling']), 'Document spelling insights should be an array.');
+
 echo "Extractor state tests passed\n";

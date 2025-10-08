@@ -96,7 +96,7 @@ try {
 $data = $result->toArray();
 
 if (is_array($include) && $include !== []) {
-    $allowedKeys = ['triples', 'synonyms', 'relations', 'entities', 'summary', 'state'];
+    $allowedKeys = ['triples', 'synonyms', 'relations', 'entities', 'summary', 'state', 'documents'];
     $filtered = [];
     foreach ($include as $key) {
         if (!in_array($key, $allowedKeys, true)) {

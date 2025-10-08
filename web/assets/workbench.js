@@ -35,7 +35,16 @@
     continueState: document.getElementById('continue-state'),
     clearSession: document.getElementById('clear-session'),
     insightsCard: document.getElementById('insights-card'),
-    insightsList: document.getElementById('insights-list')
+    insightsList: document.getElementById('insights-list'),
+    documentInsightsCard: document.getElementById('document-insights-card'),
+    documentCleaned: document.getElementById('document-cleaned'),
+    documentCleanedText: document.getElementById('document-cleaned-text'),
+    documentRewrite: document.getElementById('document-rewrite'),
+    documentRewriteText: document.getElementById('document-rewrite-text'),
+    documentKeywords: document.getElementById('document-keywords'),
+    documentKeywordsList: document.getElementById('document-keywords-list'),
+    documentSpelling: document.getElementById('document-spelling'),
+    documentSpellingList: document.getElementById('document-spelling-list')
   };
 
   let lastResult = null;
@@ -75,6 +84,33 @@
     }
     if (elements.insightsCard) {
       elements.insightsCard.hidden = true;
+    }
+    if (elements.documentInsightsCard) {
+      elements.documentInsightsCard.hidden = true;
+    }
+    if (elements.documentCleanedText) {
+      elements.documentCleanedText.textContent = '';
+    }
+    if (elements.documentRewriteText) {
+      elements.documentRewriteText.textContent = '';
+    }
+    if (elements.documentKeywordsList) {
+      elements.documentKeywordsList.innerHTML = '';
+    }
+    if (elements.documentSpellingList) {
+      elements.documentSpellingList.innerHTML = '';
+    }
+    if (elements.documentCleaned) {
+      elements.documentCleaned.hidden = true;
+    }
+    if (elements.documentRewrite) {
+      elements.documentRewrite.hidden = true;
+    }
+    if (elements.documentKeywords) {
+      elements.documentKeywords.hidden = true;
+    }
+    if (elements.documentSpelling) {
+      elements.documentSpelling.hidden = true;
     }
   }
 
@@ -228,6 +264,96 @@
     elements.insightsCard.hidden = false;
   }
 
+  function renderDocumentInsights(documents) {
+    if (!elements.documentInsightsCard) {
+      return;
+    }
+
+    const card = elements.documentInsightsCard;
+    const cleanedSection = elements.documentCleaned;
+    const cleanedText = elements.documentCleanedText;
+    const rewriteSection = elements.documentRewrite;
+    const rewriteText = elements.documentRewriteText;
+    const keywordsSection = elements.documentKeywords;
+    const keywordsList = elements.documentKeywordsList;
+    const spellingSection = elements.documentSpelling;
+    const spellingList = elements.documentSpellingList;
+
+    card.hidden = true;
+
+    if (!Array.isArray(documents) || documents.length === 0) {
+      return;
+    }
+
+    const doc = documents[0] || {};
+    const cleaned = typeof doc.cleaned === 'string' ? doc.cleaned.trim() : '';
+    const rewrite = typeof doc.rewritten === 'string' ? doc.rewritten.trim() : '';
+    const keywords = Array.isArray(doc.keywords) ? doc.keywords : [];
+    const spelling = Array.isArray(doc.spelling) ? doc.spelling : [];
+
+    let visible = false;
+
+    if (cleanedSection && cleanedText) {
+      if (cleaned !== '') {
+        cleanedText.textContent = cleaned;
+        cleanedSection.hidden = false;
+        visible = true;
+      } else {
+        cleanedSection.hidden = true;
+      }
+    }
+
+    if (rewriteSection && rewriteText) {
+      if (rewrite !== '') {
+        rewriteText.textContent = rewrite;
+        rewriteSection.hidden = false;
+        visible = true;
+      } else {
+        rewriteSection.hidden = true;
+      }
+    }
+
+    if (keywordsSection && keywordsList) {
+      if (keywords.length > 0) {
+        const items = keywords.slice(0, 12).map((keyword) => {
+          const token = escapeHtml(keyword.token || '');
+          const count = escapeHtml(String(keyword.count || 0));
+          return `<li><span class="label">${token}</span><span class="meta">${count}×</span></li>`;
+        });
+        keywordsList.innerHTML = items.join('');
+        keywordsSection.hidden = false;
+        visible = true;
+      } else {
+        keywordsList.innerHTML = '';
+        keywordsSection.hidden = true;
+      }
+    }
+
+    if (spellingSection && spellingList) {
+      if (spelling.length > 0) {
+        const items = spelling.slice(0, 12).map((entry) => {
+          const token = escapeHtml(entry.token || '');
+          const count = escapeHtml(String(entry.count || 0));
+          const suggestionValues = Array.isArray(entry.suggestions) ? entry.suggestions.slice(0, 5) : [];
+          const suggestionText = suggestionValues.length > 0
+            ? suggestionValues.map((value) => escapeHtml(value)).join(', ')
+            : escapeHtml('No close matches');
+          return `<li><span class="label">${token} (${count}×)</span><span class="meta">${suggestionText}</span></li>`;
+        });
+        spellingList.innerHTML = items.join('');
+        spellingSection.hidden = false;
+        visible = true;
+      } else {
+        spellingList.innerHTML = '';
+        spellingSection.hidden = true;
+      }
+    }
+
+    if (visible) {
+      card.hidden = false;
+    }
+  }
+
   function getTopEntry(map) {
     const entries = Object.entries(map || {});
     if (entries.length === 0) {
@@ -371,6 +497,7 @@
       renderTriples(data.triples);
       renderSynonyms(data.synonyms);
       renderInsights(data);
+      renderDocumentInsights(data.documents);
 
       if (elements.results) {
         elements.results.hidden = false;

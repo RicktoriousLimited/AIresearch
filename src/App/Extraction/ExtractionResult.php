@@ -30,12 +30,18 @@ final class ExtractionResult implements JsonSerializable
     private array $state;
 
     /**
+     * @var array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>}>
+     */
+    private array $documents;
+
+    /**
      * @param array<int, array{subject: string, relation: string, object: string}> $triples
      * @param array<int, array{entity: string, synonyms: array<int, string>}> $synonyms
      * @param array<string, int> $relationFrequency
      * @param array<string, int> $entityFrequency
      * @param array<string, int|string> $summary
      * @param array<string, mixed> $state
+     * @param array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>}> $documents
      */
     public function __construct(
         array $triples,
@@ -43,7 +49,8 @@ final class ExtractionResult implements JsonSerializable
         array $relationFrequency,
         array $entityFrequency,
         array $summary,
-        array $state
+        array $state,
+        array $documents = []
     ) {
         $this->triples = $triples;
         $this->synonyms = $synonyms;
@@ -51,6 +58,7 @@ final class ExtractionResult implements JsonSerializable
         $this->entityFrequency = $entityFrequency;
         $this->summary = $summary;
         $this->state = $state;
+        $this->documents = $documents;
     }
 
     /**
@@ -102,6 +110,14 @@ final class ExtractionResult implements JsonSerializable
     }
 
     /**
+     * @return array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>}>
+     */
+    public function documents(): array
+    {
+        return $this->documents;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function toArray(): array
@@ -113,6 +129,7 @@ final class ExtractionResult implements JsonSerializable
             'entities' => $this->entityFrequency,
             'summary' => $this->summary,
             'state' => $this->state,
+            'documents' => $this->documents,
         ];
     }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Extraction;
 
+use App\Text\TextRefiner;
 use DateTimeImmutable;
 use SemanticEngine;
 
@@ -21,9 +22,11 @@ final class Extractor
     public function analyseMany(array $documents, ?array $state = null): ExtractionResult
     {
         $engine = $state === null ? new SemanticEngine() : SemanticEngine::fromArray($state);
+        $refiner = new TextRefiner();
 
         $processedCount = 0;
         $receivedCount = 0;
+        $documentsMeta = [];
 
         foreach ($documents as $document) {
             if (!is_string($document)) {
@@ -37,11 +40,13 @@ final class Extractor
                 continue;
             }
 
+            $documentsMeta[] = $refiner->analyseDocument($text);
+
             $engine->extractRelations($text);
             $processedCount++;
         }
 
-        return $this->buildResult($engine, $processedCount, $receivedCount);
+        return $this->buildResult($engine, $processedCount, $receivedCount, $documentsMeta);
     }
 
     /**
@@ -55,7 +60,15 @@ final class Extractor
         return $this->analyseMany([$document], $state);
     }
 
-    private function buildResult(SemanticEngine $engine, int $processedCount, int $receivedCount): ExtractionResult
+    /**
+     * @param array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>}> $documents
+     */
+    private function buildResult(
+        SemanticEngine $engine,
+        int $processedCount,
+        int $receivedCount,
+        array $documents
+    ): ExtractionResult
     {
         $triples = array_map(
             static fn(array $triple): array => [
@@ -128,7 +141,8 @@ final class Extractor
             $relationFrequency,
             $entityFrequency,
             $summary,
-            $engine->toArray()
+            $engine->toArray(),
+            $documents
         );
     }
 }
