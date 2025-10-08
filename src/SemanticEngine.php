@@ -1,10 +1,15 @@
 <?php
 
+require_once __DIR__ . '/EnglishLexicon.php';
+
 /**
  * Core semantic engine for knowledge graph extraction.
  */
 class SemanticEngine
 {
+    /** @var EnglishLexicon */
+    private EnglishLexicon $englishLexicon;
+
     /** @var array<string, array<string, array<string, true>>> */
     private array $graph = [];
 
@@ -99,6 +104,11 @@ class SemanticEngine
         'ums',
         'ms',
     ];
+
+    public function __construct(?EnglishLexicon $englishLexicon = null)
+    {
+        $this->englishLexicon = $englishLexicon ?? EnglishLexicon::loadDefault();
+    }
 
     /**
      * Normalise a token.
@@ -736,7 +746,10 @@ class SemanticEngine
             return $result;
         }
 
-        if (!$this->isReasonableSpan($subjectTokens, $subjectRaw, 8, 80) || !$this->isReasonableSpan($objectTokens, $objectRaw, 12, 120)) {
+        if (
+            !$this->isReasonableSpan($subjectTokens, $subjectRaw, 8, 80)
+            || !$this->isReasonableSpan($objectTokens, $objectRaw, 12, 120)
+        ) {
             return $result;
         }
 
@@ -990,11 +1003,66 @@ class SemanticEngine
             return false;
         }
 
+        if (!$this->spanHasLexiconSignal($tokens)) {
+            return false;
+        }
+
         return true;
     }
 
     private function looksLikeUrl(string $text): bool
     {
         return preg_match('/https?:\/\/|www\./i', $text) === 1;
+    }
+
+    /**
+     * Determine whether a span contains a meaningful English signal.
+     *
+     * @param array<int, string> $tokens
+     */
+    private function spanHasLexiconSignal(array $tokens): bool
+    {
+        $candidateCount = 0;
+        $recognized = 0;
+        $capitalized = 0;
+        $allCapitalized = true;
+
+        foreach ($tokens as $token) {
+            $normalized = $this->norm($token);
+            if ($normalized === '') {
+                continue;
+            }
+
+            $candidateCount++;
+
+            if ($this->englishLexicon->contains($normalized)) {
+                $recognized++;
+                continue;
+            }
+
+            if (preg_match('/^[A-Z][A-Za-z\-]+$/', $token) === 1 || preg_match('/^[A-Z]{2,}$/', $token) === 1) {
+                $capitalized++;
+            } else {
+                $allCapitalized = false;
+            }
+        }
+
+        if ($candidateCount === 0) {
+            return false;
+        }
+
+        if ($recognized > 0) {
+            return true;
+        }
+
+        if ($candidateCount === $capitalized && $capitalized > 0) {
+            return true;
+        }
+
+        if ($capitalized >= 2 && $allCapitalized) {
+            return true;
+        }
+
+        return false;
     }
 }

@@ -98,6 +98,15 @@ The unified extraction result returned by the UI, API, and CLI consists of:
 
 All entity names are normalised and lowercased to ensure consistent matching.
 
+## English lexicon support
+
+The semantic engine now ships with a comprehensive English lexicon sourced from
+the `resources/lexicon/english_words.txt` dataset. The lexicon is consulted when
+evaluating candidate subject and object spans to ensure they include meaningful
+language rather than navigation chrome or random character sequences. The
+dictionary also powers new heuristics for rejecting gibberish sentences while
+preserving capitalised proper nouns and acronyms.
+
 ## Development
 
 - The shared service layer lives under `src/App/Extraction` and wraps the core

@@ -1,6 +1,10 @@
 <?php
 require_once __DIR__ . '/../src/SemanticEngine.php';
 
+$lexicon = EnglishLexicon::loadDefault();
+assertTrue($lexicon->contains('analysis'), 'Expected analysis to exist in lexicon');
+assertTrue(!$lexicon->contains('qwertyasdf'), 'Unexpected gibberish token found in lexicon');
+
 ini_set('assert.exception', 1);
 
 function assertEquals($expected, $actual, string $message = ''): void {
@@ -120,5 +124,9 @@ foreach ($triples as $triple) {
         throw new AssertionError('Unexpected action triple extracted from navigation chrome.');
     }
 }
+
+$engine = new SemanticEngine();
+$text = 'xyzzypq glormed qwertyasdf.';
+assertEquals([], $engine->extractRelations($text), 'Gibberish should not generate triples');
 
 echo "All tests passed\n";
