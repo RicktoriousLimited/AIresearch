@@ -13,8 +13,42 @@ if ($scriptDir === '' || $scriptDir === '.') {
     $scriptDir = '';
 }
 
-$apiBase = ($scriptDir !== '' ? $scriptDir : '') . '/ricktorious.php';
-$apiBase = preg_replace('#//+#', '/', $apiBase) ?: '/ricktorious.php';
+$documentRoot = (string) ($_SERVER['DOCUMENT_ROOT'] ?? '');
+$basePath = '';
+if ($documentRoot !== '') {
+    $docRootReal = realpath($documentRoot) ?: $documentRoot;
+    $dirReal = realpath(__DIR__) ?: __DIR__;
+    if (strpos($dirReal, $docRootReal) === 0) {
+        $basePath = str_replace('\\', '/', substr($dirReal, strlen($docRootReal)));
+    }
+}
+
+if ($basePath === '') {
+    $basePath = $scriptDir;
+}
+
+$basePath = '/' . ltrim((string) $basePath, '/');
+if ($basePath === '/' || $basePath === '') {
+    $basePath = '';
+}
+
+/**
+ * @param string $basePath
+ * @param string $path
+ * @return string
+ */
+function buildPublicPath(string $basePath, string $path): string
+{
+    $path = '/' . ltrim($path, '/');
+    $fullPath = ($basePath !== '' ? $basePath : '') . $path;
+    $normalised = preg_replace('#//+#', '/', $fullPath);
+
+    return $normalised !== '' ? $normalised : $path;
+}
+
+$apiBase = buildPublicPath($basePath, 'ricktorious.php');
+$stylesPath = buildPublicPath($basePath, 'assets/styles.css');
+$scriptPath = buildPublicPath($basePath, 'assets/app.js');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -36,7 +70,7 @@ $apiBase = preg_replace('#//+#', '/', $apiBase) ?: '/ricktorious.php';
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="assets/styles.css?v=<?= htmlspecialchars($assetVersion, ENT_QUOTES) ?>">
+    <link rel="stylesheet" href="<?= htmlspecialchars($stylesPath, ENT_QUOTES) ?>?v=<?= htmlspecialchars($assetVersion, ENT_QUOTES) ?>">
 </head>
 <body data-api-base="<?= htmlspecialchars($apiBase, ENT_QUOTES) ?>">
 <header class="site-header">
@@ -200,6 +234,6 @@ $apiBase = preg_replace('#//+#', '/', $apiBase) ?: '/ricktorious.php';
 
 <div class="toast" id="app-toast" role="status" aria-live="polite" hidden></div>
 
-<script defer src="assets/app.js?v=<?= htmlspecialchars($assetVersion, ENT_QUOTES) ?>"></script>
+<script defer src="<?= htmlspecialchars($scriptPath, ENT_QUOTES) ?>?v=<?= htmlspecialchars($assetVersion, ENT_QUOTES) ?>"></script>
 </body>
 </html>
