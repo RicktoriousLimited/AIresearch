@@ -54,6 +54,23 @@ final class CheckoutService
         $channel = (string) ($metadata['channel'] ?? 'storefront');
         $status = (string) ($metadata['status'] ?? 'paid');
 
+        $createdAt = date(DATE_ATOM);
+        $timeline = [
+            [
+                'status' => 'created',
+                'timestamp' => $createdAt,
+                'context' => ['channel' => $channel],
+            ],
+        ];
+
+        if ($status !== 'created') {
+            $timeline[] = [
+                'status' => $status,
+                'timestamp' => $createdAt,
+                'context' => ['channel' => $channel],
+            ];
+        }
+
         $order = [
             'id' => $orderId,
             'customer' => [
@@ -65,10 +82,12 @@ final class CheckoutService
             'total' => $total,
             'currency' => $currency,
             'formatted_total' => $currency . number_format($total, 2),
-            'created_at' => date(DATE_ATOM),
+            'created_at' => $createdAt,
             'channel' => $channel,
             'status' => $status,
             'metadata' => $metadata,
+            'timeline' => $timeline,
+            'shipments' => [],
         ];
 
         $path = rtrim($this->ordersDirectory, '/');

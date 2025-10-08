@@ -153,6 +153,16 @@ Then browse to `http://localhost:8000/ricktorious.php` to explore:
 - **Operations hub** – A CRM and point-of-sale extension unifies customer
   profiles, interaction logs, and in-person sales captured via `/api/crm/*`
   and `/api/pos/sale` endpoints.
+- **Order processing & shipping** – `/api/orders/*` and `/api/shipping/quotes`
+  expose status transitions, shipment creation, and live rate quoting backed
+  by a fulfilment workflow with shipment ledger persistence under
+  `storage/shipping`.
+- **User management** – `/api/users/*` endpoints support registration,
+  authentication, role assignment, and profile updates powered by the new
+  user directory stored in `storage/users`.
+- **Content governance** – `/api/content/*` endpoints wrap the block registry
+  with draft saving, publication workflows, and revision history accessible via
+  the enhanced in-memory content manager.
 
 Consult `docs/ricktorious-ecommerce.md` for an overview of the platform
 architecture and extension system.

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Ricktorious\Ecommerce\Extensions;
 
+use InvalidArgumentException;
 use Ricktorious\Ecommerce\Core\AdhocApiRouter;
 use Ricktorious\Ecommerce\Core\BlockRegistry;
 use Ricktorious\Ecommerce\Core\BlockType;
@@ -15,6 +16,8 @@ use Ricktorious\Ecommerce\Catalog\ProductRepository;
 
 final class CoreContentExtension implements ExtensionInterface
 {
+    private ?ContentManager $contentManager = null;
+
     public function __construct(
         private UserBehaviorTracker $tracker,
         private PersonalizationEngine $personalization,
@@ -111,6 +114,8 @@ HTML;
 
     public function boot(ContentManager $contentManager): void
     {
+        $this->contentManager = $contentManager;
+
         $featured = array_map(
             function ($product): array {
                 return [
@@ -157,6 +162,107 @@ HTML;
                 'status' => 200,
                 'headers' => ['Content-Type' => 'application/json'],
                 'body' => $insights,
+            ];
+        });
+
+        $router->addRoute('GET', '/api/content/pages', function (array $query): array {
+            if (!$this->contentManager instanceof ContentManager) {
+                throw new InvalidArgumentException('Content manager is not available.');
+            }
+
+            $identifier = isset($query['identifier']) ? (string) $query['identifier'] : null;
+            if ($identifier !== null && $identifier !== '') {
+                $page = $this->contentManager->getPage($identifier);
+                if ($page === null) {
+                    return [
+                        'status' => 404,
+                        'headers' => ['Content-Type' => 'application/json'],
+                        'body' => ['error' => 'Page not found'],
+                    ];
+                }
+
+                return [
+                    'status' => 200,
+                    'headers' => ['Content-Type' => 'application/json'],
+                    'body' => [
+                        'page' => $page,
+                        'drafts' => $this->contentManager->listDrafts($identifier),
+                        'revisions' => $this->contentManager->revisionHistory($identifier),
+                    ],
+                ];
+            }
+
+            return [
+                'status' => 200,
+                'headers' => ['Content-Type' => 'application/json'],
+                'body' => [
+                    'pages' => $this->contentManager->listPages(),
+                    'drafts' => $this->contentManager->listDrafts(),
+                ],
+            ];
+        });
+
+        $router->addRoute('POST', '/api/content/drafts', function (array $query, array $payload): array {
+            if (!$this->contentManager instanceof ContentManager) {
+                throw new InvalidArgumentException('Content manager is not available.');
+            }
+
+            $identifier = trim((string) ($payload['identifier'] ?? ''));
+            $definition = (array) ($payload['definition'] ?? []);
+            $author = (string) ($payload['author'] ?? 'api');
+            $note = (string) ($payload['note'] ?? '');
+
+            if ($identifier === '') {
+                return [
+                    'status' => 422,
+                    'headers' => ['Content-Type' => 'application/json'],
+                    'body' => ['error' => 'identifier is required to save a draft.'],
+                ];
+            }
+
+            $draft = $this->contentManager->saveDraft($identifier, $definition, $author, $note);
+
+            return [
+                'status' => 201,
+                'headers' => ['Content-Type' => 'application/json'],
+                'body' => ['draft' => $draft],
+            ];
+        });
+
+        $router->addRoute('POST', '/api/content/publish', function (array $query, array $payload): array {
+            if (!$this->contentManager instanceof ContentManager) {
+                throw new InvalidArgumentException('Content manager is not available.');
+            }
+
+            $identifier = trim((string) ($payload['identifier'] ?? ''));
+            $draftId = isset($payload['draft_id']) ? (string) $payload['draft_id'] : null;
+            $definition = (array) ($payload['definition'] ?? []);
+            $author = (string) ($payload['author'] ?? 'api');
+
+            if ($identifier === '') {
+                return [
+                    'status' => 422,
+                    'headers' => ['Content-Type' => 'application/json'],
+                    'body' => ['error' => 'identifier is required to publish content.'],
+                ];
+            }
+
+            try {
+                $page = $draftId !== null && $draftId !== ''
+                    ? $this->contentManager->publishDraft($identifier, $draftId, $author)
+                    : $this->contentManager->publishPage($identifier, $definition, $author);
+            } catch (InvalidArgumentException $exception) {
+                return [
+                    'status' => 404,
+                    'headers' => ['Content-Type' => 'application/json'],
+                    'body' => ['error' => $exception->getMessage()],
+                ];
+            }
+
+            return [
+                'status' => 200,
+                'headers' => ['Content-Type' => 'application/json'],
+                'body' => ['page' => $page],
             ];
         });
     }
