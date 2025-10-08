@@ -117,6 +117,15 @@ assertContains(['google accounts', 'tagline', 'sign in'], $triples);
 assertContains(['google maps', 'tagline', 'find local businesses'], $triples);
 
 $engine = new SemanticEngine();
+$text = 'Prosecutors questioned 61-year-old Karen Spragg during the hearing.';
+$triples = $engine->extractRelations($text);
+foreach ($triples as $triple) {
+    if ($triple[1] === 'tagline') {
+        throw new AssertionError('Hyphenated ages should not trigger tagline extraction');
+    }
+}
+
+$engine = new SemanticEngine();
 $text = 'Skip to main content accessibility feedback Google AI mode all image short videos videos news shopping more tools https://www.google.com';
 $triples = $engine->extractRelations($text);
 foreach ($triples as $triple) {
