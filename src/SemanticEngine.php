@@ -332,6 +332,20 @@ class SemanticEngine
                 continue;
             }
 
+            if (preg_match('/^(?P<label>.+?)(?:\s*[:\-\x{2013}\x{2014}]\s*)(?P<desc>.+)$/u', $sentence, $matches)) {
+                $labelRaw = trim($matches['label']);
+                $descriptionRaw = trim($matches['desc']);
+                if ($labelRaw !== '' && $descriptionRaw !== '' && $this->containsAlpha($labelRaw) && $this->containsAlpha($descriptionRaw)) {
+                    $this->addTriple($labelRaw, 'tagline', $descriptionRaw);
+                    $label = $this->normalizeEntity($labelRaw);
+                    $description = $this->normalizeEntity($descriptionRaw);
+                    if ($label !== '' && $description !== '') {
+                        $triples[] = [$label, 'tagline', $description];
+                    }
+                    continue;
+                }
+            }
+
             foreach ($relationPatterns as $pattern) {
                 if (!preg_match($pattern['regex'], $sentence, $matches)) {
                     continue;
@@ -779,6 +793,11 @@ class SemanticEngine
         }
 
         return false;
+    }
+
+    private function containsAlpha(string $text): bool
+    {
+        return preg_match('/[a-z]/i', $text) === 1;
     }
 
     private function isFallbackVerbCandidate(string $normalizedToken, string $rawToken, int $index, array $tokens): bool
