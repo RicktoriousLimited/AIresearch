@@ -50,8 +50,20 @@ assertTrue($wrksEntry !== null, 'Expected wrks token to be flagged.');
 assertTrue(in_array('works', $wrksEntry['suggestions'] ?? [], true), 'Expected "works" suggestion for wrks token.');
 
 $analysis = $refiner->analyseDocument($raw);
-assertTrue(isset($analysis['cleaned'], $analysis['rewritten'], $analysis['keywords'], $analysis['spelling']), 'Analysis payload should expose all fields.');
+assertTrue(
+    isset($analysis['cleaned'], $analysis['rewritten'], $analysis['keywords'], $analysis['spelling'], $analysis['qa']),
+    'Analysis payload should expose all fields.'
+);
 assertTrue($analysis['rewritten'] !== '', 'Rewritten text should not be empty.');
+assertTrue(is_array($analysis['qa']) && $analysis['qa'] !== [], 'QA analysis should provide at least one entry.');
+
+$qaPairs = $refiner->generateQuestionAnswerPairs($raw);
+assertTrue($qaPairs !== [], 'Expected QA pairs to be generated.');
+$firstPair = $qaPairs[0];
+assertTrue(isset($firstPair['question'], $firstPair['answer'], $firstPair['response']), 'QA pair should expose question, answer and response keys.');
+assertTrue($firstPair['question'] !== '', 'QA question should not be empty.');
+assertTrue($firstPair['answer'] !== '', 'QA answer should not be empty.');
+assertTrue($firstPair['response'] === $firstPair['answer'], 'QA response should mirror the answer payload.');
 
 $bbcNav = <<<TEXT
 BBC Homepage
