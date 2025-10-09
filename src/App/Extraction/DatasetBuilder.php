@@ -15,7 +15,7 @@ use function strlen;
 final class DatasetBuilder
 {
     /**
-     * @param array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>}> $documents
+     * @param array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string}>>, qa: array<int, array{question: string, answer: string, response: string}>}> $documents
      * @param array<int, array{subject: string, relation: string, object: string}> $triples
      * @param array<int, array{entity: string, synonyms: array<int, string>}> $synonyms
      * @param array<string, int|string> $summary
@@ -28,6 +28,7 @@ final class DatasetBuilder
         $taskTally = [];
         $characterTotal = 0;
         $wordTotal = 0;
+        $qaPairTotal = 0;
 
         $structuredEntities = $this->normaliseTriples($triples);
         $synonymMap = $this->normaliseSynonyms($synonyms);
@@ -37,21 +38,23 @@ final class DatasetBuilder
             $cleaned = trim((string) ($document['cleaned'] ?? $original));
             $rewrite = trim((string) ($document['rewritten'] ?? ''));
             $keywords = $this->extractKeywords($document['keywords'] ?? []);
+            $qaPairs = $this->normaliseQuestionAnswers($document['qa'] ?? []);
 
             if ($original === '' && $cleaned === '' && $rewrite === '') {
                 continue;
             }
 
-            $tasks = $this->deriveTasks($cleaned, $rewrite, $keywords, $structuredEntities, $synonymMap);
+            $tasks = $this->deriveTasks($cleaned, $rewrite, $keywords, $structuredEntities, $synonymMap, $qaPairs);
             foreach ($tasks as $task) {
                 $taskTally[$task] = ($taskTally[$task] ?? 0) + 1;
             }
 
             $characterTotal += strlen($original !== '' ? $original : $cleaned);
             $wordTotal += $this->countWords($cleaned !== '' ? $cleaned : $original);
+            $qaPairTotal += count($qaPairs);
 
-            $prompt = $this->buildPrompt($original !== '' ? $original : $cleaned, $tasks);
-            $idealResponse = $this->buildTarget($cleaned, $rewrite, $keywords, $structuredEntities, $synonymMap);
+            $prompt = $this->buildPrompt($original !== '' ? $original : $cleaned, $tasks, $qaPairs !== []);
+            $idealResponse = $this->buildTarget($cleaned, $rewrite, $keywords, $structuredEntities, $synonymMap, $qaPairs);
 
             $rows[] = [
                 'record_id' => $index + 1,
@@ -62,6 +65,7 @@ final class DatasetBuilder
                 'key_phrases' => $keywords,
                 'structured_entities' => $structuredEntities,
                 'synonym_clusters' => $synonymMap,
+                'question_answer_pairs' => $qaPairs,
                 'prompt' => $prompt,
                 'ideal_response' => $idealResponse,
             ];
@@ -82,6 +86,7 @@ final class DatasetBuilder
                 ['name' => 'key_phrases', 'type' => 'string[]'],
                 ['name' => 'structured_entities', 'type' => 'object[]'],
                 ['name' => 'synonym_clusters', 'type' => 'object'],
+                ['name' => 'question_answer_pairs', 'type' => 'object[]'],
                 ['name' => 'prompt', 'type' => 'string'],
                 ['name' => 'ideal_response', 'type' => 'object'],
             ],
@@ -94,6 +99,7 @@ final class DatasetBuilder
             'task_distribution' => $taskTally,
             'triple_count' => count($structuredEntities),
             'synonym_cluster_count' => count($synonymMap),
+            'question_answer_pair_count' => $qaPairTotal,
             'documents_received' => $summary['documents_received'] ?? null,
             'documents_processed' => $summary['documents_processed'] ?? null,
         ];
@@ -180,9 +186,10 @@ final class DatasetBuilder
      * @param array<int, string> $keywords
      * @param array<int, array{subject: string, relation: string, object: string}> $structuredEntities
      * @param array<string, array<int, string>> $synonymMap
+     * @param array<int, array{question: string, answer: string, response: string}> $qaPairs
      * @return array<int, string>
      */
-    private function deriveTasks(string $cleaned, string $rewrite, array $keywords, array $structuredEntities, array $synonymMap): array
+    private function deriveTasks(string $cleaned, string $rewrite, array $keywords, array $structuredEntities, array $synonymMap, array $qaPairs): array
     {
         $tasks = ['text_cleaning'];
 
@@ -209,6 +216,11 @@ final class DatasetBuilder
             $tasks[] = 'text_normalisation';
         }
 
+        if ($qaPairs !== []) {
+            $tasks[] = 'question_answering';
+            $tasks[] = 'reading_comprehension';
+        }
+
         $unique = [];
         foreach ($tasks as $task) {
             if (!in_array($task, $unique, true)) {
@@ -222,12 +234,26 @@ final class DatasetBuilder
     /**
      * @param array<int, string> $tasks
      */
-    private function buildPrompt(string $input, array $tasks): string
+    private function buildPrompt(string $input, array $tasks, bool $includeQa): string
     {
         $taskList = implode(', ', $tasks);
+        $deliverables = [
+            'normalised content',
+            'a concise summary',
+            'high-signal key phrases',
+            'a structured entity graph',
+            'synonym clusters',
+        ];
+
+        if ($includeQa) {
+            $deliverables[] = 'representative question-answer pairs';
+        }
+
+        $deliverableList = implode(', ', $deliverables);
+
         return <<<PROMPT
 You are preparing machine learning training data for enterprise text analytics workflows ({$taskList}).
-Return normalised content, a concise summary, high-signal key phrases, and a structured entity graph as JSON.
+Return {$deliverableList} as JSON.
 
 Source text:
 {$input}
@@ -238,9 +264,10 @@ PROMPT;
      * @param array<int, string> $keywords
      * @param array<int, array{subject: string, relation: string, object: string}> $structuredEntities
      * @param array<string, array<int, string>> $synonymMap
+     * @param array<int, array{question: string, answer: string, response: string}> $qaPairs
      * @return array<string, mixed>
      */
-    private function buildTarget(string $cleaned, string $rewrite, array $keywords, array $structuredEntities, array $synonymMap): array
+    private function buildTarget(string $cleaned, string $rewrite, array $keywords, array $structuredEntities, array $synonymMap, array $qaPairs): array
     {
         return [
             'cleaned_text' => $cleaned,
@@ -248,7 +275,43 @@ PROMPT;
             'key_phrases' => $keywords,
             'structured_entities' => $structuredEntities,
             'synonym_clusters' => $synonymMap,
+            'question_answer_pairs' => $qaPairs,
         ];
+    }
+
+    /**
+     * @param array<int, array{question: string, answer: string, response: string}> $qaPairs
+     * @return array<int, array{question: string, answer: string, response: string}>
+     */
+    private function normaliseQuestionAnswers(array $qaPairs): array
+    {
+        $clean = [];
+
+        foreach ($qaPairs as $pair) {
+            if (!is_array($pair)) {
+                continue;
+            }
+
+            $question = trim((string) ($pair['question'] ?? ''));
+            $answer = trim((string) ($pair['answer'] ?? ''));
+            $response = trim((string) ($pair['response'] ?? $answer));
+
+            if ($question === '' || $answer === '') {
+                continue;
+            }
+
+            if ($response === '') {
+                $response = $answer;
+            }
+
+            $clean[] = [
+                'question' => $question,
+                'answer' => $answer,
+                'response' => $response,
+            ];
+        }
+
+        return $clean;
     }
 
     private function countWords(string $text): int

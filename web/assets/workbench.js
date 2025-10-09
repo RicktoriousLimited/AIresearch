@@ -506,12 +506,16 @@
     const avgWords = Math.max(0, Number(stats.average_words ?? 0));
     const tripleCount = Math.max(0, Number(stats.triple_count ?? 0));
     const synonymCount = Math.max(0, Number(stats.synonym_cluster_count ?? 0));
+    const qaPairCount = Math.max(0, Number(stats.question_answer_pair_count ?? 0));
     const distribution = stats.task_distribution && typeof stats.task_distribution === 'object' ? stats.task_distribution : {};
     const uniqueTasks = extractUniqueTasks(rows, distribution);
 
     if (elements.datasetSubtitle) {
       const taskLabel = uniqueTasks.length > 0 ? `${formatNumber(uniqueTasks.length)} workflows` : 'no workflows yet';
-      elements.datasetSubtitle.textContent = `${formatNumber(recordCount)} records across ${taskLabel}.`;
+      const baseSubtitle = `${formatNumber(recordCount)} records across ${taskLabel}`;
+      elements.datasetSubtitle.textContent = qaPairCount > 0
+        ? `${baseSubtitle} with ${formatNumber(qaPairCount)} Q&A pairs.`
+        : `${baseSubtitle}.`;
     }
 
     if (elements.datasetSummary) {
@@ -519,6 +523,7 @@
       parts.push(`<div><dt>Records</dt><dd>${formatNumber(recordCount)}</dd></div>`);
       parts.push(`<div><dt>Average length</dt><dd>${formatNumber(avgWords)} words · ${formatNumber(avgChars)} chars</dd></div>`);
       parts.push(`<div><dt>Graph coverage</dt><dd>${formatNumber(tripleCount)} triples · ${formatNumber(synonymCount)} synonym sets</dd></div>`);
+      parts.push(`<div><dt>Q&A coverage</dt><dd>${formatNumber(qaPairCount)} pairs</dd></div>`);
 
       if (uniqueTasks.length > 0) {
         const chips = uniqueTasks
@@ -688,6 +693,7 @@
       'key_phrases',
       'structured_entities',
       'synonym_clusters',
+      'question_answer_pairs',
       'prompt',
       'ideal_response'
     ];
@@ -701,7 +707,12 @@
           if (column === 'ai_tasks' || column === 'key_phrases') {
             return escapeCsv(Array.isArray(value) ? value.join('; ') : '');
           }
-          if (column === 'structured_entities' || column === 'synonym_clusters' || column === 'ideal_response') {
+          if (
+            column === 'structured_entities' ||
+            column === 'synonym_clusters' ||
+            column === 'question_answer_pairs' ||
+            column === 'ideal_response'
+          ) {
             return escapeCsv(stringifyValue(value));
           }
           if (column === 'record_id') {
