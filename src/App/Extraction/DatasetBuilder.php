@@ -9,6 +9,8 @@ use function array_values;
 use function count;
 use function in_array;
 use function is_array;
+use function is_numeric;
+use function is_string;
 use function ksort;
 use function max;
 use function preg_split;
@@ -29,7 +31,7 @@ final class DatasetBuilder
     }
 
     /**
-     * @param array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string}>>, qa: array<int, array{question: string, answer: string, response: string}>}> $documents
+     * @param array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string}>>, qa: array<int, array{question: string, answer: string, response: string}>, analytics?: array<string, mixed>}> $documents
      * @param array<int, array{subject: string, relation: string, object: string}> $triples
      * @param array<int, array{entity: string, synonyms: array<int, string>}> $synonyms
      * @param array<string, int|string> $summary
@@ -43,6 +45,15 @@ final class DatasetBuilder
         $characterTotal = 0;
         $wordTotal = 0;
         $qaPairTotal = 0;
+        $sentimentSum = 0.0;
+        $sentimentCount = 0;
+        $sentimentLabelDistribution = [];
+        $intentDistribution = [];
+        $factualityDistribution = [];
+        $conversationDocuments = 0;
+        $certaintySum = 0.0;
+        $certaintyCount = 0;
+        $analyticsDocumentCount = 0;
 
         $structuredEntities = $this->normaliseTriples($triples);
         $synonymMap = $this->normaliseSynonyms($synonyms);
@@ -66,12 +77,13 @@ final class DatasetBuilder
             $rewrite = trim((string) ($document['rewritten'] ?? ''));
             $keywords = $this->extractKeywords($document['keywords'] ?? []);
             $qaPairs = $this->normaliseQuestionAnswers($document['qa'] ?? []);
+            $analytics = $this->normaliseAnalytics($document['analytics'] ?? []);
 
             if ($original === '' && $cleaned === '' && $rewrite === '') {
                 continue;
             }
 
-            $tasks = $this->deriveTasks($cleaned, $rewrite, $keywords, $structuredEntities, $synonymMap, $qaPairs);
+            $tasks = $this->deriveTasks($cleaned, $rewrite, $keywords, $structuredEntities, $synonymMap, $qaPairs, $analytics);
             foreach ($tasks as $task) {
                 $taskTally[$task] = ($taskTally[$task] ?? 0) + 1;
             }
@@ -81,7 +93,40 @@ final class DatasetBuilder
             $qaPairTotal += count($qaPairs);
 
             $prompt = $this->buildPrompt($original !== '' ? $original : $cleaned, $tasks, $qaPairs !== []);
-            $idealResponse = $this->buildTarget($cleaned, $rewrite, $keywords, $structuredEntities, $synonymMap, $qaPairs);
+            $idealResponse = $this->buildTarget($cleaned, $rewrite, $keywords, $structuredEntities, $synonymMap, $qaPairs, $analytics);
+
+            if ($analytics !== []) {
+                $analyticsDocumentCount++;
+
+                if (isset($analytics['sentiment']['score'])) {
+                    $sentimentSum += (float) $analytics['sentiment']['score'];
+                    $sentimentCount++;
+                }
+
+                $sentimentLabel = $analytics['sentiment']['label'] ?? null;
+                if (is_string($sentimentLabel) && $sentimentLabel !== '') {
+                    $sentimentLabelDistribution[$sentimentLabel] = ($sentimentLabelDistribution[$sentimentLabel] ?? 0) + 1;
+                }
+
+                $intentPrimary = $analytics['intent']['primary'] ?? null;
+                if (is_string($intentPrimary) && $intentPrimary !== '') {
+                    $intentDistribution[$intentPrimary] = ($intentDistribution[$intentPrimary] ?? 0) + 1;
+                }
+
+                $factualityClass = $analytics['factuality']['classification'] ?? null;
+                if (is_string($factualityClass) && $factualityClass !== '') {
+                    $factualityDistribution[$factualityClass] = ($factualityDistribution[$factualityClass] ?? 0) + 1;
+                }
+
+                if (!empty($analytics['conversation']['is_conversational'])) {
+                    $conversationDocuments++;
+                }
+
+                if (isset($analytics['narrative']['certainty']['score'])) {
+                    $certaintySum += (float) $analytics['narrative']['certainty']['score'];
+                    $certaintyCount++;
+                }
+            }
 
             $rows[] = [
                 'record_id' => $index + 1,
@@ -93,10 +138,15 @@ final class DatasetBuilder
                 'structured_entities' => $structuredEntities,
                 'synonym_clusters' => $synonymMap,
                 'question_answer_pairs' => $qaPairs,
+                'document_analytics' => $analytics,
                 'prompt' => $prompt,
                 'ideal_response' => $idealResponse,
             ];
         }
+
+        ksort($sentimentLabelDistribution);
+        ksort($intentDistribution);
+        ksort($factualityDistribution);
 
         $rowCount = count($rows);
         $averageCharacters = $rowCount > 0 ? (int) round($characterTotal / $rowCount) : 0;
@@ -118,6 +168,11 @@ final class DatasetBuilder
                 ],
                 ['name' => 'synonym_clusters', 'type' => 'object'],
                 ['name' => 'question_answer_pairs', 'type' => 'object[]'],
+                [
+                    'name' => 'document_analytics',
+                    'type' => 'object',
+                    'description' => 'Context-aware analytics summarising sentiment, intent, factuality, and conversational signals.',
+                ],
                 ['name' => 'prompt', 'type' => 'string'],
                 ['name' => 'ideal_response', 'type' => 'object'],
             ],
@@ -135,6 +190,13 @@ final class DatasetBuilder
             'documents_processed' => $summary['documents_processed'] ?? null,
             'relation_type_distribution' => $relationTypeDistribution,
             'canonical_relation_distribution' => $canonicalRelationDistribution,
+            'documents_with_analytics' => $analyticsDocumentCount,
+            'conversation_document_count' => $conversationDocuments,
+            'sentiment_average_score' => $sentimentCount > 0 ? round($sentimentSum / $sentimentCount, 4) : null,
+            'sentiment_label_distribution' => $sentimentLabelDistribution,
+            'intent_distribution' => $intentDistribution,
+            'factuality_distribution' => $factualityDistribution,
+            'certainty_average' => $certaintyCount > 0 ? round($certaintySum / $certaintyCount, 4) : null,
         ];
 
         return [
@@ -228,9 +290,10 @@ final class DatasetBuilder
      * @param array<int, array{subject: string, relation: string, canonical_relation: string, relation_type: string, object: string, confidence: float, status: string, provenance: array<string, mixed>}> $structuredEntities
      * @param array<string, array<int, string>> $synonymMap
      * @param array<int, array{question: string, answer: string, response: string}> $qaPairs
+     * @param array<string, mixed> $analytics
      * @return array<int, string>
      */
-    private function deriveTasks(string $cleaned, string $rewrite, array $keywords, array $structuredEntities, array $synonymMap, array $qaPairs): array
+    private function deriveTasks(string $cleaned, string $rewrite, array $keywords, array $structuredEntities, array $synonymMap, array $qaPairs, array $analytics): array
     {
         $tasks = ['text_cleaning'];
 
@@ -260,6 +323,24 @@ final class DatasetBuilder
         if ($qaPairs !== []) {
             $tasks[] = 'question_answering';
             $tasks[] = 'reading_comprehension';
+        }
+
+        if ($analytics !== []) {
+            if (isset($analytics['sentiment'])) {
+                $tasks[] = 'sentiment_analysis';
+            }
+            if (isset($analytics['intent'])) {
+                $tasks[] = 'intent_classification';
+            }
+            if (isset($analytics['factuality'])) {
+                $tasks[] = 'factuality_assessment';
+            }
+            if (!empty($analytics['conversation']['is_conversational'])) {
+                $tasks[] = 'conversation_detection';
+            }
+            if (!empty($analytics['topics']['contextual_highlights'])) {
+                $tasks[] = 'context_linking';
+            }
         }
 
         $unique = [];
@@ -306,9 +387,10 @@ PROMPT;
      * @param array<int, array{subject: string, relation: string, canonical_relation: string, relation_type: string, object: string, confidence: float, status: string, provenance: array<string, mixed>}> $structuredEntities
      * @param array<string, array<int, string>> $synonymMap
      * @param array<int, array{question: string, answer: string, response: string}> $qaPairs
+     * @param array<string, mixed> $analytics
      * @return array<string, mixed>
      */
-    private function buildTarget(string $cleaned, string $rewrite, array $keywords, array $structuredEntities, array $synonymMap, array $qaPairs): array
+    private function buildTarget(string $cleaned, string $rewrite, array $keywords, array $structuredEntities, array $synonymMap, array $qaPairs, array $analytics): array
     {
         return [
             'cleaned_text' => $cleaned,
@@ -317,6 +399,7 @@ PROMPT;
             'structured_entities' => $structuredEntities,
             'synonym_clusters' => $synonymMap,
             'question_answer_pairs' => $qaPairs,
+            'analytics' => $analytics,
         ];
     }
 
@@ -353,6 +436,193 @@ PROMPT;
         }
 
         return $clean;
+    }
+
+    /**
+     * @param mixed $analytics
+     * @return array<string, mixed>
+     */
+    private function normaliseAnalytics($analytics): array
+    {
+        if (!is_array($analytics)) {
+            return [];
+        }
+
+        $result = [];
+
+        if (isset($analytics['sentiment']) && is_array($analytics['sentiment'])) {
+            $sentiment = $analytics['sentiment'];
+            $score = isset($sentiment['score']) && is_numeric($sentiment['score']) ? (float) $sentiment['score'] : 0.0;
+            $magnitude = isset($sentiment['magnitude']) && is_numeric($sentiment['magnitude'])
+                ? $this->clampFloat((float) $sentiment['magnitude'])
+                : $this->clampFloat(abs($score));
+
+            $result['sentiment'] = [
+                'score' => round($score, 4),
+                'label' => isset($sentiment['label']) && is_string($sentiment['label']) ? $sentiment['label'] : 'neutral',
+                'magnitude' => round($magnitude, 4),
+                'positive_terms' => $this->normaliseStringList($sentiment['positive_terms'] ?? []),
+                'negative_terms' => $this->normaliseStringList($sentiment['negative_terms'] ?? []),
+            ];
+        }
+
+        if (isset($analytics['intent']) && is_array($analytics['intent'])) {
+            $intent = $analytics['intent'];
+            $signals = [];
+            if (isset($intent['signals']) && is_array($intent['signals'])) {
+                foreach ($intent['signals'] as $name => $value) {
+                    if (!is_string($name) || !is_numeric($value)) {
+                        continue;
+                    }
+                    $signals[$name] = round($this->clampFloat((float) $value), 4);
+                }
+            }
+
+            $result['intent'] = [
+                'primary' => isset($intent['primary']) && is_string($intent['primary']) ? $intent['primary'] : 'informative',
+                'confidence' => isset($intent['confidence']) && is_numeric($intent['confidence'])
+                    ? round($this->clampFloat((float) $intent['confidence']), 4)
+                    : 0.0,
+                'signals' => $signals,
+                'explanations' => $this->normaliseStringList($intent['explanations'] ?? []),
+            ];
+        }
+
+        if (isset($analytics['factuality']) && is_array($analytics['factuality'])) {
+            $factuality = $analytics['factuality'];
+            $evidence = is_array($factuality['evidence'] ?? null) ? $factuality['evidence'] : [];
+
+            $result['factuality'] = [
+                'classification' => isset($factuality['classification']) && is_string($factuality['classification'])
+                    ? $factuality['classification']
+                    : 'opinion',
+                'score' => isset($factuality['score']) && is_numeric($factuality['score'])
+                    ? round($this->clampFloat((float) $factuality['score']), 4)
+                    : 0.5,
+                'evidence' => [
+                    'verifiable_claims' => $this->normaliseStringList($evidence['verifiable_claims'] ?? []),
+                    'speculative_phrases' => $this->normaliseStringList($evidence['speculative_phrases'] ?? []),
+                    'emotive_phrases' => $this->normaliseStringList($evidence['emotive_phrases'] ?? []),
+                ],
+            ];
+        }
+
+        if (isset($analytics['conversation']) && is_array($analytics['conversation'])) {
+            $conversation = $analytics['conversation'];
+            $dialogueSegments = [];
+            if (isset($conversation['dialogue_segments']) && is_array($conversation['dialogue_segments'])) {
+                foreach ($conversation['dialogue_segments'] as $segment) {
+                    if (!is_array($segment)) {
+                        continue;
+                    }
+                    $speaker = isset($segment['speaker']) ? (string) $segment['speaker'] : '';
+                    $utterance = isset($segment['utterance']) ? (string) $segment['utterance'] : '';
+                    if ($speaker === '' && $utterance === '') {
+                        continue;
+                    }
+                    $dialogueSegments[] = [
+                        'speaker' => $speaker,
+                        'utterance' => $utterance,
+                    ];
+                }
+            }
+
+            $result['conversation'] = [
+                'is_conversational' => !empty($conversation['is_conversational']),
+                'participants' => $this->normaliseStringList($conversation['participants'] ?? []),
+                'questions' => $this->normaliseStringList($conversation['questions'] ?? []),
+                'dialogue_segments' => array_slice($dialogueSegments, 0, 12),
+                'narrative_verbs' => $this->normaliseStringList($conversation['narrative_verbs'] ?? []),
+            ];
+        }
+
+        if (isset($analytics['topics']) && is_array($analytics['topics'])) {
+            $topics = $analytics['topics'];
+            $highlights = [];
+            if (isset($topics['contextual_highlights']) && is_array($topics['contextual_highlights'])) {
+                foreach ($topics['contextual_highlights'] as $highlight) {
+                    if (!is_array($highlight)) {
+                        continue;
+                    }
+                    $topic = isset($highlight['topic']) ? (string) $highlight['topic'] : '';
+                    $sentence = isset($highlight['sentence']) ? (string) $highlight['sentence'] : '';
+                    if ($topic === '' && $sentence === '') {
+                        continue;
+                    }
+                    $highlights[] = [
+                        'topic' => $topic,
+                        'sentence' => $sentence,
+                    ];
+                }
+            }
+
+            $result['topics'] = [
+                'focus' => $this->normaliseStringList($topics['focus'] ?? []),
+                'contextual_highlights' => array_slice($highlights, 0, 12),
+            ];
+        }
+
+        if (isset($analytics['narrative']) && is_array($analytics['narrative'])) {
+            $narrative = $analytics['narrative'];
+            $certainty = is_array($narrative['certainty'] ?? null) ? $narrative['certainty'] : [];
+
+            $result['narrative'] = [
+                'certainty' => [
+                    'score' => isset($certainty['score']) && is_numeric($certainty['score'])
+                        ? round($this->clampFloat((float) $certainty['score']), 4)
+                        : 0.5,
+                    'tone' => isset($certainty['tone']) && is_string($certainty['tone']) ? $certainty['tone'] : 'balanced',
+                    'hedging_phrases' => $this->normaliseStringList($certainty['hedging_phrases'] ?? []),
+                    'assertive_phrases' => $this->normaliseStringList($certainty['assertive_phrases'] ?? []),
+                ],
+                'emotive_language' => $this->normaliseStringList($narrative['emotive_language'] ?? []),
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param mixed $values
+     * @return array<int, string>
+     */
+    private function normaliseStringList($values): array
+    {
+        if (!is_array($values)) {
+            return [];
+        }
+
+        $result = [];
+        $seen = [];
+        foreach ($values as $value) {
+            if (is_string($value) || is_numeric($value)) {
+                $trimmed = trim((string) $value);
+            } else {
+                continue;
+            }
+
+            if ($trimmed === '' || isset($seen[$trimmed])) {
+                continue;
+            }
+
+            $seen[$trimmed] = true;
+            $result[] = $trimmed;
+        }
+
+        return $result;
+    }
+
+    private function clampFloat(float $value): float
+    {
+        if ($value < 0.0) {
+            return 0.0;
+        }
+
+        if ($value > 1.0) {
+            return 1.0;
+        }
+
+        return $value;
     }
 
     private function countWords(string $text): int

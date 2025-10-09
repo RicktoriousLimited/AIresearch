@@ -151,6 +151,12 @@
     if (elements.documentSpelling) {
       elements.documentSpelling.hidden = true;
     }
+    if (elements.documentAnalyticsContent) {
+      elements.documentAnalyticsContent.innerHTML = '';
+    }
+    if (elements.documentAnalytics) {
+      elements.documentAnalytics.hidden = true;
+    }
     if (elements.datasetCard) {
       elements.datasetCard.hidden = true;
     }
@@ -395,6 +401,8 @@
     const keywordsList = elements.documentKeywordsList;
     const spellingSection = elements.documentSpelling;
     const spellingList = elements.documentSpellingList;
+    const analyticsSection = elements.documentAnalytics;
+    const analyticsContent = elements.documentAnalyticsContent;
 
     card.hidden = true;
 
@@ -407,6 +415,7 @@
     const rewrite = typeof doc.rewritten === 'string' ? doc.rewritten.trim() : '';
     const keywords = Array.isArray(doc.keywords) ? doc.keywords : [];
     const spelling = Array.isArray(doc.spelling) ? doc.spelling : [];
+    const analytics = doc.analytics && typeof doc.analytics === 'object' ? doc.analytics : {};
 
     let visible = false;
 
@@ -466,6 +475,17 @@
       }
     }
 
+    if (analyticsSection && analyticsContent) {
+      if (analytics && Object.keys(analytics).length > 0) {
+        analyticsContent.innerHTML = buildDocumentAnalyticsMarkup(analytics);
+        analyticsSection.hidden = false;
+        visible = true;
+      } else {
+        analyticsContent.innerHTML = '';
+        analyticsSection.hidden = true;
+      }
+    }
+
     if (visible) {
       card.hidden = false;
     }
@@ -513,9 +533,14 @@
     if (elements.datasetSubtitle) {
       const taskLabel = uniqueTasks.length > 0 ? `${formatNumber(uniqueTasks.length)} workflows` : 'no workflows yet';
       const baseSubtitle = `${formatNumber(recordCount)} records across ${taskLabel}`;
-      elements.datasetSubtitle.textContent = qaPairCount > 0
+      const analyticsDocs = Math.max(0, Number(stats.documents_with_analytics ?? 0));
+      let subtitle = qaPairCount > 0
         ? `${baseSubtitle} with ${formatNumber(qaPairCount)} Q&A pairs.`
         : `${baseSubtitle}.`;
+      if (analyticsDocs > 0) {
+        subtitle = `${subtitle.replace(/\.$/, '')} · ${formatNumber(analyticsDocs)} analytics-rich docs.`;
+      }
+      elements.datasetSubtitle.textContent = subtitle;
     }
 
     if (elements.datasetSummary) {
@@ -535,6 +560,41 @@
           })
           .join(' ');
         parts.push(`<div><dt>Workflows</dt><dd class="pill-list">${chips}</dd></div>`);
+      }
+
+      const analyticsDocs = Math.max(0, Number(stats.documents_with_analytics ?? 0));
+      if (analyticsDocs > 0) {
+        const conversationalDocs = Math.max(0, Number(stats.conversation_document_count ?? 0));
+        const coverage = conversationalDocs > 0
+          ? `${formatNumber(analyticsDocs)} docs · ${formatNumber(conversationalDocs)} conversational`
+          : `${formatNumber(analyticsDocs)} docs`;
+        parts.push(`<div><dt>Analytics coverage</dt><dd>${coverage}</dd></div>`);
+      }
+
+      const sentimentAverage = Number(stats.sentiment_average_score ?? NaN);
+      if (Number.isFinite(sentimentAverage)) {
+        const sentimentLabel = `${sentimentAverage >= 0 ? '+' : ''}${sentimentAverage.toFixed(2)}`;
+        parts.push(`<div><dt>Average sentiment</dt><dd>${sentimentLabel}</dd></div>`);
+      }
+
+      const sentimentChips = buildDistributionChips(stats.sentiment_label_distribution);
+      if (sentimentChips) {
+        parts.push(`<div><dt>Sentiment mix</dt><dd class="pill-list">${sentimentChips}</dd></div>`);
+      }
+
+      const intentChips = buildDistributionChips(stats.intent_distribution);
+      if (intentChips) {
+        parts.push(`<div><dt>Intent signals</dt><dd class="pill-list">${intentChips}</dd></div>`);
+      }
+
+      const factualityChips = buildDistributionChips(stats.factuality_distribution);
+      if (factualityChips) {
+        parts.push(`<div><dt>Factuality</dt><dd class="pill-list">${factualityChips}</dd></div>`);
+      }
+
+      const certaintyAverage = Number(stats.certainty_average ?? NaN);
+      if (Number.isFinite(certaintyAverage)) {
+        parts.push(`<div><dt>Narrative certainty</dt><dd>${(certaintyAverage * 100).toFixed(0)}%</dd></div>`);
       }
 
       elements.datasetSummary.innerHTML = parts.join('');
@@ -574,6 +634,229 @@
     return Array.from(tasks);
   }
 
+  function summariseAnalytics(analytics) {
+    if (!analytics || typeof analytics !== 'object') {
+      return '';
+    }
+
+    const parts = [];
+    const sentiment = analytics.sentiment;
+    if (sentiment && typeof sentiment === 'object') {
+      const label = typeof sentiment.label === 'string' ? sentiment.label : 'neutral';
+      const score = Number(sentiment.score ?? NaN);
+      const scoreText = Number.isFinite(score) ? `${score >= 0 ? '+' : ''}${score.toFixed(2)}` : '';
+      parts.push(`Sentiment: ${capitalize(label)}${scoreText ? ` (${scoreText})` : ''}`);
+    }
+
+    const intent = analytics.intent;
+    if (intent && typeof intent === 'object' && typeof intent.primary === 'string') {
+      const confidence = Number(intent.confidence ?? NaN);
+      const confidenceText = Number.isFinite(confidence) ? `${(confidence * 100).toFixed(0)}%` : '';
+      parts.push(`Intent: ${capitalize(intent.primary)}${confidenceText ? ` (${confidenceText})` : ''}`);
+    }
+
+    const factuality = analytics.factuality;
+    if (factuality && typeof factuality === 'object' && typeof factuality.classification === 'string') {
+      const factScore = Number(factuality.score ?? NaN);
+      const factText = Number.isFinite(factScore) ? `${(factScore * 100).toFixed(0)}%` : '';
+      parts.push(`Factuality: ${capitalize(factuality.classification)}${factText ? ` (${factText})` : ''}`);
+    }
+
+    if (analytics.conversation && analytics.conversation.is_conversational) {
+      parts.push('Conversation detected');
+    }
+
+    const narrative = analytics.narrative;
+    if (narrative && typeof narrative === 'object' && narrative.certainty && typeof narrative.certainty === 'object') {
+      const tone = typeof narrative.certainty.tone === 'string' ? narrative.certainty.tone : '';
+      const certaintyScore = Number(narrative.certainty.score ?? NaN);
+      const certaintyText = Number.isFinite(certaintyScore) ? `${(certaintyScore * 100).toFixed(0)}%` : '';
+      if (tone || certaintyText) {
+        parts.push(`Certainty: ${tone ? capitalize(tone) : 'Balanced'}${certaintyText ? ` (${certaintyText})` : ''}`);
+      }
+    }
+
+    return parts.join(' · ');
+  }
+
+  function slugify(value) {
+    return String(value ?? '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+  }
+
+  function renderBadgeList(values, { limit = 4, emptyLabel = '', variant = 'default' } = {}) {
+    if (!Array.isArray(values)) {
+      return emptyLabel;
+    }
+
+    const filtered = values
+      .filter((value) => typeof value === 'string' && value.trim() !== '')
+      .slice(0, limit);
+
+    if (filtered.length === 0) {
+      return emptyLabel;
+    }
+
+    const badgeClass = (() => {
+      if (variant === 'negative') {
+        return 'analytics-badge analytics-badge--negative';
+      }
+      if (variant === 'positive') {
+        return 'analytics-badge analytics-badge--positive';
+      }
+      return 'analytics-badge';
+    })();
+
+    const items = filtered.map((value) => `<span class="${badgeClass}">${escapeHtml(value)}</span>`);
+    return `<div class="analytics-badges">${items.join('')}</div>`;
+  }
+
+  function buildDistributionChips(distribution) {
+    if (!distribution || typeof distribution !== 'object') {
+      return '';
+    }
+
+    const entries = Object.entries(distribution)
+      .filter(([label, value]) => typeof label === 'string' && Number.isFinite(Number(value)))
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .map(([label, value]) => {
+        const name = label.replace(/_/g, ' ');
+        return `<span class="pill">${escapeHtml(name)} (${formatNumber(Number(value))})</span>`;
+      });
+
+    return entries.join(' ');
+  }
+
+  function buildDocumentAnalyticsMarkup(analytics) {
+    if (!analytics || typeof analytics !== 'object') {
+      return '<p class="empty">No analytics detected.</p>';
+    }
+
+    const cards = [];
+    const sentiment = analytics.sentiment;
+    if (sentiment && typeof sentiment === 'object') {
+      const label = typeof sentiment.label === 'string' ? sentiment.label : 'neutral';
+      const score = Number(sentiment.score ?? NaN);
+      const scoreText = Number.isFinite(score) ? `${score >= 0 ? '+' : ''}${score.toFixed(2)}` : '';
+      const positive = renderBadgeList(sentiment.positive_terms ?? [], { limit: 4, variant: 'positive' });
+      const negative = renderBadgeList(sentiment.negative_terms ?? [], { limit: 4, variant: 'negative' });
+      const polarity = [
+        positive
+          ? `<div class="analytics-badge-group"><span class="analytics-badge-label">Positive</span>${positive}</div>`
+          : '',
+        negative
+          ? `<div class="analytics-badge-group"><span class="analytics-badge-label">Negative</span>${negative}</div>`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('');
+      cards.push(
+        `<article class="analytics-card analytics-card--sentiment-${slugify(label)}">
+          <h5>Sentiment</h5>
+          <p class="analytics-score">${escapeHtml(capitalize(label))}${scoreText ? ` <span>${escapeHtml(scoreText)}</span>` : ''}</p>
+          ${polarity}
+        </article>`
+      );
+    }
+
+    const intent = analytics.intent;
+    if (intent && typeof intent === 'object') {
+      const primary = typeof intent.primary === 'string' ? intent.primary : 'informative';
+      const confidence = Number(intent.confidence ?? NaN);
+      const confidenceText = Number.isFinite(confidence) ? `${(confidence * 100).toFixed(0)}%` : '';
+      let signals = '';
+      if (intent.signals && typeof intent.signals === 'object') {
+        signals = Object.entries(intent.signals)
+          .filter(([key, value]) => typeof key === 'string' && Number.isFinite(Number(value)))
+          .sort((a, b) => Number(b[1]) - Number(a[1]))
+          .slice(0, 3)
+          .map(([key, value]) => `<span class="analytics-badge">${escapeHtml(capitalize(key))} ${(Number(value) * 100).toFixed(0)}%</span>`)
+          .join('');
+        if (signals !== '') {
+          signals = `<div class="analytics-badges">${signals}</div>`;
+        }
+      }
+      const explanations = renderBadgeList(intent.explanations ?? [], { limit: 3 });
+      cards.push(
+        `<article class="analytics-card">
+          <h5>Intent</h5>
+          <p class="analytics-score">${escapeHtml(capitalize(primary))}${confidenceText ? ` <span>${escapeHtml(confidenceText)}</span>` : ''}</p>
+          ${signals || ''}
+          ${explanations || ''}
+        </article>`
+      );
+    }
+
+    const factuality = analytics.factuality;
+    if (factuality && typeof factuality === 'object') {
+      const classification = typeof factuality.classification === 'string' ? factuality.classification : 'opinion';
+      const score = Number(factuality.score ?? NaN);
+      const scoreText = Number.isFinite(score) ? `${(score * 100).toFixed(0)}% confidence` : '';
+      const evidence = factuality.evidence && typeof factuality.evidence === 'object' ? factuality.evidence : {};
+      const claims = renderBadgeList(evidence.verifiable_claims ?? [], { limit: 3 });
+      const speculative = renderBadgeList(evidence.speculative_phrases ?? [], { limit: 3 });
+      cards.push(
+        `<article class="analytics-card">
+          <h5>Factuality</h5>
+          <p class="analytics-score">${escapeHtml(capitalize(classification))}${scoreText ? ` <span>${escapeHtml(scoreText)}</span>` : ''}</p>
+          ${claims ? `<p class="analytics-note"><strong>Evidence:</strong> ${escapeHtml((evidence.verifiable_claims ?? []).slice(0, 3).join(', '))}</p>` : ''}
+          ${speculative ? `<p class="analytics-note"><strong>Speculative:</strong> ${escapeHtml((evidence.speculative_phrases ?? []).slice(0, 3).join(', '))}</p>` : ''}
+        </article>`
+      );
+    }
+
+    const conversation = analytics.conversation;
+    if (conversation && typeof conversation === 'object' && conversation.is_conversational) {
+      const participants = renderBadgeList(conversation.participants ?? [], { limit: 4 });
+      const questionCount = Array.isArray(conversation.questions) ? conversation.questions.length : 0;
+      cards.push(
+        `<article class="analytics-card">
+          <h5>Conversation signals</h5>
+          <p class="analytics-score">Interactive${questionCount > 0 ? ` <span>${escapeHtml(`${questionCount} questions`)}</span>` : ''}</p>
+          ${participants || ''}
+        </article>`
+      );
+    }
+
+    const topics = analytics.topics;
+    if (topics && typeof topics === 'object') {
+      const focus = renderBadgeList(topics.focus ?? [], { limit: 4 });
+      const highlight = Array.isArray(topics.contextual_highlights) ? topics.contextual_highlights[0] : null;
+      const sentence = highlight && typeof highlight === 'object' ? highlight.sentence : '';
+      cards.push(
+        `<article class="analytics-card">
+          <h5>Topics</h5>
+          ${focus || ''}
+          ${sentence ? `<p class="analytics-note">${escapeHtml(truncateText(sentence, 160))}</p>` : ''}
+        </article>`
+      );
+    }
+
+    const narrative = analytics.narrative;
+    if (narrative && typeof narrative === 'object') {
+      const certainty = narrative.certainty && typeof narrative.certainty === 'object' ? narrative.certainty : {};
+      const tone = typeof certainty.tone === 'string' ? certainty.tone : 'balanced';
+      const score = Number(certainty.score ?? NaN);
+      const scoreText = Number.isFinite(score) ? `${(score * 100).toFixed(0)}%` : '';
+      const emotive = renderBadgeList(narrative.emotive_language ?? [], { limit: 4 });
+      cards.push(
+        `<article class="analytics-card">
+          <h5>Narrative</h5>
+          <p class="analytics-score">${escapeHtml(capitalize(tone))}${scoreText ? ` <span>${escapeHtml(scoreText)}</span>` : ''}</p>
+          ${emotive || ''}
+        </article>`
+      );
+    }
+
+    if (cards.length === 0) {
+      return '<p class="empty">No analytics detected.</p>';
+    }
+
+    return `<div class="analytics-grid">${cards.join('')}</div>`;
+  }
+
   function buildDatasetTable(rows) {
     const body = rows
       .map((row) => {
@@ -588,11 +871,14 @@
         const responseRaw = stringifyValue(row.ideal_response, { pretty: true });
         const prompt = escapeHtml(truncateText(promptRaw, 220));
         const response = escapeHtml(truncateText(responseRaw, 220));
+        const analyticsSummary = summariseAnalytics(row.document_analytics);
+        const analyticsText = escapeHtml(analyticsSummary !== '' ? analyticsSummary : 'Not captured');
 
         return `
           <tr>
             <td data-label="#">${recordId}</td>
             <td data-label="Workflows">${tasks}</td>
+            <td data-label="Analytics">${analyticsText}</td>
             <td data-label="Prompt"><pre class="dataset-snippet">${prompt}</pre></td>
             <td data-label="Ideal response"><pre class="dataset-snippet">${response}</pre></td>
           </tr>
@@ -603,7 +889,7 @@
     return `
       <table class="dataset-table">
         <thead>
-          <tr><th>#</th><th>Workflows</th><th>Prompt</th><th>Ideal response</th></tr>
+          <tr><th>#</th><th>Workflows</th><th>Analytics</th><th>Prompt</th><th>Ideal response</th></tr>
         </thead>
         <tbody>${body}</tbody>
       </table>
@@ -694,6 +980,7 @@
       'structured_entities',
       'synonym_clusters',
       'question_answer_pairs',
+      'document_analytics',
       'prompt',
       'ideal_response'
     ];
@@ -711,6 +998,7 @@
             column === 'structured_entities' ||
             column === 'synonym_clusters' ||
             column === 'question_answer_pairs' ||
+            column === 'document_analytics' ||
             column === 'ideal_response'
           ) {
             return escapeCsv(stringifyValue(value));

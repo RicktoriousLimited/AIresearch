@@ -65,7 +65,15 @@ final class Extractor implements ExtractorInterface
     }
 
     /**
-     * @param array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>}> $documents
+     * @param array<int, array{
+     *     original: string,
+     *     cleaned: string,
+     *     rewritten: string,
+     *     keywords: array<int, array{token: string, count: int}>,
+     *     spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>,
+     *     qa: array<int, array{question: string, answer: string, response: string}>,
+     *     analytics: array<string, mixed>
+     * }> $documents
      */
     private function buildResult(
         SemanticEngine $engine,
@@ -228,12 +236,61 @@ final class Extractor implements ExtractorInterface
 
         $consistency = $this->clampScore((0.5 * $consistencyBase) + (0.5 * $sentenceBalance));
 
+        $analytics = $analysis['analytics'] ?? null;
+        if (is_array($analytics)) {
+            $factualityScore = $this->readNestedFloat($analytics, ['factuality', 'score']);
+            if ($factualityScore !== null) {
+                $quality = $this->clampScore(($quality * 0.7) + ($factualityScore * 0.3));
+            }
+
+            $certaintyScore = $this->readNestedFloat($analytics, ['narrative', 'certainty', 'score']);
+            if ($certaintyScore !== null) {
+                $consistency = $this->clampScore(($consistency * 0.65) + ($certaintyScore * 0.35));
+            }
+
+            $intentConfidence = $this->readNestedFloat($analytics, ['intent', 'confidence']);
+            if ($intentConfidence !== null) {
+                $uniqueness = $this->clampScore(($uniqueness * 0.75) + ($intentConfidence * 0.25));
+            }
+
+            $sentimentMagnitude = $this->readNestedFloat($analytics, ['sentiment', 'magnitude']);
+            if ($sentimentMagnitude !== null) {
+                $consistency = $this->clampScore(($consistency * 0.8) + ($sentimentMagnitude * 0.2));
+            }
+
+            $conversation = $analytics['conversation']['is_conversational'] ?? null;
+            if ($conversation === true) {
+                $quality = $this->clampScore($quality + 0.05);
+            }
+        }
+
         return [
             'uniqueness' => $uniqueness,
             'freshness' => $freshness,
             'quality' => $quality,
             'consistency' => $consistency,
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<int, string> $path
+     */
+    private function readNestedFloat(array $source, array $path): ?float
+    {
+        $value = $source;
+        foreach ($path as $segment) {
+            if (!is_array($value) || !array_key_exists($segment, $value)) {
+                return null;
+            }
+            $value = $value[$segment];
+        }
+
+        if (is_numeric($value)) {
+            return (float) $value;
+        }
+
+        return null;
     }
 
     private function clampScore(float $value): float

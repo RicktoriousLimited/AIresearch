@@ -204,6 +204,141 @@ final class TextRefiner
         'weather' => true,
     ];
 
+    /** @var array<string, bool> */
+    private static array $positiveSentimentWords = [
+        'advance' => true,
+        'amazing' => true,
+        'benefit' => true,
+        'confident' => true,
+        'effective' => true,
+        'efficient' => true,
+        'excellent' => true,
+        'favorable' => true,
+        'good' => true,
+        'great' => true,
+        'growth' => true,
+        'improved' => true,
+        'innovative' => true,
+        'leading' => true,
+        'positive' => true,
+        'promising' => true,
+        'successful' => true,
+        'supportive' => true,
+        'thriving' => true,
+        'transformative' => true,
+        'valuable' => true,
+    ];
+
+    /** @var array<string, bool> */
+    private static array $negativeSentimentWords = [
+        'alarming' => true,
+        'bad' => true,
+        'concern' => true,
+        'critical' => true,
+        'crisis' => true,
+        'decline' => true,
+        'difficult' => true,
+        'failure' => true,
+        'frustrated' => true,
+        'issue' => true,
+        'loss' => true,
+        'negative' => true,
+        'problem' => true,
+        'risk' => true,
+        'setback' => true,
+        'shortfall' => true,
+        'struggle' => true,
+        'trouble' => true,
+        'uncertain' => true,
+        'weak' => true,
+        'worry' => true,
+    ];
+
+    /** @var array<string, bool> */
+    private static array $speculativeVocabulary = [
+        'alleged' => true,
+        'apparently' => true,
+        'appears' => true,
+        'assume' => true,
+        'believe' => true,
+        'could' => true,
+        'estimates' => true,
+        'expected' => true,
+        'forecast' => true,
+        'likely' => true,
+        'maybe' => true,
+        'might' => true,
+        'perhaps' => true,
+        'potentially' => true,
+        'possibly' => true,
+        'presumably' => true,
+        'probable' => true,
+        'rumor' => true,
+        'rumour' => true,
+        'seems' => true,
+        'suggests' => true,
+        'uncertain' => true,
+        'unconfirmed' => true,
+        'would' => true,
+    ];
+
+    /** @var array<string, bool> */
+    private static array $assertiveVocabulary = [
+        'always' => true,
+        'certainly' => true,
+        'clearly' => true,
+        'definitely' => true,
+        'ensured' => true,
+        'ensures' => true,
+        'guaranteed' => true,
+        'must' => true,
+        'proves' => true,
+        'confirmed' => true,
+        'delivered' => true,
+        'demonstrates' => true,
+        'secured' => true,
+        'undeniably' => true,
+        'will' => true,
+    ];
+
+    /** @var array<string, bool> */
+    private static array $emotiveVocabulary = [
+        'amazed' => true,
+        'angry' => true,
+        'anxious' => true,
+        'concerned' => true,
+        'delighted' => true,
+        'disappointed' => true,
+        'excited' => true,
+        'frustrated' => true,
+        'grateful' => true,
+        'happy' => true,
+        'hopeful' => true,
+        'motivated' => true,
+        'optimistic' => true,
+        'pessimistic' => true,
+        'proud' => true,
+        'relieved' => true,
+        'shocked' => true,
+        'thrilled' => true,
+        'upset' => true,
+        'worried' => true,
+    ];
+
+    /** @var array<string, bool> */
+    private static array $dialogueVerbs = [
+        'asked' => true,
+        'explained' => true,
+        'noted' => true,
+        'replied' => true,
+        'responded' => true,
+        'said' => true,
+        'shared' => true,
+        'stated' => true,
+        'told' => true,
+        'wrote' => true,
+    ];
+
     public function __construct(?EnglishLexicon $lexicon = null)
     {
         $this->lexicon = $lexicon ?? EnglishLexicon::loadDefault();
@@ -458,14 +593,53 @@ final class TextRefiner
     {
         $cleaned = $this->cleanDocument($text);
         $rewritten = $this->rewriteDocument($text);
+        $keywords = $this->extractKeywords($text);
+        $analytics = $this->analyseNarrativeSignals($text, $cleaned, $keywords);
 
         return [
             'original' => $text,
             'cleaned' => $cleaned,
             'rewritten' => $rewritten,
-            'keywords' => $this->extractKeywords($text),
+            'keywords' => $keywords,
             'spelling' => $this->spellCheck($text),
             'qa' => $this->generateQuestionAnswerPairs($text),
+            'analytics' => $analytics,
+        ];
+    }
+
+    /**
+     * @param array<int, array{token: string, count: int}> $keywords
+     * @return array<string, mixed>
+     */
+    private function analyseNarrativeSignals(string $original, string $cleaned, array $keywords): array
+    {
+        $source = $cleaned !== '' ? $cleaned : $original;
+
+        if ($source === '') {
+            return [
+                'sentiment' => $this->analyseSentiment(''),
+                'intent' => $this->classifyIntent('', [], $this->analyseSentiment(''), $this->assessFactuality('')),
+                'factuality' => $this->assessFactuality(''),
+                'conversation' => $this->detectConversationSignals($original),
+                'topics' => $this->buildTopicHighlights('', []),
+                'narrative' => $this->evaluateNarrativeSignals(''),
+            ];
+        }
+
+        $factuality = $this->assessFactuality($source);
+        $sentiment = $this->analyseSentiment($source);
+        $conversation = $this->detectConversationSignals($original !== '' ? $original : $source);
+        $intent = $this->classifyIntent($source, $conversation, $sentiment, $factuality);
+        $topics = $this->buildTopicHighlights($source, $keywords);
+        $narrative = $this->evaluateNarrativeSignals($source);
+
+        return [
+            'sentiment' => $sentiment,
+            'intent' => $intent,
+            'factuality' => $factuality,
+            'conversation' => $conversation,
+            'topics' => $topics,
+            'narrative' => $narrative,
         ];
     }
 
@@ -566,6 +740,717 @@ final class TextRefiner
         }
 
         return $pairs;
+    }
+
+    /**
+     * @return array{score: float, label: string, magnitude: float, positive_terms: array<int, string>, negative_terms: array<int, string>}
+     */
+    private function analyseSentiment(string $text): array
+    {
+        $tokens = $this->tokenise($text);
+        if ($tokens === []) {
+            return [
+                'score' => 0.0,
+                'label' => 'neutral',
+                'magnitude' => 0.0,
+                'positive_terms' => [],
+                'negative_terms' => [],
+            ];
+        }
+
+        $positiveHits = [];
+        $negativeHits = [];
+        $positiveCount = 0;
+        $negativeCount = 0;
+
+        foreach ($tokens as $token) {
+            if (isset(self::$positiveSentimentWords[$token])) {
+                $positiveHits[$token] = true;
+                $positiveCount++;
+            }
+
+            if (isset(self::$negativeSentimentWords[$token])) {
+                $negativeHits[$token] = true;
+                $negativeCount++;
+            }
+        }
+
+        $total = $positiveCount + $negativeCount;
+        $score = 0.0;
+        if ($total > 0) {
+            $score = ($positiveCount - $negativeCount) / $total;
+        }
+
+        $label = 'neutral';
+        if ($score > 0.15) {
+            $label = 'positive';
+        } elseif ($score < -0.15) {
+            $label = 'negative';
+        }
+
+        $magnitude = abs($score);
+
+        return [
+            'score' => round($score, 4),
+            'label' => $label,
+            'magnitude' => round($magnitude, 4),
+            'positive_terms' => $this->mapToList($positiveHits),
+            'negative_terms' => $this->mapToList($negativeHits),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $conversation
+     * @param array<string, mixed> $sentiment
+     * @param array<string, mixed> $factuality
+     * @return array{primary: string, confidence: float, signals: array<string, float>, explanations: array<int, string>}
+     */
+    private function classifyIntent(string $text, array $conversation, array $sentiment, array $factuality): array
+    {
+        $lower = strtolower($text);
+        $signals = [
+            'informative' => 0.0,
+            'persuasive' => 0.0,
+            'instructional' => 0.0,
+            'narrative' => 0.0,
+            'expressive' => 0.0,
+            'conversational' => 0.0,
+        ];
+        $explanations = [];
+
+        if ($text !== '') {
+            $signals['informative'] += 0.2;
+        }
+
+        $informativePatterns = [
+            'according to',
+            'analysis',
+            'data shows',
+            'evidence',
+            'findings',
+            'reported',
+            'research',
+            'study',
+        ];
+
+        foreach ($informativePatterns as $pattern) {
+            if (strpos($lower, $pattern) !== false) {
+                $signals['informative'] += 0.6;
+                $explanations[] = 'References to research or evidence suggest an informative tone.';
+                break;
+            }
+        }
+
+        $persuasivePatterns = [
+            'should ',
+            'must ',
+            'we urge',
+            'we recommend',
+            'need to',
+            'call to action',
+            'imperative',
+            'critical that',
+        ];
+        foreach ($persuasivePatterns as $pattern) {
+            if (strpos($lower, $pattern) !== false) {
+                $signals['persuasive'] += 0.8;
+                $explanations[] = 'Directive language indicates a persuasive intent.';
+                break;
+            }
+        }
+
+        $instructionalPatterns = [
+            'how to',
+            'step ',
+            'first,',
+            'next,',
+            'finally,',
+            'guide',
+            'instructions',
+            'procedure',
+        ];
+        foreach ($instructionalPatterns as $pattern) {
+            if (strpos($lower, $pattern) !== false) {
+                $signals['instructional'] += 0.8;
+                $explanations[] = 'Sequenced steps signal an instructional intent.';
+                break;
+            }
+        }
+
+        $narrativePatterns = [
+            'i remember',
+            'i was',
+            'we were',
+            'story',
+            'journey',
+            'experience',
+            'chapter',
+            'narrative',
+        ];
+        foreach ($narrativePatterns as $pattern) {
+            if (strpos($lower, $pattern) !== false) {
+                $signals['narrative'] += 0.7;
+                $explanations[] = 'Personal anecdotes contribute to a narrative style.';
+                break;
+            }
+        }
+
+        $expressivePatterns = [
+            'i feel',
+            'i believe',
+            'i think',
+            'excited',
+            'thrilled',
+            'worried',
+            'anxious',
+            'frustrated',
+            'grateful',
+            'proud',
+            'happy',
+            'angry',
+        ];
+        foreach ($expressivePatterns as $pattern) {
+            if (strpos($lower, $pattern) !== false) {
+                $signals['expressive'] += 0.8;
+                $explanations[] = 'Emotion-rich phrasing highlights an expressive intent.';
+                break;
+            }
+        }
+
+        if (!empty($conversation['is_conversational'])) {
+            $signals['conversational'] += 0.9;
+            $explanations[] = 'Dialogue structure indicates an interactive exchange.';
+        }
+
+        $questionCount = 0;
+        if (isset($conversation['questions']) && is_array($conversation['questions'])) {
+            $questionCount = count($conversation['questions']);
+        }
+        if ($questionCount > 0) {
+            $signals['conversational'] += min(1.0, 0.3 + ($questionCount * 0.15));
+            $explanations[] = 'Questions embedded in the text suggest conversational intent.';
+        }
+
+        if (strpos($lower, 'you ') !== false || strpos($lower, 'your ') !== false) {
+            $signals['conversational'] += 0.3;
+        }
+
+        $magnitude = 0.0;
+        if (isset($sentiment['magnitude'])) {
+            $magnitude = (float) $sentiment['magnitude'];
+        } elseif (isset($sentiment['score'])) {
+            $magnitude = abs((float) $sentiment['score']);
+        }
+        if ($magnitude >= 0.35) {
+            $signals['expressive'] += min(0.8, $magnitude);
+        }
+
+        $evidenceCount = 0;
+        if (isset($factuality['evidence']['verifiable_claims']) && is_array($factuality['evidence']['verifiable_claims'])) {
+            $evidenceCount = count($factuality['evidence']['verifiable_claims']);
+        }
+        if ($evidenceCount > 0 || (($factuality['score'] ?? 0.0) >= 0.6)) {
+            $signals['informative'] += 0.9;
+            $explanations[] = 'Concrete claims strengthen the informative intent.';
+        }
+
+        if (($factuality['score'] ?? 0.5) < 0.45) {
+            $signals['expressive'] += 0.4;
+            $signals['persuasive'] += 0.2;
+        }
+
+        $total = 0.0;
+        foreach ($signals as $value) {
+            $total += max(0.0, $value);
+        }
+        if ($total <= 0) {
+            $total = 1.0;
+            $signals['informative'] = 1.0;
+        }
+
+        $normalised = [];
+        foreach ($signals as $key => $value) {
+            $normalised[$key] = round(max(0.0, $value) / $total, 4);
+        }
+
+        $primary = 'informative';
+        $maxScore = -1.0;
+        foreach ($normalised as $key => $value) {
+            if ($value > $maxScore) {
+                $maxScore = $value;
+                $primary = $key;
+            }
+        }
+
+        return [
+            'primary' => $primary,
+            'confidence' => round(max(0.0, $maxScore), 4),
+            'signals' => $normalised,
+            'explanations' => $this->uniqueStrings($explanations),
+        ];
+    }
+
+    /**
+     * @return array{
+     *     classification: string,
+     *     score: float,
+     *     evidence: array{
+     *         verifiable_claims: array<int, string>,
+     *         speculative_phrases: array<int, string>,
+     *         emotive_phrases: array<int, string>
+     *     }
+     * }
+     */
+    private function assessFactuality(string $text): array
+    {
+        if ($text === '') {
+            return [
+                'classification' => 'opinion',
+                'score' => 0.5,
+                'evidence' => [
+                    'verifiable_claims' => [],
+                    'speculative_phrases' => [],
+                    'emotive_phrases' => [],
+                ],
+            ];
+        }
+
+        $verifiable = [];
+        $speculative = [];
+        $emotive = [];
+
+        $numericPattern = '/\b\d+(?:\.\d+)?\s?(?:%|percent|million|billion|k|thousand)?\b/iu';
+        if (preg_match_all($numericPattern, $text, $matches)) {
+            foreach ($matches[0] as $match) {
+                $verifiable[$match] = true;
+            }
+        }
+
+        if (preg_match_all('/\b(19|20)\d{2}\b/u', $text, $yearMatches)) {
+            foreach ($yearMatches[0] as $match) {
+                $verifiable[$match] = true;
+            }
+        }
+
+        if (preg_match_all('/https?:\/\/[^\s)]+/u', $text, $linkMatches)) {
+            foreach ($linkMatches[0] as $match) {
+                $verifiable[$match] = true;
+            }
+        }
+
+        $evidencePhrases = [
+            'according to',
+            'data from',
+            'evidence from',
+            'research from',
+            'study by',
+            'reported by',
+            'analysis by',
+        ];
+        $lower = strtolower($text);
+        foreach ($evidencePhrases as $phrase) {
+            if (strpos($lower, $phrase) !== false) {
+                $verifiable[$phrase] = true;
+            }
+        }
+
+        foreach (self::$speculativeVocabulary as $term => $flag) {
+            if ($flag !== true) {
+                continue;
+            }
+            if (preg_match('/\b' . preg_quote($term, '/') . '\b/u', $lower)) {
+                $speculative[$term] = true;
+            }
+        }
+
+        foreach (self::$emotiveVocabulary as $term => $flag) {
+            if ($flag !== true) {
+                continue;
+            }
+            if (preg_match('/\b' . preg_quote($term, '/') . '\b/u', $lower)) {
+                $emotive[$term] = true;
+            }
+        }
+
+        $evidenceCount = count($verifiable);
+        $speculativeCount = count($speculative);
+        $total = $evidenceCount + $speculativeCount;
+
+        $score = 0.5;
+        if ($total > 0) {
+            $score = 0.5 + (($evidenceCount - $speculativeCount) / $total) * 0.5;
+        }
+        $score = $this->clamp($score, 0.0, 1.0);
+
+        $classification = 'opinion';
+        if ($score >= 0.65) {
+            $classification = 'factual';
+        } elseif ($score <= 0.35) {
+            $classification = 'speculative';
+        }
+
+        return [
+            'classification' => $classification,
+            'score' => round($score, 4),
+            'evidence' => [
+                'verifiable_claims' => array_slice($this->mapToList($verifiable), 0, 12),
+                'speculative_phrases' => array_slice($this->mapToList($speculative), 0, 12),
+                'emotive_phrases' => array_slice($this->mapToList($emotive), 0, 12),
+            ],
+        ];
+    }
+
+    /**
+     * @return array{is_conversational: bool, participants: array<int, string>, questions: array<int, string>, dialogue_segments: array<int, array{speaker: string, utterance: string}>, narrative_verbs: array<int, string>}
+     */
+    private function detectConversationSignals(string $text): array
+    {
+        if ($text === '') {
+            return [
+                'is_conversational' => false,
+                'participants' => [],
+                'questions' => [],
+                'dialogue_segments' => [],
+                'narrative_verbs' => [],
+            ];
+        }
+
+        $participants = [];
+        $participantLookup = [];
+        $segments = [];
+        $questions = [];
+        $verbHits = [];
+
+        $registerParticipant = static function (string $name) use (&$participants, &$participantLookup): void {
+            $normalized = strtolower(trim($name));
+            if ($normalized === '' || isset($participantLookup[$normalized])) {
+                return;
+            }
+            $participantLookup[$normalized] = true;
+            $participants[] = trim($name);
+        };
+
+        $lines = preg_split('/\r\n|\r|\n/', $text);
+        if ($lines === false) {
+            $lines = [$text];
+        }
+        foreach ($lines as $line) {
+            if ($line === '') {
+                continue;
+            }
+
+            if (preg_match('/^\s*([A-Z][A-Za-z\s]{1,40}?):\s*(.+)$/', $line, $match) === 1) {
+                $speaker = trim($match[1]);
+                $utterance = trim($match[2]);
+                if ($speaker !== '' && $utterance !== '') {
+                    $segments[] = [
+                        'speaker' => $speaker,
+                        'utterance' => $this->ensureSentencePunctuation($utterance),
+                    ];
+                    $registerParticipant($speaker);
+                }
+            }
+        }
+
+        $dialogueVerbs = array_keys(self::$dialogueVerbs);
+        $verbPattern = '/\b([A-Z][A-Za-z\-\']{1,40})\b\s+(?:' . implode('|', array_map('preg_quote', $dialogueVerbs)) . ')\s+["“]([^"“”]{3,})["”]/u';
+        $matchCount = preg_match_all($verbPattern, $text, $matches, PREG_SET_ORDER);
+        if ($matchCount !== false && $matchCount > 0) {
+            foreach ($matches as $match) {
+                $speaker = trim($match[1]);
+                $quote = trim($match[2]);
+                if ($speaker !== '' && $quote !== '') {
+                    $segments[] = [
+                        'speaker' => $speaker,
+                        'utterance' => $this->ensureSentencePunctuation($quote),
+                    ];
+                    $registerParticipant($speaker);
+                }
+            }
+        }
+
+        $sentences = $this->extractSentences($text);
+        foreach ($sentences as $sentence) {
+            if (strpos($sentence, '?') !== false) {
+                $questions[] = $sentence;
+            }
+        }
+
+        $tokens = $this->tokenise($text);
+        foreach ($tokens as $token) {
+            if (isset(self::$dialogueVerbs[$token])) {
+                $verbHits[$token] = true;
+            }
+        }
+
+        return [
+            'is_conversational' => $segments !== [] || $questions !== [] || $verbHits !== [],
+            'participants' => array_slice($participants, 0, 8),
+            'questions' => array_slice($this->uniqueStrings($questions), 0, 5),
+            'dialogue_segments' => array_slice($segments, 0, 8),
+            'narrative_verbs' => $this->mapToList($verbHits),
+        ];
+    }
+
+    /**
+     * @param array<int, array{token: string, count: int}> $keywords
+     * @return array{focus: array<int, string>, contextual_highlights: array<int, array{topic: string, sentence: string}>}
+     */
+    private function buildTopicHighlights(string $text, array $keywords): array
+    {
+        $focusMap = [];
+        foreach ($keywords as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $token = trim((string) ($entry['token'] ?? ''));
+            if ($token === '') {
+                continue;
+            }
+            $normalized = strtolower($token);
+            if (isset($focusMap[$normalized])) {
+                continue;
+            }
+            $focusMap[$normalized] = $token;
+            if (count($focusMap) >= 8) {
+                break;
+            }
+        }
+
+        $focus = array_values($focusMap);
+        $sentences = $this->extractSentences($text);
+        $highlights = [];
+        $usedSentences = [];
+
+        foreach ($focus as $topic) {
+            $topicLower = strtolower($topic);
+            foreach ($sentences as $sentence) {
+                $normalizedSentence = strtolower($sentence);
+                if (strpos($normalizedSentence, $topicLower) === false) {
+                    continue;
+                }
+                if (isset($usedSentences[$sentence])) {
+                    continue;
+                }
+                $highlights[] = [
+                    'topic' => $topic,
+                    'sentence' => $sentence,
+                ];
+                $usedSentences[$sentence] = true;
+                if (count($highlights) >= 6) {
+                    break 2;
+                }
+                break;
+            }
+        }
+
+        if ($highlights === [] && $sentences !== []) {
+            foreach ($sentences as $sentence) {
+                $highlights[] = [
+                    'topic' => 'overview',
+                    'sentence' => $sentence,
+                ];
+                if (count($highlights) >= 3) {
+                    break;
+                }
+            }
+            if ($focus === []) {
+                $focus = ['overview'];
+            }
+        }
+
+        return [
+            'focus' => $focus,
+            'contextual_highlights' => $highlights,
+        ];
+    }
+
+    /**
+     * @return array{certainty: array{score: float, tone: string, hedging_phrases: array<int, string>, assertive_phrases: array<int, string>}, emotive_language: array<int, string>}
+     */
+    private function evaluateNarrativeSignals(string $text): array
+    {
+        if ($text === '') {
+            return [
+                'certainty' => [
+                    'score' => 0.5,
+                    'tone' => 'balanced',
+                    'hedging_phrases' => [],
+                    'assertive_phrases' => [],
+                ],
+                'emotive_language' => [],
+            ];
+        }
+
+        $lower = strtolower($text);
+        $hedging = [];
+        foreach (self::$speculativeVocabulary as $term => $flag) {
+            if ($flag !== true) {
+                continue;
+            }
+            if (preg_match('/\b' . preg_quote($term, '/') . '\b/u', $lower)) {
+                $hedging[$term] = true;
+            }
+        }
+
+        $assertive = [];
+        foreach (self::$assertiveVocabulary as $term => $flag) {
+            if ($flag !== true) {
+                continue;
+            }
+            if (preg_match('/\b' . preg_quote($term, '/') . '\b/u', $lower)) {
+                $assertive[$term] = true;
+            }
+        }
+
+        $hedgingCount = count($hedging);
+        $assertiveCount = count($assertive);
+        $total = $hedgingCount + $assertiveCount;
+        $score = 0.5;
+        if ($total > 0) {
+            $score = 0.5 + (($assertiveCount - $hedgingCount) / $total) * 0.5;
+        }
+        $score = $this->clamp($score, 0.0, 1.0);
+
+        $tone = 'balanced';
+        if ($score >= 0.65) {
+            $tone = 'confident';
+        } elseif ($score <= 0.35) {
+            $tone = 'cautious';
+        }
+
+        $emotive = [];
+        foreach (self::$emotiveVocabulary as $term => $flag) {
+            if ($flag !== true) {
+                continue;
+            }
+            if (preg_match('/\b' . preg_quote($term, '/') . '\b/u', $lower)) {
+                $emotive[$term] = true;
+            }
+        }
+
+        return [
+            'certainty' => [
+                'score' => round($score, 4),
+                'tone' => $tone,
+                'hedging_phrases' => $this->mapToList($hedging),
+                'assertive_phrases' => $this->mapToList($assertive),
+            ],
+            'emotive_language' => $this->mapToList($emotive),
+        ];
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function tokenise(string $text): array
+    {
+        if ($text === '') {
+            return [];
+        }
+
+        $lower = strtolower($text);
+        $parts = preg_split('/[^a-z0-9]+/u', $lower);
+        if ($parts === false) {
+            return [];
+        }
+
+        $tokens = [];
+        foreach ($parts as $part) {
+            $trimmed = trim($part);
+            if ($trimmed === '') {
+                continue;
+            }
+            $tokens[] = $trimmed;
+        }
+
+        return $tokens;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function extractSentences(string $text): array
+    {
+        if ($text === '') {
+            return [];
+        }
+
+        $sentences = preg_split('/(?<=[.!?])\s+/u', $text);
+        if ($sentences === false) {
+            $sentences = [$text];
+        }
+
+        $result = [];
+        foreach ($sentences as $sentence) {
+            $sentence = trim($sentence);
+            if ($sentence === '') {
+                continue;
+            }
+            $result[] = $this->ensureSentencePunctuation($sentence);
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param array<string, bool> $map
+     * @return array<int, string>
+     */
+    private function mapToList(array $map): array
+    {
+        $values = [];
+        foreach ($map as $value => $flag) {
+            if ($flag !== true) {
+                continue;
+            }
+            $trimmed = trim((string) $value);
+            if ($trimmed === '') {
+                continue;
+            }
+            $values[] = $trimmed;
+        }
+
+        $values = array_values(array_unique($values));
+        sort($values, SORT_NATURAL | SORT_FLAG_CASE);
+
+        return $values;
+    }
+
+    /**
+     * @param array<int, string> $values
+     * @return array<int, string>
+     */
+    private function uniqueStrings(array $values): array
+    {
+        $result = [];
+        $seen = [];
+        foreach ($values as $value) {
+            $trimmed = trim((string) $value);
+            if ($trimmed === '') {
+                continue;
+            }
+            if (isset($seen[$trimmed])) {
+                continue;
+            }
+            $seen[$trimmed] = true;
+            $result[] = $trimmed;
+        }
+
+        return $result;
+    }
+
+    private function clamp(float $value, float $min = 0.0, float $max = 1.0): float
+    {
+        if ($value < $min) {
+            return $min;
+        }
+
+        if ($value > $max) {
+            return $max;
+        }
+
+        return $value;
     }
 
     private function ensureSentencePunctuation(string $sentence): string
