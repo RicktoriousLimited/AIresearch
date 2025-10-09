@@ -186,6 +186,10 @@ $scrapeEndpoint = $assetBase . '/api/scrape.php';
                         <h4>Spelling suggestions</h4>
                         <ul id="document-spelling-list" class="pill-list"></ul>
                     </div>
+                    <div class="document-cleanup" id="document-analytics" hidden>
+                        <h4>Deeper analytics</h4>
+                        <div id="document-analytics-content" class="analytics-grid"></div>
+                    </div>
                 </article>
             </div>
         </section>

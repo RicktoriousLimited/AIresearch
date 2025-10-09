@@ -577,6 +577,114 @@ textarea:focus {
     overflow-y: auto;
 }
 
+.analytics-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 720px) {
+    .analytics-grid {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+}
+
+.analytics-card {
+    padding: 0.9rem 1rem;
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.58);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.35);
+    transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.analytics-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(148, 163, 184, 0.45);
+}
+
+.analytics-card h5 {
+    margin: 0;
+    font-size: 0.95rem;
+    color: rgba(226, 232, 240, 0.9);
+}
+
+.analytics-score {
+    margin: 0.4rem 0 0.3rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: rgba(148, 163, 184, 0.95);
+}
+
+.analytics-score span {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: rgba(148, 163, 184, 0.75);
+    margin-left: 0.35rem;
+}
+
+.analytics-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin-top: 0.6rem;
+}
+
+.analytics-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    background: rgba(96, 165, 250, 0.22);
+    color: rgba(226, 232, 240, 0.92);
+    font-size: 0.75rem;
+    letter-spacing: 0.01em;
+}
+
+.analytics-badge--positive {
+    background: rgba(34, 197, 94, 0.18);
+    color: rgba(220, 252, 231, 0.95);
+}
+
+.analytics-badge--negative {
+    background: rgba(248, 113, 113, 0.18);
+    color: rgba(254, 226, 226, 0.95);
+}
+
+.analytics-badge-group {
+    margin-top: 0.75rem;
+}
+
+.analytics-badge-group .analytics-badges {
+    margin-top: 0.35rem;
+}
+
+.analytics-badge-label {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: rgba(148, 163, 184, 0.7);
+}
+
+.analytics-note {
+    margin: 0.45rem 0 0;
+    font-size: 0.85rem;
+    color: rgba(203, 213, 225, 0.85);
+}
+
+.analytics-card--sentiment-positive .analytics-score {
+    color: #22c55e;
+}
+
+.analytics-card--sentiment-negative .analytics-score {
+    color: #f97316;
+}
+
+.analytics-card--sentiment-neutral .analytics-score {
+    color: rgba(148, 163, 184, 0.95);
+}
+
 .url-input {
     display: flex;
     flex-wrap: wrap;
