@@ -7,6 +7,7 @@ namespace App\KnowledgeGraph;
 use App\Extraction\ExtractionResult;
 use App\Extraction\ExtractorInterface;
 use App\Scraping\ScraperInterface;
+use App\Scraping\ScrapeResult;
 use App\Scraping\WebScraper;
 use App\Extraction\Extractor;
 use DateInterval;
@@ -50,6 +51,16 @@ final class ResearchService
     {
         $scrapeResult = $this->scraper->scrape($url);
 
+        return $this->ingestScrapeResult($scrapeResult);
+    }
+
+    /**
+     * Persist a pre-scraped page into the knowledge graph.
+     *
+     * @return array{graph: array<string, mixed>, source: array<string, mixed>, sources: array<int, array<string, mixed>>}
+     */
+    public function ingestScrapeResult(ScrapeResult $scrapeResult): array
+    {
         $payload = $this->repository->load();
         $state = null;
         if (isset($payload['graph']['state']) && is_array($payload['graph']['state'])) {
@@ -70,6 +81,10 @@ final class ResearchService
                 'status' => 'active',
             ]
         );
+
+        if (!isset($sourceRecord['links']) || !is_array($sourceRecord['links'])) {
+            $sourceRecord['links'] = [];
+        }
 
         $sources = $this->repository->upsertSource($sources, $sourceRecord);
         $this->repository->save($result, $sources);
@@ -243,6 +258,15 @@ final class ResearchService
     {
         $payload = $this->repository->load();
         return is_array($payload['sources']) ? array_values($payload['sources']) : [];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function currentGraph(): ?array
+    {
+        $payload = $this->repository->load();
+        return isset($payload['graph']) && is_array($payload['graph']) ? $payload['graph'] : null;
     }
 
     private function rebuildGraph(array $documents): ExtractionResult

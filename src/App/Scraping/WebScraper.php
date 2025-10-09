@@ -9,8 +9,13 @@ use DOMNode;
 use DOMXPath;
 use RuntimeException;
 
+use function array_pop;
 use function array_unique;
+use function array_values;
+use function explode;
+use function filter_var;
 use function function_exists;
+use function implode;
 use function in_array;
 use function is_string;
 use function libxml_clear_errors;
@@ -19,10 +24,17 @@ use function mb_convert_encoding;
 use function mb_strtolower;
 use function preg_match;
 use function preg_replace;
+use function parse_url;
 use function strip_tags;
 use function str_replace;
+use function str_starts_with;
+use function strrpos;
 use function stream_context_create;
+use function strpos;
 use function trim;
+use function substr;
+use const FILTER_VALIDATE_URL;
+use const PHP_URL_SCHEME;
 
 final class WebScraper implements ScraperInterface
 {
@@ -35,7 +47,7 @@ final class WebScraper implements ScraperInterface
     {
         $normalisedUrl = $this->normaliseUrl($url);
         $html = $this->download($normalisedUrl);
-        $document = $this->extractDocument($html);
+        $document = $this->extractDocument($html, $normalisedUrl);
 
         $paragraphs = $document['paragraphs'];
         $text = trim(implode("\n\n", $paragraphs));
@@ -44,7 +56,8 @@ final class WebScraper implements ScraperInterface
             $normalisedUrl,
             $document['title'],
             $text,
-            $paragraphs
+            $paragraphs,
+            $document['links']
         );
     }
 
@@ -111,12 +124,13 @@ final class WebScraper implements ScraperInterface
     }
 
     /**
-     * @return array{title: string, paragraphs: array<int, string>}
+     * @return array{title: string, paragraphs: array<int, string>, links: array<int, string>}
      */
-    private function extractDocument(string $html): array
+    private function extractDocument(string $html, string $baseUrl): array
     {
         $paragraphs = [];
         $title = '';
+        $links = [];
 
         $internalErrors = libxml_use_internal_errors(true);
         try {
@@ -131,6 +145,7 @@ final class WebScraper implements ScraperInterface
                 return [
                     'title' => '',
                     'paragraphs' => $text === '' ? [] : [$text],
+                    'links' => [],
                 ];
             }
 
@@ -160,6 +175,15 @@ final class WebScraper implements ScraperInterface
                 }
             }
 
+            foreach ($dom->getElementsByTagName('a') as $linkNode) {
+                $href = $linkNode->attributes?->getNamedItem('href')?->nodeValue ?? '';
+                $resolved = $this->resolveLink($href, $baseUrl);
+                if ($resolved === null) {
+                    continue;
+                }
+                $links[] = $resolved;
+            }
+
             if ($paragraphs === []) {
                 $body = $dom->getElementsByTagName('body')->item(0);
                 if ($body !== null) {
@@ -171,6 +195,7 @@ final class WebScraper implements ScraperInterface
             }
 
             $paragraphs = array_values(array_unique($paragraphs));
+            $links = array_values(array_unique($links));
         } finally {
             libxml_clear_errors();
             libxml_use_internal_errors($internalErrors);
@@ -179,6 +204,7 @@ final class WebScraper implements ScraperInterface
         return [
             'title' => $title,
             'paragraphs' => $paragraphs,
+            'links' => $links,
         ];
     }
 
@@ -197,6 +223,114 @@ final class WebScraper implements ScraperInterface
     {
         $stripped = strip_tags($html);
         return $this->normaliseText($stripped);
+    }
+
+    private function resolveLink(string $href, string $baseUrl): ?string
+    {
+        $trimmed = trim($href);
+        if ($trimmed === '' || $trimmed[0] === '#') {
+            return null;
+        }
+
+        $lower = mb_strtolower($trimmed);
+        if (str_starts_with($lower, 'javascript:') || str_starts_with($lower, 'mailto:') || str_starts_with($lower, 'tel:')) {
+            return null;
+        }
+
+        $hashPosition = strpos($trimmed, '#');
+        if ($hashPosition !== false) {
+            $trimmed = substr($trimmed, 0, $hashPosition);
+        }
+
+        if (preg_match('/^https?:\/\//i', $trimmed)) {
+            return filter_var($trimmed, FILTER_VALIDATE_URL) ? $trimmed : null;
+        }
+
+        if (str_starts_with($trimmed, '//')) {
+            $scheme = parse_url($baseUrl, PHP_URL_SCHEME) ?: 'https';
+            $candidate = $scheme . ':' . $trimmed;
+            return filter_var($candidate, FILTER_VALIDATE_URL) ? $candidate : null;
+        }
+
+        $baseParts = parse_url($baseUrl);
+        if ($baseParts === false || !isset($baseParts['scheme'], $baseParts['host'])) {
+            return null;
+        }
+
+        $scheme = $baseParts['scheme'];
+        $host = $baseParts['host'];
+        $port = isset($baseParts['port']) ? ':' . $baseParts['port'] : '';
+        $basePath = isset($baseParts['path']) ? $baseParts['path'] : '/';
+
+        $query = '';
+        $queryPosition = strpos($trimmed, '?');
+        if ($queryPosition !== false) {
+            $query = substr($trimmed, $queryPosition);
+            $trimmed = substr($trimmed, 0, $queryPosition);
+        }
+
+        if ($trimmed === '') {
+            $path = $basePath;
+        } elseif (str_starts_with($trimmed, '/')) {
+            $path = $trimmed;
+        } else {
+            $directory = $this->baseDirectory($basePath);
+            $path = $directory . $trimmed;
+        }
+
+        $normalisedPath = $this->normalisePath($path);
+        $candidate = $scheme . '://' . $host . $port . $normalisedPath . $query;
+
+        return filter_var($candidate, FILTER_VALIDATE_URL) ? $candidate : null;
+    }
+
+    private function baseDirectory(string $path): string
+    {
+        if ($path === '') {
+            return '/';
+        }
+
+        if (!str_starts_with($path, '/')) {
+            $path = '/' . $path;
+        }
+
+        if (substr($path, -1) === '/') {
+            return $path;
+        }
+
+        $position = strrpos($path, '/');
+        if ($position === false) {
+            return '/';
+        }
+
+        return substr($path, 0, $position + 1);
+    }
+
+    private function normalisePath(string $path): string
+    {
+        $segments = explode('/', $path);
+        $resolved = [];
+
+        foreach ($segments as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+
+            if ($segment === '..') {
+                array_pop($resolved);
+                continue;
+            }
+
+            $resolved[] = $segment;
+        }
+
+        $normalised = '/' . implode('/', $resolved);
+
+        if ($path !== '' && substr($path, -1) === '/' && substr($normalised, -1) !== '/') {
+            $normalised .= '/';
+        }
+
+        return $normalised === '' ? '/' : $normalised;
     }
 
     private function isNavigationSnippet(string $text): bool
