@@ -1,12 +1,12 @@
-# Semantic Workbench Architecture
+# Data Preparation Studio Architecture
 
-The Semantic Workbench delivers a cohesive product layered on top of the
+The Data Preparation Studio delivers a cohesive product layered on top of the
 existing `SemanticEngine` extraction core. The diagram below outlines the three
 primary surfaces and how they interact.
 
 ```
 ┌────────────────────┐         ┌──────────────────────────┐
-│  Web Workbench UI  │  ─┐     │  CLI (`php index.php`)   │
+│  Web Studio UI     │  ─┐     │  CLI (`php index.php`)   │
 └─────────┬──────────┘    │     └────────────┬────────────┘
           │               │                  │
           ▼               ▼                  ▼
