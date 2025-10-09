@@ -15,17 +15,21 @@ ini_set('assert.exception', '1');
 
 final class FakeScraper implements ScraperInterface
 {
-    /** @var array<string, array{title: string, text: string}> */
+    /** @var array<string, array{title: string, text: string, links: array<int, string>}> */
     private array $responses = [];
 
     /** @var array<string, string> */
     private array $failures = [];
 
-    public function register(string $url, string $title, string $text): void
+    /**
+     * @param array<int, string> $links
+     */
+    public function register(string $url, string $title, string $text, array $links = []): void
     {
         $this->responses[$url] = [
             'title' => $title,
             'text' => $text,
+            'links' => $links,
         ];
         unset($this->failures[$url]);
     }
@@ -49,7 +53,7 @@ final class FakeScraper implements ScraperInterface
         $payload = $this->responses[$url];
         $paragraphs = [$payload['text']];
 
-        return new ScrapeResult($url, $payload['title'], $payload['text'], $paragraphs);
+        return new ScrapeResult($url, $payload['title'], $payload['text'], $paragraphs, $payload['links']);
     }
 }
 
@@ -145,18 +149,20 @@ $scraper = new FakeScraper();
 $extractor = new FakeExtractor();
 $service = new ResearchService($repository, $scraper, $extractor);
 
-$scraper->register('https://example.com/a', 'Example A', 'Alice runs Example A.');
+$scraper->register('https://example.com/a', 'Example A', 'Alice runs Example A.', ['https://example.com/a/about']);
 $result = $service->ingestFromUrl('https://example.com/a');
 
 assertEquals('Example A', $result['source']['title']);
 assertTrue(isset($result['graph']['summary']));
 assertTrue(is_file($tempFile));
+assertEquals(['https://example.com/a/about'], $result['source']['links']);
 
 $stored = $repository->load();
 assertEquals(1, count($stored['sources']));
 assertTrue(isset($stored['sources'][0]['content']) && $stored['sources'][0]['content'] !== '');
+assertEquals(['https://example.com/a/about'], $stored['sources'][0]['links']);
 
-$scraper->register('https://example.com/b', 'Example B', 'Bob researches Example B.');
+$scraper->register('https://example.com/b', 'Example B', 'Bob researches Example B.', ['https://example.com/b/team']);
 $service->ingestFromUrl('https://example.com/b');
 
 $scraper->fail('https://example.com/a');
@@ -166,9 +172,26 @@ assertEquals(1, $refresh['summary']['removed']);
 assertEquals(1, $refresh['summary']['active']);
 assertEquals('https://example.com/a', $refresh['removed_sources'][0]['url']);
 assertEquals('https://example.com/b', $refresh['sources'][0]['url']);
+assertEquals(['https://example.com/b/team'], $refresh['sources'][0]['links']);
 
 $latest = $repository->load();
 assertEquals(1, count($latest['sources']));
 assertEquals('https://example.com/b', $latest['sources'][0]['url']);
+assertEquals(['https://example.com/b/team'], $latest['sources'][0]['links']);
+
+$manualScrape = new ScrapeResult(
+    'https://example.com/manual',
+    'Manual Entry',
+    'Manual entry text.',
+    ['Manual entry text.'],
+    ['https://example.com/manual/context']
+);
+$manual = $service->ingestScrapeResult($manualScrape);
+assertEquals('https://example.com/manual', $manual['source']['url']);
+assertEquals(['https://example.com/manual/context'], $manual['source']['links']);
+
+$graphSnapshot = $service->currentGraph();
+assertTrue(is_array($graphSnapshot));
+assertTrue(isset($graphSnapshot['summary']));
 
 unlink($tempFile);

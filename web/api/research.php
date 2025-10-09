@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require __DIR__ . '/../../src/App/bootstrap.php';
 
+use App\KnowledgeGraph\AutoCrawler;
 use App\KnowledgeGraph\GraphResearcher;
 use App\KnowledgeGraph\GraphRepository;
 use App\KnowledgeGraph\ResearchService;
@@ -101,34 +102,77 @@ switch ($method) {
         return;
 
     case 'POST':
-        if ($action !== 'refresh') {
-            http_response_code(404);
-            echo json_encode(['error' => 'Unsupported research action.'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            return;
+        switch ($action) {
+            case 'refresh':
+                $maxAge = isset($decoded['max_age_hours']) ? (int) $decoded['max_age_hours'] : 168;
+
+                try {
+                    $refresh = $service->refreshSources($maxAge);
+                } catch (\Throwable $exception) {
+                    http_response_code(500);
+                    echo json_encode([
+                        'error' => 'Failed to refresh sources.',
+                        'details' => $exception->getMessage(),
+                    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                    return;
+                }
+
+                echo json_encode([
+                    'data' => [
+                        'summary' => $refresh['summary'],
+                        'sources' => sanitiseSources($refresh['sources']),
+                        'removed' => $refresh['removed_sources'],
+                        'graph' => $refresh['graph'],
+                    ],
+                    'meta' => ['processing_time_ms' => runtime($startTime)],
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                return;
+
+            case 'crawl':
+                $seeds = [];
+                if (isset($decoded['seeds'])) {
+                    $seeds = normaliseSeeds($decoded['seeds']);
+                }
+
+                if ($seeds === []) {
+                    http_response_code(422);
+                    echo json_encode(['error' => 'Provide one or more seed URLs via the "seeds" field.'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                    return;
+                }
+
+                $limit = isset($decoded['limit']) ? (int) $decoded['limit'] : 6;
+                $depth = isset($decoded['depth']) ? (int) $decoded['depth'] : 2;
+                $allowCrossDomain = !empty($decoded['allow_cross_domain']);
+
+                try {
+                    $crawler = new AutoCrawler($service);
+                    $result = $crawler->crawl($seeds, $limit, $depth, (bool) $allowCrossDomain);
+                } catch (\Throwable $exception) {
+                    http_response_code(500);
+                    echo json_encode([
+                        'error' => 'Auto crawl failed.',
+                        'details' => $exception->getMessage(),
+                    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                    return;
+                }
+
+                echo json_encode([
+                    'data' => [
+                        'summary' => $result['summary'],
+                        'ingested' => $result['ingested'],
+                        'errors' => $result['errors'],
+                        'discovered' => $result['discovered'],
+                        'graph' => $result['graph'],
+                        'queue' => $result['queue'],
+                        'sources' => sanitiseSources($service->sources()),
+                    ],
+                    'meta' => ['processing_time_ms' => runtime($startTime)],
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                return;
         }
 
-        $maxAge = isset($decoded['max_age_hours']) ? (int) $decoded['max_age_hours'] : 168;
-
-        try {
-            $refresh = $service->refreshSources($maxAge);
-        } catch (\Throwable $exception) {
-            http_response_code(500);
-            echo json_encode([
-                'error' => 'Failed to refresh sources.',
-                'details' => $exception->getMessage(),
-            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            return;
-        }
-
-        echo json_encode([
-            'data' => [
-                'summary' => $refresh['summary'],
-                'sources' => sanitiseSources($refresh['sources']),
-                'removed' => $refresh['removed_sources'],
-                'graph' => $refresh['graph'],
-            ],
-            'meta' => ['processing_time_ms' => runtime($startTime)],
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        http_response_code(404);
+        echo json_encode(['error' => 'Unsupported research action.'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         return;
 }
 
@@ -148,6 +192,31 @@ function sanitiseSources(array $sources): array
         },
         $sources
     );
+}
+
+/**
+ * @param mixed $value
+ * @return array<int, string>
+ */
+function normaliseSeeds($value): array
+{
+    if (is_string($value)) {
+        $items = preg_split('/[\n,]+/', $value) ?: [];
+    } elseif (is_array($value)) {
+        $items = $value;
+    } else {
+        return [];
+    }
+
+    return array_values(array_filter(
+        array_map(
+            static function ($seed): string {
+                return is_string($seed) ? trim($seed) : '';
+            },
+            $items
+        ),
+        static fn(string $seed): bool => $seed !== ''
+    ));
 }
 
 function runtime(float $start): int

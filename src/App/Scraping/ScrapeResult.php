@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Scraping;
 
+use function array_slice;
+use function array_values;
 use function count;
 use function mb_strlen;
 use function mb_substr;
@@ -21,15 +23,20 @@ final class ScrapeResult
     /** @var array<int, string> */
     private array $paragraphs;
 
+    /** @var array<int, string> */
+    private array $links;
+
     /**
      * @param array<int, string> $paragraphs
+     * @param array<int, string> $links
      */
-    public function __construct(string $url, string $title, string $text, array $paragraphs)
+    public function __construct(string $url, string $title, string $text, array $paragraphs, array $links = [])
     {
         $this->url = $url;
         $this->title = $title;
         $this->text = $text;
         $this->paragraphs = $paragraphs;
+        $this->links = array_values($links);
     }
 
     public function url(): string
@@ -53,6 +60,14 @@ final class ScrapeResult
     public function paragraphs(): array
     {
         return $this->paragraphs;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    public function links(): array
+    {
+        return $this->links;
     }
 
     public function characterCount(): int
@@ -84,7 +99,7 @@ final class ScrapeResult
     }
 
     /**
-     * @return array{url: string, title: string, characters: int, paragraphs: int, preview: string}
+     * @return array{url: string, title: string, characters: int, paragraphs: int, preview: string, links: array<int, string>}
      */
     public function toMetaArray(): array
     {
@@ -94,6 +109,7 @@ final class ScrapeResult
             'characters' => $this->characterCount(),
             'paragraphs' => $this->paragraphCount(),
             'preview' => $this->preview(),
+            'links' => array_slice($this->links, 0, 20),
         ];
     }
 }

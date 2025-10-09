@@ -124,6 +124,11 @@ flags to list the graph and immediately drill into an entity, and adjust
 `--refresh` to re-verify every stored source, rebuild the knowledge base, and
 automatically prune pages that have disappeared or no longer resolve. Pair it
 with `--max-age` to only re-scrape sources older than a set number of hours.
+Supply `--crawl` alongside comma or newline separated seed URLs to auto-scrape
+new pages, follow discovered links, and stream them straight into the shared
+graph. Combine with `--crawl-limit`, `--crawl-depth`, and
+`--crawl-cross-domain` to fine-tune how aggressively the crawler expands across
+each site.
 
 ### Research service API
 
@@ -137,6 +142,10 @@ workflows:
 - `POST /api/research.php` with `{ "action": "refresh", "max_age_hours": 72 }`
   – re-scrape stored sources, drop unreachable pages, and rebuild the graph
   from the surviving content in a single request.
+- `POST /api/research.php` with
+  `{ "action": "crawl", "seeds": ["https://example.com"], "limit": 6 }` –
+  orchestrate an automated crawl from the supplied seed URLs, capture outbound
+  links, and merge every scraped page into the shared knowledge graph.
 
 Responses always include timing metadata and omit raw page content, keeping the
 API lightweight while guaranteeing the on-disk snapshot stays in sync with the

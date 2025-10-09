@@ -8,6 +8,7 @@ use App\Extraction\ExtractionResult;
 use DateTimeImmutable;
 use RuntimeException;
 
+use function array_filter;
 use function array_values;
 use function chmod;
 use function clearstatcache;
@@ -90,6 +91,16 @@ final class GraphRepository
 
                 if (isset($source['content']) && is_string($source['content'])) {
                     $normalised['content'] = $source['content'];
+                }
+
+                if (isset($source['links']) && is_array($source['links'])) {
+                    $links = array_values(array_filter(
+                        $source['links'],
+                        static fn($value): bool => is_string($value) && trim($value) !== ''
+                    ));
+                    if ($links !== []) {
+                        $normalised['links'] = $links;
+                    }
                 }
 
                 if (isset($source['fetched_at']) && is_string($source['fetched_at'])) {

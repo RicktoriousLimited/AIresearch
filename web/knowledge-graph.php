@@ -6,6 +6,7 @@ require __DIR__ . '/../src/App/bootstrap.php';
 
 use App\KnowledgeGraph\GraphRepository;
 use App\KnowledgeGraph\GraphResearcher;
+use App\KnowledgeGraph\ResearchService;
 
 $scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '/knowledge-graph.php');
 $scriptDir = str_replace('\\', '/', dirname($scriptName));
@@ -29,8 +30,10 @@ $scriptVersion = file_exists(__DIR__ . '/assets/knowledge-graph.js') ? (string) 
 
 $repository = new GraphRepository();
 $researcher = new GraphResearcher($repository);
+$service = new ResearchService($repository);
 
 $initialSearch = $researcher->searchGraph('', 12);
+$topEntities = $service->listTopEntities(12);
 $summary = isset($initialSearch['summary']) && is_array($initialSearch['summary']) ? $initialSearch['summary'] : [];
 $sources = isset($initialSearch['sources']) && is_array($initialSearch['sources']) ? $initialSearch['sources'] : [];
 $updatedAt = isset($initialSearch['updated_at']) && is_string($initialSearch['updated_at']) ? $initialSearch['updated_at'] : null;
@@ -67,6 +70,9 @@ $formatDate = static function (?string $value): ?string {
 $initialState = [
     'endpoints' => [
         'search' => $apiPath,
+        'list' => $apiPath,
+        'refresh' => $apiPath,
+        'crawl' => $apiPath,
     ],
     'paths' => [
         'home' => $homePath,
@@ -75,6 +81,7 @@ $initialState = [
     'initial' => [
         'search' => $initialSearch,
         'hasGraph' => $hasGraph,
+        'top' => $topEntities,
     ],
 ];
 
@@ -244,6 +251,71 @@ if (!is_string($initialJson)) {
                     </article>
                 </div>
             <?php endif; ?>
+        </section>
+
+        <section class="panel research-console">
+            <header class="panel-header">
+                <div>
+                    <h2>Research console</h2>
+                    <p class="panel-subtitle">Monitor the top-ranked entities and orchestrate automated crawls that expand the shared knowledge graph.</p>
+                </div>
+                <div class="panel-actions">
+                    <button type="button" class="button tertiary" data-refresh-sources>Refresh stored sources</button>
+                </div>
+            </header>
+            <div class="grid research-grid">
+                <article class="card span-2">
+                    <h3>Recommended leads</h3>
+                    <p class="card-subtle" data-top-empty>No enriched entities yet. Run a crawl or scrape a page to surface suggestions.</p>
+                    <div class="entity-results entity-results--top" data-top-entities></div>
+                </article>
+                <article class="card span-3">
+                    <h3>Auto crawler</h3>
+                    <form class="crawler-form" data-crawl-form>
+                        <div class="form-group">
+                            <label for="crawl-seeds">Seed URLs</label>
+                            <textarea id="crawl-seeds" data-crawl-seeds placeholder="https://example.com/news&#10;https://labs.example.org/blog" spellcheck="false" required></textarea>
+                            <p class="help-text">Provide one URL per line. The crawler fetches each page, follows in-domain links, and merges new triples into the shared graph.</p>
+                        </div>
+                        <div class="crawler-inline">
+                            <label>
+                                <span>Pages to crawl</span>
+                                <input type="number" min="1" max="50" value="5" data-crawl-limit>
+                            </label>
+                            <label>
+                                <span>Depth</span>
+                                <input type="number" min="0" max="5" value="2" data-crawl-depth>
+                            </label>
+                        </div>
+                        <label class="toggle crawler-toggle">
+                            <input type="checkbox" data-crawl-cross-domain>
+                            <span>Allow cross-domain crawling</span>
+                        </label>
+                        <div class="crawler-actions">
+                            <button type="submit" class="button primary">Start crawl</button>
+                        </div>
+                    </form>
+                    <div class="status crawler-status" data-crawl-status></div>
+                    <div class="crawler-results" data-crawl-results hidden>
+                        <h4>Latest crawl</h4>
+                        <ul class="list-block" data-crawl-ingested></ul>
+                        <div class="crawler-errors" data-crawl-errors hidden>
+                            <h5>Errors</h5>
+                            <ul></ul>
+                        </div>
+                    </div>
+                </article>
+                <article class="card span-2">
+                    <h3>Crawl summary</h3>
+                    <p class="card-subtle" data-crawl-summary-empty>No automated crawl has been run yet.</p>
+                    <dl class="summary-list" data-crawl-summary hidden></dl>
+                    <div class="crawler-queue" data-crawl-queue hidden>
+                        <h4>Remaining queue</h4>
+                        <p class="card-subtle" data-crawl-queue-empty>No queued URLs.</p>
+                        <ul></ul>
+                    </div>
+                </article>
+            </div>
         </section>
 
         <section class="panel">
