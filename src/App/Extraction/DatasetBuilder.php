@@ -4,16 +4,30 @@ declare(strict_types=1);
 
 namespace App\Extraction;
 
+use function array_unique;
+use function array_values;
 use function count;
+use function in_array;
+use function is_array;
+use function ksort;
 use function max;
+use function preg_split;
 use function round;
 use function strlen;
+use function trim;
 
 /**
  * Convert extraction artefacts into AI-ready training dataset rows.
  */
 final class DatasetBuilder
 {
+    private RelationSchemaMapper $relationMapper;
+
+    public function __construct(?RelationSchemaMapper $relationMapper = null)
+    {
+        $this->relationMapper = $relationMapper ?? new RelationSchemaMapper();
+    }
+
     /**
      * @param array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string}>>, qa: array<int, array{question: string, answer: string, response: string}>}> $documents
      * @param array<int, array{subject: string, relation: string, object: string}> $triples
@@ -32,6 +46,19 @@ final class DatasetBuilder
 
         $structuredEntities = $this->normaliseTriples($triples);
         $synonymMap = $this->normaliseSynonyms($synonyms);
+
+        $relationTypeDistribution = [];
+        $canonicalRelationDistribution = [];
+        foreach ($structuredEntities as $entity) {
+            $type = (string) ($entity['relation_type'] ?? 'other');
+            $relationTypeDistribution[$type] = ($relationTypeDistribution[$type] ?? 0) + 1;
+
+            $canonical = (string) ($entity['canonical_relation'] ?? 'uncategorized');
+            $canonicalRelationDistribution[$canonical] = ($canonicalRelationDistribution[$canonical] ?? 0) + 1;
+        }
+
+        ksort($relationTypeDistribution);
+        ksort($canonicalRelationDistribution);
 
         foreach ($documents as $index => $document) {
             $original = trim((string) ($document['original'] ?? ''));
@@ -84,7 +111,11 @@ final class DatasetBuilder
                 ['name' => 'cleaned_text', 'type' => 'string'],
                 ['name' => 'summary', 'type' => 'string|null'],
                 ['name' => 'key_phrases', 'type' => 'string[]'],
-                ['name' => 'structured_entities', 'type' => 'object[]'],
+                [
+                    'name' => 'structured_entities',
+                    'type' => 'object[]',
+                    'description' => 'Normalised subject/object assertions with canonical relation labels, confidence, status, and provenance.',
+                ],
                 ['name' => 'synonym_clusters', 'type' => 'object'],
                 ['name' => 'question_answer_pairs', 'type' => 'object[]'],
                 ['name' => 'prompt', 'type' => 'string'],
@@ -102,6 +133,8 @@ final class DatasetBuilder
             'question_answer_pair_count' => $qaPairTotal,
             'documents_received' => $summary['documents_received'] ?? null,
             'documents_processed' => $summary['documents_processed'] ?? null,
+            'relation_type_distribution' => $relationTypeDistribution,
+            'canonical_relation_distribution' => $canonicalRelationDistribution,
         ];
 
         return [
@@ -113,7 +146,7 @@ final class DatasetBuilder
 
     /**
      * @param array<int, array{subject: string, relation: string, object: string}> $triples
-     * @return array<int, array{subject: string, relation: string, object: string}>
+     * @return array<int, array{subject: string, relation: string, canonical_relation: string, relation_type: string, object: string, confidence: float, status: string, provenance: array<string, mixed>}> 
      */
     private function normaliseTriples(array $triples): array
     {
@@ -125,10 +158,18 @@ final class DatasetBuilder
             if ($subject === '' || $relation === '' || $object === '') {
                 continue;
             }
+
+            $schema = $this->relationMapper->map($relation);
+
             $clean[] = [
                 'subject' => $subject,
                 'relation' => $relation,
+                'canonical_relation' => $schema['canonical'],
+                'relation_type' => $schema['type'],
                 'object' => $object,
+                'confidence' => $this->clampConfidence($schema['confidence']),
+                'status' => $schema['status'],
+                'provenance' => $this->defaultProvenance(),
             ];
         }
 
@@ -184,7 +225,7 @@ final class DatasetBuilder
 
     /**
      * @param array<int, string> $keywords
-     * @param array<int, array{subject: string, relation: string, object: string}> $structuredEntities
+     * @param array<int, array{subject: string, relation: string, canonical_relation: string, relation_type: string, object: string, confidence: float, status: string, provenance: array<string, mixed>}> $structuredEntities
      * @param array<string, array<int, string>> $synonymMap
      * @param array<int, array{question: string, answer: string, response: string}> $qaPairs
      * @return array<int, string>
@@ -262,7 +303,7 @@ PROMPT;
 
     /**
      * @param array<int, string> $keywords
-     * @param array<int, array{subject: string, relation: string, object: string}> $structuredEntities
+     * @param array<int, array{subject: string, relation: string, canonical_relation: string, relation_type: string, object: string, confidence: float, status: string, provenance: array<string, mixed>}> $structuredEntities
      * @param array<string, array<int, string>> $synonymMap
      * @param array<int, array{question: string, answer: string, response: string}> $qaPairs
      * @return array<string, mixed>
@@ -334,5 +375,28 @@ PROMPT;
         }
 
         return $count;
+    }
+
+    private function clampConfidence(float $value): float
+    {
+        if ($value < 0.0) {
+            return 0.0;
+        }
+        if ($value > 1.0) {
+            return 1.0;
+        }
+
+        return round($value, 2);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function defaultProvenance(): array
+    {
+        return [
+            'source' => 'input_documents',
+            'document_index' => null,
+        ];
     }
 }
