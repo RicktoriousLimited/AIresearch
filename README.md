@@ -38,6 +38,26 @@ Use the **Download extraction JSON** action to save the raw result, the
 dedicated dataset download buttons for structured AI training rows, or
 **Copy summary** to move quick stats into other tools.
 
+### Discovery search
+
+The new discovery interface exposes the shared knowledge graph as a public
+search engine.
+
+```bash
+php -S 0.0.0.0:8000 -t web
+```
+
+Open `http://localhost:8000/search.php` to:
+
+- Query people, organisations, technologies, or relations across every
+  extracted triple.
+- Browse entity matches with confidence scores, synonym clusters, and fact
+  counts.
+- Inspect relation histograms, synonym groups, and knowledge triples that
+  mention your query in real time.
+- Drill into an entity to see its supporting facts and relation highlights,
+  with direct links back to the original sources.
+
 ### Scrape public URLs into the shared knowledge graph
 
 - From the studio, paste a URL into the new **Scrape from URL** field and

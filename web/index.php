@@ -18,6 +18,9 @@ $assetBase = $basePath === '' ? '' : $basePath;
 
 $stylesPath = $assetBase . '/assets/workbench.css';
 $scriptPath = $assetBase . '/assets/workbench.js';
+$searchPath = $assetBase . '/search.php';
+$graphPath = $assetBase . '/knowledge-graph.php';
+$homePath = $assetBase . '/index.php';
 $stylesVersion = file_exists(__DIR__ . '/assets/workbench.css') ? (string) filemtime(__DIR__ . '/assets/workbench.css') : (string) time();
 $scriptVersion = file_exists(__DIR__ . '/assets/workbench.js') ? (string) filemtime(__DIR__ . '/assets/workbench.js') : (string) time();
 $apiEndpoint = $assetBase . '/api/analyse.php';
@@ -34,6 +37,11 @@ $scrapeEndpoint = $assetBase . '/api/scrape.php';
 <body data-api="<?= htmlspecialchars($apiEndpoint, ENT_QUOTES) ?>" data-scrape="<?= htmlspecialchars($scrapeEndpoint, ENT_QUOTES) ?>">
     <header class="site-header">
         <div class="container">
+            <nav class="site-nav" aria-label="Primary">
+                <a class="site-nav__link site-nav__link--active" href="<?= htmlspecialchars($homePath, ENT_QUOTES) ?>">Data Studio</a>
+                <a class="site-nav__link" href="<?= htmlspecialchars($graphPath, ENT_QUOTES) ?>">Knowledge Graph</a>
+                <a class="site-nav__link" href="<?= htmlspecialchars($searchPath, ENT_QUOTES) ?>">Discovery Search</a>
+            </nav>
             <h1>AIresearch Data Preparation Studio</h1>
             <p class="tagline">Transform messy notes, articles, and transcripts into structured analytics and AI-ready training data.</p>
         </div>
