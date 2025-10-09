@@ -22,6 +22,7 @@ $assetBase = $basePath === '' ? '' : $basePath;
 
 $stylesPath = $assetBase . '/assets/workbench.css';
 $homePath = $assetBase . '/index.php';
+$searchPath = $assetBase . '/search.php';
 $apiPath = $assetBase . '/api/research.php';
 $scriptPath = $assetBase . '/assets/knowledge-graph.js';
 
@@ -101,6 +102,11 @@ if (!is_string($initialJson)) {
 <body class="knowledge-graph">
     <header class="site-header">
         <div class="container">
+            <nav class="site-nav" aria-label="Primary">
+                <a class="site-nav__link" href="<?= $escape($homePath) ?>">Data Studio</a>
+                <a class="site-nav__link site-nav__link--active" href="<?= $escape($assetBase . '/knowledge-graph.php') ?>">Knowledge Graph</a>
+                <a class="site-nav__link" href="<?= $escape($searchPath) ?>">Discovery Search</a>
+            </nav>
             <h1>AIresearch Knowledge Graph</h1>
             <p class="tagline">A living graph enriched from every scraped article and research update.</p>
             <p><a class="button tertiary" href="<?= $escape($homePath) ?>">Back to workbench</a></p>
