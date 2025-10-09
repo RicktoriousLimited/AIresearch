@@ -105,10 +105,12 @@ Every response now also contains a `dataset` object with:
 
 - `rows` – prompt/response pairs covering cleaning, summarisation, keyword
   extraction, and entity graph reconstruction workflows.
-- `schema` – machine-readable field descriptions to plug directly into
-  downstream tooling.
-- `statistics` – record counts, average length, and task distribution to help
-  size annotation or fine-tuning jobs.
+- `schema` – machine-readable field descriptions, now enriched with canonical
+  relation metadata (type, confidence, status, and provenance hints) to plug
+  directly into downstream tooling.
+- `statistics` – record counts, average length, task distribution, and
+  per-relation breakdowns to help size annotation or fine-tuning jobs while
+  spotting extraction skew early.
 
 Download the rows directly from the studio UI (JSON or CSV) or consume them via
 the API for automated dataset generation.

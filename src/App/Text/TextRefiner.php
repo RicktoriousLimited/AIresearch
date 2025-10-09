@@ -89,6 +89,7 @@ final class TextRefiner
         'terms' => true,
         'use' => true,
         'watchlistadd' => true,
+        'viewing' => true,
         'weather' => true,
     ];
 
@@ -110,6 +111,10 @@ final class TextRefiner
         'view comments' => true,
         'related topics' => true,
         'related articles' => true,
+        'scroll to previous item' => true,
+        'scroll to next item' => true,
+        'live page' => true,
+        'watch live' => true,
         'return to homepage' => true,
         'back to homepage' => true,
         'bbc news services' => true,
@@ -755,6 +760,26 @@ final class TextRefiner
         }
 
         if ($normalized === '') {
+            return true;
+        }
+
+        if (preg_match('/^(?:published|updated)\s+(?:at\s+)?\d{1,2}:\d{2}(?:\s*[a-z]{2,4})?$/i', $normalized) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^(?:published|updated)\s+\d{1,2}\s+(?:minute|minutes|hour|hours|day|days)\s+ago$/i', $normalized) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^\d{1,3}(?:,\d{3})*\s+(?:viewing|views)\b/i', $normalized) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^\d{1,2}:\d{2}$/', $normalized) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^scroll to (?:previous|next) item/i', $normalized) === 1) {
             return true;
         }
 
