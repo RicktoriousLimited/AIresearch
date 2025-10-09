@@ -440,7 +440,14 @@ final class TextRefiner
     }
 
     /**
-     * @return array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>}
+     * @return array{
+     *     original: string,
+     *     cleaned: string,
+     *     rewritten: string,
+     *     keywords: array<int, array{token: string, count: int}>,
+     *     spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>,
+     *     qa: array<int, array{question: string, answer: string, response: string}>
+     * }
      */
     public function analyseDocument(string $text): array
     {
@@ -453,7 +460,134 @@ final class TextRefiner
             'rewritten' => $rewritten,
             'keywords' => $this->extractKeywords($text),
             'spelling' => $this->spellCheck($text),
+            'qa' => $this->generateQuestionAnswerPairs($text),
         ];
+    }
+
+    /**
+     * @return array<int, array{question: string, answer: string, response: string}>
+     */
+    public function generateQuestionAnswerPairs(string $text, int $limit = 5): array
+    {
+        $cleaned = $this->cleanDocument($text);
+        if ($cleaned === '') {
+            return [];
+        }
+
+        $sentences = preg_split('/(?<=[.!?])\s+/u', $cleaned);
+        if ($sentences === false) {
+            $sentences = [$cleaned];
+        }
+
+        $normalizedSentences = [];
+        foreach ($sentences as $sentence) {
+            $sentence = trim($sentence);
+            if ($sentence === '') {
+                continue;
+            }
+
+            $normalizedSentences[] = $sentence;
+        }
+
+        if ($normalizedSentences === []) {
+            return [];
+        }
+
+        $keywords = $this->extractKeywords($text, $limit * 2);
+        $keywordTokens = array_map(
+            static fn(array $entry): string => strtolower($entry['token']),
+            $keywords
+        );
+
+        $pairs = [];
+        $usedSentenceIndexes = [];
+
+        foreach ($keywordTokens as $token) {
+            foreach ($normalizedSentences as $index => $sentence) {
+                if (isset($usedSentenceIndexes[$index])) {
+                    continue;
+                }
+
+                if (stripos($sentence, $token) === false) {
+                    continue;
+                }
+
+                $question = sprintf('What does the text say about %s?', $this->formatKeywordForQuestion($token));
+                $answer = $this->ensureSentencePunctuation($sentence);
+
+                $pairs[] = [
+                    'question' => $question,
+                    'answer' => $answer,
+                    'response' => $answer,
+                ];
+
+                $usedSentenceIndexes[$index] = true;
+                if (count($pairs) >= $limit) {
+                    return $pairs;
+                }
+
+                break;
+            }
+        }
+
+        if ($pairs === []) {
+            $primarySentence = $this->ensureSentencePunctuation($normalizedSentences[0]);
+            $pairs[] = [
+                'question' => 'What is the main point of the text?',
+                'answer' => $primarySentence,
+                'response' => $primarySentence,
+            ];
+        }
+
+        if (count($pairs) < $limit) {
+            foreach ($normalizedSentences as $index => $sentence) {
+                if (isset($usedSentenceIndexes[$index])) {
+                    continue;
+                }
+
+                $question = 'What additional detail does the text provide?';
+                $answer = $this->ensureSentencePunctuation($sentence);
+
+                $pairs[] = [
+                    'question' => $question,
+                    'answer' => $answer,
+                    'response' => $answer,
+                ];
+
+                if (count($pairs) >= $limit) {
+                    break;
+                }
+            }
+        }
+
+        return $pairs;
+    }
+
+    private function ensureSentencePunctuation(string $sentence): string
+    {
+        $sentence = trim($sentence);
+        if ($sentence === '') {
+            return '';
+        }
+
+        if (preg_match('/[.!?]$/u', $sentence) === 1) {
+            return $sentence;
+        }
+
+        return $sentence . '.';
+    }
+
+    private function formatKeywordForQuestion(string $keyword): string
+    {
+        $keyword = trim($keyword);
+        if ($keyword === '') {
+            return '';
+        }
+
+        $firstChar = mb_substr($keyword, 0, 1);
+        $rest = mb_substr($keyword, 1);
+
+        return mb_convert_case($firstChar, MB_CASE_TITLE, 'UTF-8') . $rest;
     }
 
     private function capitaliseSentence(string $sentence, bool $ensurePunctuation): string
