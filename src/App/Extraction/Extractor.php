@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Extraction;
 
+use App\Extraction\DatasetBuilder;
 use App\Text\TextRefiner;
 use DateTimeImmutable;
 use SemanticEngine;
@@ -138,6 +139,9 @@ final class Extractor implements ExtractorInterface
             'generated_at' => (new DateTimeImmutable())->format(DATE_ATOM),
         ];
 
+        $datasetBuilder = new DatasetBuilder();
+        $dataset = $datasetBuilder->build($documents, $triples, $synonyms, $summary);
+
         return new ExtractionResult(
             $triples,
             $synonyms,
@@ -146,7 +150,8 @@ final class Extractor implements ExtractorInterface
             $summary,
             $engine->toArray(),
             $documents,
-            $engine->buildCrossReferences()
+            $engine->buildCrossReferences(),
+            $dataset
         );
     }
 

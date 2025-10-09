@@ -122,7 +122,7 @@ if (!is_string($initialJson)) {
 
             <div class="graph-feedback<?= $hasGraph ? ' is-hidden' : '' ?>" data-graph-feedback role="status">
                 <?php if (!$hasGraph): ?>
-                    <p>No scraped documents yet. Use the <a href="<?= $escape($homePath) ?>">Semantic Workbench</a> to fetch an article and enrich the shared graph.</p>
+                    <p>No scraped documents yet. Use the <a href="<?= $escape($homePath) ?>">Data Preparation Studio</a> to fetch an article and enrich the shared graph.</p>
                 <?php endif; ?>
             </div>
 
@@ -330,7 +330,7 @@ if (!is_string($initialJson)) {
     </main>
     <footer class="site-footer">
         <div class="container">
-            <p>Knowledge graph snapshots are stored at <code><?= $escape($repository->path()) ?></code>. Scrape additional URLs from the <a href="<?= $escape($homePath) ?>">Semantic Workbench</a>.</p>
+            <p>Knowledge graph snapshots are stored at <code><?= $escape($repository->path()) ?></code>. Scrape additional URLs from the <a href="<?= $escape($homePath) ?>">Data Preparation Studio</a>.</p>
         </div>
     </footer>
     <script>

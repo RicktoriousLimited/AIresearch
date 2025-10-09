@@ -28,26 +28,49 @@ $scrapeEndpoint = $assetBase . '/api/scrape.php';
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AIresearch Semantic Workbench</title>
+    <title>AIresearch Data Preparation Studio</title>
     <link rel="stylesheet" href="<?= htmlspecialchars($stylesPath . '?v=' . $stylesVersion, ENT_QUOTES) ?>">
 </head>
 <body data-api="<?= htmlspecialchars($apiEndpoint, ENT_QUOTES) ?>" data-scrape="<?= htmlspecialchars($scrapeEndpoint, ENT_QUOTES) ?>">
     <header class="site-header">
         <div class="container">
-            <h1>AIresearch Semantic Workbench</h1>
-            <p class="tagline">Paste research bios or summaries and instantly extract knowledge graph triples and synonym clusters.</p>
+            <h1>AIresearch Data Preparation Studio</h1>
+            <p class="tagline">Transform messy notes, articles, and transcripts into structured analytics and AI-ready training data.</p>
         </div>
     </header>
     <main class="container">
         <section class="panel">
             <form id="workbench-form" class="workbench-form" novalidate>
                 <div class="form-row form-intro">
-                    <p>Drop research updates below or start from one of our curated examples to see how the semantic engine structures messy text.</p>
+                    <p>Bring any unstructured content and we will clean it, extract knowledge, and package everything as fine-tuning ready records in a single run.</p>
+                </div>
+                <div class="workflow-steps" aria-label="Training data workflow">
+                    <div class="workflow-step">
+                        <span class="workflow-number">1</span>
+                        <div>
+                            <h3>Ingest anything</h3>
+                            <p>Paste raw text, upload exports, or pull from a public URL.</p>
+                        </div>
+                    </div>
+                    <div class="workflow-step">
+                        <span class="workflow-number">2</span>
+                        <div>
+                            <h3>Refine &amp; analyse</h3>
+                            <p>We normalise the language, detect entities, and map relationships.</p>
+                        </div>
+                    </div>
+                    <div class="workflow-step">
+                        <span class="workflow-number">3</span>
+                        <div>
+                            <h3>Export training rows</h3>
+                            <p>Review prompt/response pairs, download JSON or CSV, and plug them into your pipelines.</p>
+                        </div>
+                    </div>
                 </div>
                 <div class="form-row">
                     <label for="input-text" class="form-label">Source text</label>
                     <textarea id="input-text" name="text" placeholder="Paste one or more research bios, project updates, or company summaries..." required></textarea>
-                    <p class="help">We normalise entities, extract lightweight relations, and cluster synonyms across the supplied text.</p>
+                    <p class="help">We normalise entities, extract lightweight relations, cluster synonyms, and build structured datasets.</p>
                 </div>
                 <div class="form-row">
                     <label for="input-url" class="form-label">Scrape from URL</label>
@@ -89,7 +112,7 @@ $scrapeEndpoint = $assetBase . '/api/scrape.php';
             <header class="panel-header">
                 <h2>Results</h2>
                 <div class="panel-actions">
-                    <button type="button" class="button tertiary" id="download-json">Download JSON</button>
+                    <button type="button" class="button tertiary" id="download-json">Download extraction JSON</button>
                     <button type="button" class="button tertiary" id="copy-summary">Copy summary</button>
                 </div>
             </header>
@@ -135,6 +158,16 @@ $scrapeEndpoint = $assetBase . '/api/scrape.php';
                     <h3>Synonym groups</h3>
                     <div id="synonyms-list" class="list-block"></div>
                 </article>
+                <article class="card span-3" id="dataset-card" hidden>
+                    <h3>AI-ready dataset</h3>
+                    <p class="card-sub" id="dataset-subtitle"></p>
+                    <dl id="dataset-summary" class="dataset-summary"></dl>
+                    <div id="dataset-preview" class="dataset-preview"></div>
+                    <div class="dataset-actions">
+                        <button type="button" class="button secondary" id="download-dataset-json">Download dataset JSON</button>
+                        <button type="button" class="button secondary" id="download-dataset-csv">Download dataset CSV</button>
+                    </div>
+                </article>
                 <article class="card span-3" id="document-insights-card" hidden>
                     <h3>Document cleanup</h3>
                     <div class="document-cleanup" id="document-cleaned" hidden>
@@ -162,9 +195,9 @@ $scrapeEndpoint = $assetBase . '/api/scrape.php';
                 <h2>Tips for richer extractions</h2>
             </header>
             <ul class="guidance-list">
-                <li>Feed multiple bios or updates at once. The workbench automatically separates documents by blank lines.</li>
+                <li>Feed multiple bios or updates at once. The studio automatically separates documents by blank lines.</li>
                 <li>Use the <strong>Reset session</strong> button when you want to start a brand new graph without previous context.</li>
-                <li>Export JSON for downstream tooling or click <strong>Copy summary</strong> to move quick stats into notes.</li>
+                <li>Export the dataset in CSV or JSON to plug the prompt/response pairs into your fine-tuning pipeline.</li>
                 <li>Keep relations short and meaningful. The English lexicon filters noisy spans while preserving proper nouns.</li>
             </ul>
         </section>

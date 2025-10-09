@@ -1,12 +1,13 @@
-# AIresearch Semantic Workbench
+# AIresearch Data Preparation Studio
 
-An end-to-end environment for transforming unstructured bios, research notes, and
-company updates into lightweight knowledge graph triples. The project now ships
-with three fully-supported experiences built on top of the same semantic core:
+An end-to-end environment for transforming unstructured bios, research notes,
+transcripts, and customer updates into structured analytics and AI-ready
+training rows. The project now ships with three fully-supported experiences
+built on top of the same semantic core:
 
-1. **Semantic Workbench UI** – A modern web experience for pasting text,
-   exploring the extracted triples, reviewing synonym clusters, and exporting
-   results.
+1. **Data Preparation Studio UI** – A guided web workflow for ingesting messy
+   text, reviewing the cleaned output, exploring extracted entities, and
+   exporting ready-to-use prompt/response pairs in JSON or CSV.
 2. **JSON API** – `/api/analyse.php` accepts POST payloads and returns structured
    extraction data for automation and integrations.
 3. **Command Line Interface** – The original `php index.php` utility remains for
@@ -18,7 +19,7 @@ experiments without sacrificing consistency.
 
 ## Quick start
 
-### Web workbench
+### Web studio
 
 ```bash
 php -S 0.0.0.0:8000 -t web
@@ -30,13 +31,16 @@ summaries into the textarea. Click **Run extraction** to see:
 - A summary of processed documents, triple count, and unique entities.
 - Relation and entity frequency breakdowns for rapid insight discovery.
 - Detailed triples and synonym groups with export controls.
+- A training dataset preview with prompt/response pairs, task hints, and
+  one-click JSON/CSV export buttons.
 
-Use the **Download JSON** action to save the raw result, or **Copy summary** to
-move quick stats into other tools.
+Use the **Download extraction JSON** action to save the raw result, the
+dedicated dataset download buttons for structured AI training rows, or
+**Copy summary** to move quick stats into other tools.
 
 ### Scrape public URLs into the shared knowledge graph
 
-- From the workbench, paste a URL into the new **Scrape from URL** field and
+- From the studio, paste a URL into the new **Scrape from URL** field and
   click **Fetch & analyse**. The app downloads the page, extracts clean text,
   and enriches the persistent graph stored in `storage/graphs/`.
 - Visit `http://localhost:8000/knowledge-graph.php` to browse the combined
@@ -96,6 +100,18 @@ optional `include` field with any of `triples`, `synonyms`, `relations`,
 `entities`, `summary`, or `state` to limit the response payload. Provide the
 `state` field from a previous response to incrementally extend the same
 knowledge graph with new documents over time.
+
+Every response now also contains a `dataset` object with:
+
+- `rows` – prompt/response pairs covering cleaning, summarisation, keyword
+  extraction, and entity graph reconstruction workflows.
+- `schema` – machine-readable field descriptions to plug directly into
+  downstream tooling.
+- `statistics` – record counts, average length, and task distribution to help
+  size annotation or fine-tuning jobs.
+
+Download the rows directly from the studio UI (JSON or CSV) or consume them via
+the API for automated dataset generation.
 
 ### CLI
 

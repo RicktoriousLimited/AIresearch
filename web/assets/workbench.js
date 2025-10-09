@@ -54,10 +54,17 @@
     metricTriples: document.querySelector('[data-metric-value="triples"]'),
     metricTriplesDensity: document.querySelector('[data-metric-sub="triples-density"]'),
     metricEntities: document.querySelector('[data-metric-value="unique_entities"]'),
-    metricSynonyms: document.querySelector('[data-metric-sub="synonym_groups"]')
+    metricSynonyms: document.querySelector('[data-metric-sub="synonym_groups"]'),
+    datasetCard: document.getElementById('dataset-card'),
+    datasetSubtitle: document.getElementById('dataset-subtitle'),
+    datasetSummary: document.getElementById('dataset-summary'),
+    datasetPreview: document.getElementById('dataset-preview'),
+    downloadDatasetJson: document.getElementById('download-dataset-json'),
+    downloadDatasetCsv: document.getElementById('download-dataset-csv')
   };
 
   let lastResult = null;
+  let lastDataset = null;
   let persistedState = null;
 
   function setStatus(message, tone = 'info') {
@@ -71,6 +78,7 @@
 
   function clearResults() {
     lastResult = null;
+    lastDataset = null;
     if (elements.results) {
       elements.results.hidden = true;
     }
@@ -142,6 +150,18 @@
     }
     if (elements.documentSpelling) {
       elements.documentSpelling.hidden = true;
+    }
+    if (elements.datasetCard) {
+      elements.datasetCard.hidden = true;
+    }
+    if (elements.datasetSummary) {
+      elements.datasetSummary.innerHTML = '';
+    }
+    if (elements.datasetPreview) {
+      elements.datasetPreview.innerHTML = '';
+    }
+    if (elements.datasetSubtitle) {
+      elements.datasetSubtitle.textContent = '';
     }
   }
 
@@ -451,6 +471,140 @@
     }
   }
 
+  function renderDataset(dataset) {
+    if (!elements.datasetCard || !elements.datasetSummary || !elements.datasetPreview) {
+      return;
+    }
+
+    if (!dataset || typeof dataset !== 'object') {
+      elements.datasetCard.hidden = true;
+      lastDataset = null;
+      return;
+    }
+
+    lastDataset = dataset;
+
+    const rows = Array.isArray(dataset.rows) ? dataset.rows : [];
+    const stats = dataset.statistics && typeof dataset.statistics === 'object' ? dataset.statistics : {};
+
+    if (rows.length === 0) {
+      if (elements.datasetSummary) {
+        elements.datasetSummary.innerHTML = '<p class="empty">Run an extraction to generate prompt/response pairs.</p>';
+      }
+      if (elements.datasetPreview) {
+        elements.datasetPreview.innerHTML = '';
+      }
+      if (elements.datasetSubtitle) {
+        elements.datasetSubtitle.textContent = 'No dataset rows yet.';
+      }
+      elements.datasetCard.hidden = false;
+      return;
+    }
+
+    const recordCount = Math.max(0, Number(stats.records ?? rows.length));
+    const avgChars = Math.max(0, Number(stats.average_characters ?? 0));
+    const avgWords = Math.max(0, Number(stats.average_words ?? 0));
+    const tripleCount = Math.max(0, Number(stats.triple_count ?? 0));
+    const synonymCount = Math.max(0, Number(stats.synonym_cluster_count ?? 0));
+    const distribution = stats.task_distribution && typeof stats.task_distribution === 'object' ? stats.task_distribution : {};
+    const uniqueTasks = extractUniqueTasks(rows, distribution);
+
+    if (elements.datasetSubtitle) {
+      const taskLabel = uniqueTasks.length > 0 ? `${formatNumber(uniqueTasks.length)} workflows` : 'no workflows yet';
+      elements.datasetSubtitle.textContent = `${formatNumber(recordCount)} records across ${taskLabel}.`;
+    }
+
+    if (elements.datasetSummary) {
+      const parts = [];
+      parts.push(`<div><dt>Records</dt><dd>${formatNumber(recordCount)}</dd></div>`);
+      parts.push(`<div><dt>Average length</dt><dd>${formatNumber(avgWords)} words · ${formatNumber(avgChars)} chars</dd></div>`);
+      parts.push(`<div><dt>Graph coverage</dt><dd>${formatNumber(tripleCount)} triples · ${formatNumber(synonymCount)} synonym sets</dd></div>`);
+
+      if (uniqueTasks.length > 0) {
+        const chips = uniqueTasks
+          .map((task) => {
+            const count = Number(distribution[task] ?? 0);
+            const label = task.replace(/_/g, ' ');
+            const countLabel = count > 0 ? ` (${formatNumber(count)})` : '';
+            return `<span class="pill">${escapeHtml(label)}${escapeHtml(countLabel)}</span>`;
+          })
+          .join(' ');
+        parts.push(`<div><dt>Workflows</dt><dd class="pill-list">${chips}</dd></div>`);
+      }
+
+      elements.datasetSummary.innerHTML = parts.join('');
+    }
+
+    if (elements.datasetPreview) {
+      const previewRows = rows.slice(0, 4);
+      if (previewRows.length === 0) {
+        elements.datasetPreview.innerHTML = '<p class="empty">Dataset rows will appear after your first extraction.</p>';
+      } else {
+        elements.datasetPreview.innerHTML = buildDatasetTable(previewRows);
+      }
+    }
+
+    elements.datasetCard.hidden = false;
+  }
+
+  function extractUniqueTasks(rows, distribution) {
+    const tasks = new Set();
+
+    if (distribution && typeof distribution === 'object') {
+      Object.keys(distribution).forEach((task) => tasks.add(task));
+    }
+
+    rows.forEach((row) => {
+      if (!row || typeof row !== 'object') {
+        return;
+      }
+      const values = Array.isArray(row.ai_tasks) ? row.ai_tasks : [];
+      values.forEach((task) => {
+        if (typeof task === 'string' && task.trim() !== '') {
+          tasks.add(task.trim());
+        }
+      });
+    });
+
+    return Array.from(tasks);
+  }
+
+  function buildDatasetTable(rows) {
+    const body = rows
+      .map((row) => {
+        const recordId = formatNumber(Number(row.record_id ?? 0) || 0);
+        const tasks = Array.isArray(row.ai_tasks)
+          ? row.ai_tasks
+              .filter((task) => typeof task === 'string' && task.trim() !== '')
+              .map((task) => `<span class="pill">${escapeHtml(task.replace(/_/g, ' '))}</span>`)
+              .join(' ')
+          : '<span class="pill muted">text cleaning</span>';
+        const promptRaw = typeof row.prompt === 'string' ? row.prompt : stringifyValue(row.prompt, { pretty: true });
+        const responseRaw = stringifyValue(row.ideal_response, { pretty: true });
+        const prompt = escapeHtml(truncateText(promptRaw, 220));
+        const response = escapeHtml(truncateText(responseRaw, 220));
+
+        return `
+          <tr>
+            <td data-label="#">${recordId}</td>
+            <td data-label="Workflows">${tasks}</td>
+            <td data-label="Prompt"><pre class="dataset-snippet">${prompt}</pre></td>
+            <td data-label="Ideal response"><pre class="dataset-snippet">${response}</pre></td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    return `
+      <table class="dataset-table">
+        <thead>
+          <tr><th>#</th><th>Workflows</th><th>Prompt</th><th>Ideal response</th></tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    `;
+  }
+
   function getTopEntry(map) {
     const entries = Object.entries(map || {});
     if (entries.length === 0) {
@@ -487,6 +641,90 @@
       return '0';
     }
     return number.toLocaleString();
+  }
+
+  function truncateText(value, limit = 220) {
+    const text = typeof value === 'string' ? value : String(value ?? '');
+    if (text.length <= limit) {
+      return text;
+    }
+    return text.slice(0, Math.max(0, limit - 1)) + '…';
+  }
+
+  function stringifyValue(value, { pretty = false } = {}) {
+    if (value === null || value === undefined) {
+      return '';
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    try {
+      return JSON.stringify(value, null, pretty ? 2 : 0);
+    } catch (error) {
+      return String(value);
+    }
+  }
+
+  function escapeCsv(value) {
+    const stringValue = String(value ?? '');
+    if (/[",\n]/.test(stringValue)) {
+      return '"' + stringValue.replace(/"/g, '""') + '"';
+    }
+    return stringValue;
+  }
+
+  function datasetToCsv(rows) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return '';
+    }
+
+    const columns = [
+      'record_id',
+      'ai_tasks',
+      'input_text',
+      'cleaned_text',
+      'summary',
+      'key_phrases',
+      'structured_entities',
+      'synonym_clusters',
+      'prompt',
+      'ideal_response'
+    ];
+
+    const header = columns.map(escapeCsv).join(',');
+
+    const lines = rows.map((row) => {
+      return columns
+        .map((column) => {
+          const value = row[column];
+          if (column === 'ai_tasks' || column === 'key_phrases') {
+            return escapeCsv(Array.isArray(value) ? value.join('; ') : '');
+          }
+          if (column === 'structured_entities' || column === 'synonym_clusters' || column === 'ideal_response') {
+            return escapeCsv(stringifyValue(value));
+          }
+          if (column === 'record_id') {
+            return escapeCsv(String(Number(value ?? 0) || 0));
+          }
+          return escapeCsv(value ?? '');
+        })
+        .join(',');
+    });
+
+    return [header, ...lines].join('\n');
+  }
+
+  function triggerDownload(filename, content, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
   }
 
   function updateInputMeta() {
@@ -568,6 +806,7 @@
     renderSynonyms(graph.synonyms);
     renderInsights(graph);
     renderDocumentInsights(graph.documents);
+    renderDataset(graph.dataset);
 
     if (elements.results) {
       elements.results.hidden = false;
@@ -690,15 +929,8 @@
       return;
     }
 
-    const blob = new Blob([JSON.stringify(lastResult, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'semantic-workbench.json';
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
+    const payload = JSON.stringify(lastResult, null, 2);
+    triggerDownload('semantic-workbench.json', payload, 'application/json');
   }
 
   async function handleCopySummary() {
@@ -717,6 +949,31 @@
     }
   }
 
+  function handleDownloadDataset(format) {
+    if (!lastDataset || typeof lastDataset !== 'object') {
+      return;
+    }
+
+    const rows = Array.isArray(lastDataset.rows) ? lastDataset.rows : [];
+    if (rows.length === 0) {
+      setStatus('Run an extraction to build the training dataset before downloading.', 'error');
+      return;
+    }
+
+    if (format === 'json') {
+      const payload = JSON.stringify(rows, null, 2);
+      triggerDownload('ai-training-dataset.json', payload, 'application/json');
+      setStatus('Dataset JSON downloaded.', 'success');
+      return;
+    }
+
+    if (format === 'csv') {
+      const csv = datasetToCsv(rows);
+      triggerDownload('ai-training-dataset.csv', csv, 'text/csv');
+      setStatus('Dataset CSV downloaded.', 'success');
+    }
+  }
+
   if (elements.form) {
     elements.form.addEventListener('submit', submitForm);
     elements.form.addEventListener('reset', () => {
@@ -729,6 +986,14 @@
 
   if (elements.downloadJson) {
     elements.downloadJson.addEventListener('click', handleDownload);
+  }
+
+  if (elements.downloadDatasetJson) {
+    elements.downloadDatasetJson.addEventListener('click', () => handleDownloadDataset('json'));
+  }
+
+  if (elements.downloadDatasetCsv) {
+    elements.downloadDatasetCsv.addEventListener('click', () => handleDownloadDataset('csv'));
   }
 
   if (elements.copySummary) {

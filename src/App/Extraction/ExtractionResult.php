@@ -46,6 +46,11 @@ final class ExtractionResult implements JsonSerializable
     private array $crossReferences;
 
     /**
+     * @var array{rows: array<int, array<string, mixed>>, schema: array<string, mixed>, statistics: array<string, mixed>}
+     */
+    private array $dataset;
+
+    /**
      * @param array<int, array{subject: string, relation: string, object: string}> $triples
      * @param array<int, array{entity: string, synonyms: array<int, string>}> $synonyms
      * @param array<string, int> $relationFrequency
@@ -54,6 +59,7 @@ final class ExtractionResult implements JsonSerializable
      * @param array<string, mixed> $state
      * @param array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>}> $documents
      * @param array<string, array{entity: string, facts: array<int, array{direction: string, relation: string, counterpart: string}>, synonyms: array<int, string>, context: array{as_subject: array<string, int>, as_object: array<string, int>}, ranking: array{score: float, eligible: bool, signals: array{uniqueness: float, freshness: float, quality: float, authority: float, consistency: float}, support: array{incoming_links: int, outgoing_links: int, fact_count: int}}}> $crossReferences
+     * @param array{rows: array<int, array<string, mixed>>, schema: array<string, mixed>, statistics: array<string, mixed>} $dataset
      */
     public function __construct(
         array $triples,
@@ -63,7 +69,8 @@ final class ExtractionResult implements JsonSerializable
         array $summary,
         array $state,
         array $documents = [],
-        array $crossReferences = []
+        array $crossReferences = [],
+        array $dataset = ['rows' => [], 'schema' => [], 'statistics' => []]
     ) {
         $this->triples = $triples;
         $this->synonyms = $synonyms;
@@ -73,6 +80,7 @@ final class ExtractionResult implements JsonSerializable
         $this->state = $state;
         $this->documents = $documents;
         $this->crossReferences = $crossReferences;
+        $this->dataset = $dataset;
     }
 
     /**
@@ -140,6 +148,14 @@ final class ExtractionResult implements JsonSerializable
     }
 
     /**
+     * @return array{rows: array<int, array<string, mixed>>, schema: array<string, mixed>, statistics: array<string, mixed>}
+     */
+    public function dataset(): array
+    {
+        return $this->dataset;
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function toArray(): array
@@ -153,6 +169,7 @@ final class ExtractionResult implements JsonSerializable
             'state' => $this->state,
             'documents' => $this->documents,
             'cross_references' => $this->crossReferences,
+            'dataset' => $this->dataset,
         ];
     }
 
