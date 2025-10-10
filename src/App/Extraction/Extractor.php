@@ -262,6 +262,26 @@ final class Extractor implements ExtractorInterface
             if ($conversation === true) {
                 $quality = $this->clampScore($quality + 0.05);
             }
+
+            $writingQualityOverall = $this->readNestedFloat($analytics, ['writing_quality', 'overall', 'score']);
+            if ($writingQualityOverall !== null) {
+                $quality = $this->clampScore(($quality * 0.4) + ($writingQualityOverall * 0.6));
+            }
+
+            $readabilityScore = $this->readNestedFloat($analytics, ['writing_quality', 'readability', 'score']);
+            if ($readabilityScore !== null) {
+                $quality = $this->clampScore(($quality * 0.7) + ($readabilityScore * 0.3));
+            }
+
+            $structureScore = $this->readNestedFloat($analytics, ['writing_quality', 'structure', 'score']);
+            if ($structureScore !== null) {
+                $consistency = $this->clampScore(($consistency * 0.7) + ($structureScore * 0.3));
+            }
+
+            $cohesionScore = $this->readNestedFloat($analytics, ['writing_quality', 'cohesion', 'score']);
+            if ($cohesionScore !== null) {
+                $consistency = $this->clampScore(($consistency * 0.6) + ($cohesionScore * 0.4));
+            }
         }
 
         return [
