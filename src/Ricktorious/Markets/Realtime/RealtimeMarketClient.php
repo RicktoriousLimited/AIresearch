@@ -10,6 +10,10 @@ use RuntimeException;
 final class RealtimeMarketClient
 {
     private const DEFAULT_SYMBOLS = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN'];
+    /**
+     * @var array<string, array<string, mixed>>|null
+     */
+    private static ?array $sentimentFixtures = null;
 
     public function __construct(
         private HttpJsonClient $http,
@@ -191,6 +195,7 @@ final class RealtimeMarketClient
         $profile = $this->fetchProfile($normalized, $quote);
 
         $volatility = $this->calculateVolatility($history['points'], 30);
+        $returns = $this->calculateReturns($history['points']);
 
         return [
             'symbol' => $normalized,
@@ -206,10 +211,22 @@ final class RealtimeMarketClient
                 'average_score' => $sentiment['average_score'],
                 'label' => $sentiment['label'],
                 'article_count' => $sentiment['article_count'],
-                'articles' => array_slice($sentiment['articles'], 0, 5),
+                'momentum' => $sentiment['momentum'] ?? 0.0,
+                'latest_score' => $sentiment['latest_score'] ?? 0.0,
+                'previous_score' => $sentiment['previous_score'] ?? 0.0,
+                'topics' => array_slice($sentiment['topics'], 0, 6),
+                'articles' => array_map(
+                    static function (array $article) use ($normalized): array {
+                        $article['symbol'] = $article['symbol'] ?? $normalized;
+
+                        return $article;
+                    },
+                    array_slice($sentiment['articles'], 0, 5)
+                ),
             ],
             'insights' => [
                 'volatility' => $volatility,
+                'returns' => $returns,
             ],
         ];
     }
@@ -585,6 +602,31 @@ final class RealtimeMarketClient
             ];
         });
 
+        $fixture = null;
+        if (($sentiment['article_count'] ?? 0) === 0 || ($sentiment['timeline'] ?? []) === []) {
+            $fixture = $this->loadSentimentFixture($symbol);
+            if ($fixture !== null) {
+                return $fixture;
+            }
+        }
+
+        $fixture ??= $this->loadSentimentFixture($symbol);
+        if ($fixture !== null) {
+            if (($sentiment['topics'] ?? []) === []) {
+                $sentiment['topics'] = $fixture['topics'];
+            }
+            if (($sentiment['timeline'] ?? []) === []) {
+                $sentiment['timeline'] = $fixture['timeline'];
+                $sentiment['latest_score'] = $fixture['latest_score'];
+                $sentiment['previous_score'] = $fixture['previous_score'];
+                $sentiment['momentum'] = $fixture['momentum'];
+            }
+            if (($sentiment['articles'] ?? []) === [] && $fixture['articles'] !== []) {
+                $sentiment['articles'] = $fixture['articles'];
+                $sentiment['article_count'] = $fixture['article_count'];
+            }
+        }
+
         return $sentiment;
     }
 
@@ -604,6 +646,120 @@ final class RealtimeMarketClient
             'timeline' => [],
             'topics' => [],
             'source' => $reason,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function loadSentimentFixture(string $symbol): ?array
+    {
+        if (self::$sentimentFixtures === null) {
+            $path = dirname(__DIR__, 4) . '/storage/fixtures/sentiment_fallback.json';
+            if (!is_file($path)) {
+                self::$sentimentFixtures = [];
+            } else {
+                $raw = json_decode((string) file_get_contents($path), true);
+                self::$sentimentFixtures = is_array($raw) ? $raw : [];
+            }
+        }
+
+        $key = strtoupper($symbol);
+        $data = self::$sentimentFixtures[$key] ?? null;
+        if (!is_array($data)) {
+            return null;
+        }
+
+        $articles = [];
+        if (isset($data['articles']) && is_array($data['articles'])) {
+            foreach ($data['articles'] as $article) {
+                if (!is_array($article)) {
+                    continue;
+                }
+
+                $articles[] = [
+                    'title' => (string) ($article['title'] ?? ''),
+                    'summary' => (string) ($article['summary'] ?? ''),
+                    'url' => (string) ($article['url'] ?? ''),
+                    'source' => (string) ($article['source'] ?? ''),
+                    'published_at' => (string) ($article['published_at'] ?? ''),
+                    'sentiment_score' => (float) ($article['sentiment_score'] ?? 0.0),
+                    'sentiment_label' => (string) ($article['sentiment_label'] ?? 'neutral'),
+                    'relevance_score' => (float) ($article['relevance_score'] ?? 0.0),
+                ];
+            }
+        }
+
+        $timeline = [];
+        if (isset($data['timeline']) && is_array($data['timeline'])) {
+            foreach ($data['timeline'] as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                $date = (string) ($entry['date'] ?? '');
+                if ($date === '') {
+                    continue;
+                }
+
+                $timeline[] = [
+                    'date' => $date,
+                    'score' => (float) ($entry['score'] ?? 0.0),
+                    'article_count' => (int) ($entry['article_count'] ?? 0),
+                ];
+            }
+        }
+
+        $topics = [];
+        if (isset($data['topics']) && is_array($data['topics'])) {
+            foreach ($data['topics'] as $topic) {
+                if (!is_array($topic)) {
+                    continue;
+                }
+
+                $name = (string) ($topic['topic'] ?? '');
+                if ($name === '') {
+                    continue;
+                }
+
+                $topics[] = [
+                    'topic' => $name,
+                    'mentions' => (int) ($topic['mentions'] ?? 0),
+                ];
+            }
+        }
+
+        $articleCount = (int) ($data['article_count'] ?? count($articles));
+        if ($articleCount === 0 && $articles !== []) {
+            $articleCount = count($articles);
+        }
+
+        $latestScore = (float) ($data['latest_score'] ?? ($timeline !== [] ? $timeline[count($timeline) - 1]['score'] : 0.0));
+        $previousScore = (float) ($data['previous_score'] ?? ($timeline !== [] ? ($timeline[count($timeline) - 2]['score'] ?? $latestScore) : $latestScore));
+        $momentum = (float) ($data['momentum'] ?? ($latestScore - $previousScore));
+
+        $averageScore = (float) ($data['average_score'] ?? 0.0);
+        if (!isset($data['average_score']) && $articles !== []) {
+            $total = 0.0;
+            foreach ($articles as $article) {
+                $total += (float) ($article['sentiment_score'] ?? 0.0);
+            }
+            $averageScore = $total / count($articles);
+        }
+
+        $label = (string) ($data['label'] ?? $this->classifyScore($averageScore));
+
+        return [
+            'average_score' => $averageScore,
+            'latest_score' => $latestScore,
+            'previous_score' => $previousScore,
+            'momentum' => $momentum,
+            'label' => $label,
+            'article_count' => $articleCount,
+            'articles' => $articles,
+            'timeline' => $timeline,
+            'topics' => $topics,
+            'source' => 'fixture',
         ];
     }
 

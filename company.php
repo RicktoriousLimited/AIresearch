@@ -149,7 +149,9 @@ $popular = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'TSLA'];
                     <h2>Price action</h2>
                     <p class="muted" data-field="price-range-label">Last 6 months</p>
                 </header>
-                <canvas id="price-chart" height="320"></canvas>
+                <div class="chart-frame">
+                    <canvas id="price-chart"></canvas>
+                </div>
                 <footer data-field="price-summary" class="muted">Fetching history…</footer>
             </article>
             <article class="chart-card">
@@ -157,7 +159,9 @@ $popular = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN', 'TSLA'];
                     <h2>Sentiment trend</h2>
                     <p class="muted" data-field="sentiment-trend-label">Rolling daily averages</p>
                 </header>
-                <canvas id="sentiment-chart" height="320"></canvas>
+                <div class="chart-frame">
+                    <canvas id="sentiment-chart"></canvas>
+                </div>
                 <footer data-field="sentiment-summary" class="muted">Waiting for coverage…</footer>
             </article>
         </div>

@@ -1,0 +1,287 @@
+{
+  "AAPL": {
+    "average_score": 0.34,
+    "latest_score": 0.38,
+    "previous_score": 0.29,
+    "momentum": 0.09,
+    "label": "bullish",
+    "article_count": 4,
+    "articles": [
+      {
+        "title": "Apple leans into on-device AI to unlock an iPhone upgrade cycle",
+        "summary": "Executives highlighted an on-device assistant strategy that could accelerate hardware refreshes and deepen services engagement.",
+        "url": "https://news.signal-ledger.local/apple-on-device-ai",
+        "source": "Signal Desk",
+        "published_at": "2024-06-07T12:30:00Z",
+        "sentiment_score": 0.42,
+        "sentiment_label": "bullish",
+        "relevance_score": 0.86
+      },
+      {
+        "title": "Services revenue posts a record as subscriptions compound",
+        "summary": "Recurring revenue growth outpaced hardware as Apple added 35m paid subscribers in the last quarter.",
+        "url": "https://news.signal-ledger.local/apple-services-growth",
+        "source": "Bloomwire",
+        "published_at": "2024-06-06T09:05:00Z",
+        "sentiment_score": 0.33,
+        "sentiment_label": "somewhat_bullish",
+        "relevance_score": 0.74
+      },
+      {
+        "title": "Regulators close antitrust probe into App Store billing in EU",
+        "summary": "Settlement language keeps headline risk contained and allows the services margin story to continue.",
+        "url": "https://news.signal-ledger.local/apple-app-store",
+        "source": "MarketScope",
+        "published_at": "2024-06-05T15:42:00Z",
+        "sentiment_score": 0.28,
+        "sentiment_label": "somewhat_bullish",
+        "relevance_score": 0.61
+      },
+      {
+        "title": "Global supply chain shows signs of easing for Mac shipments",
+        "summary": "Freight partners reported shorter lead times heading into the September quarter, reducing margin pressure.",
+        "url": "https://news.signal-ledger.local/apple-supply-chain",
+        "source": "Logistics Journal",
+        "published_at": "2024-06-04T11:12:00Z",
+        "sentiment_score": 0.33,
+        "sentiment_label": "somewhat_bullish",
+        "relevance_score": 0.55
+      }
+    ],
+    "timeline": [
+      {"date": "2024-06-03", "score": 0.24, "article_count": 3},
+      {"date": "2024-06-04", "score": 0.29, "article_count": 4},
+      {"date": "2024-06-05", "score": 0.34, "article_count": 4},
+      {"date": "2024-06-06", "score": 0.38, "article_count": 5}
+    ],
+    "topics": [
+      {"topic": "Generative AI", "mentions": 12},
+      {"topic": "Services revenue", "mentions": 9},
+      {"topic": "App Store policy", "mentions": 6}
+    ]
+  },
+  "MSFT": {
+    "average_score": 0.31,
+    "latest_score": 0.34,
+    "previous_score": 0.26,
+    "momentum": 0.08,
+    "label": "bullish",
+    "article_count": 4,
+    "articles": [
+      {
+        "title": "Microsoft previews Copilot integrations for enterprise stack",
+        "summary": "Expanded copilots inside Dynamics and Azure security bundles hint at higher seat expansion over the next two quarters.",
+        "url": "https://news.signal-ledger.local/msft-copilot-enterprise",
+        "source": "Signal Desk",
+        "published_at": "2024-06-07T10:10:00Z",
+        "sentiment_score": 0.37,
+        "sentiment_label": "somewhat_bullish",
+        "relevance_score": 0.81
+      },
+      {
+        "title": "Azure growth accelerates as AI workloads ramp",
+        "summary": "Management cited a 3pt sequential acceleration in Azure as larger language model projects went live.",
+        "url": "https://news.signal-ledger.local/msft-azure-growth",
+        "source": "CloudWire",
+        "published_at": "2024-06-06T13:20:00Z",
+        "sentiment_score": 0.36,
+        "sentiment_label": "somewhat_bullish",
+        "relevance_score": 0.77
+      },
+      {
+        "title": "GitHub Copilot revenue passes $1B run-rate",
+        "summary": "Developer productivity gains are translating to paid seat conversions and higher attach inside enterprise agreements.",
+        "url": "https://news.signal-ledger.local/msft-github-copilot",
+        "source": "DevBeat",
+        "published_at": "2024-06-05T08:47:00Z",
+        "sentiment_score": 0.32,
+        "sentiment_label": "somewhat_bullish",
+        "relevance_score": 0.69
+      },
+      {
+        "title": "Microsoft finalizes Activision integration milestones",
+        "summary": "Game Pass growth remains healthy as the company integrates new titles and merchandising rights.",
+        "url": "https://news.signal-ledger.local/msft-activision-integration",
+        "source": "Interactive Wire",
+        "published_at": "2024-06-04T16:35:00Z",
+        "sentiment_score": 0.22,
+        "sentiment_label": "neutral",
+        "relevance_score": 0.52
+      }
+    ],
+    "timeline": [
+      {"date": "2024-06-03", "score": 0.22, "article_count": 3},
+      {"date": "2024-06-04", "score": 0.27, "article_count": 4},
+      {"date": "2024-06-05", "score": 0.31, "article_count": 4},
+      {"date": "2024-06-06", "score": 0.34, "article_count": 5}
+    ],
+    "topics": [
+      {"topic": "Copilot", "mentions": 11},
+      {"topic": "Azure", "mentions": 8},
+      {"topic": "Gaming", "mentions": 5}
+    ]
+  },
+  "NVDA": {
+    "average_score": 0.28,
+    "latest_score": 0.32,
+    "previous_score": 0.24,
+    "momentum": 0.08,
+    "label": "bullish",
+    "article_count": 4,
+    "articles": [
+      {
+        "title": "Nvidia unveils Rubin roadmap with annual cadence",
+        "summary": "Management committed to annual architecture refreshes, supporting expectations for sustained data center share gains.",
+        "url": "https://news.signal-ledger.local/nvda-rubin-roadmap",
+        "source": "Silicon Insider",
+        "published_at": "2024-06-07T14:55:00Z",
+        "sentiment_score": 0.39,
+        "sentiment_label": "somewhat_bullish",
+        "relevance_score": 0.84
+      },
+      {
+        "title": "Cloud providers pre-order Blackwell inventory",
+        "summary": "Hyperscalers locked in additional GPU supply into 2025, signaling demand visibility beyond the current fiscal year.",
+        "url": "https://news.signal-ledger.local/nvda-blackwell-orders",
+        "source": "CloudWire",
+        "published_at": "2024-06-06T12:05:00Z",
+        "sentiment_score": 0.31,
+        "sentiment_label": "somewhat_bullish",
+        "relevance_score": 0.7
+      },
+      {
+        "title": "Automotive design wins expand with Level 3 platforms",
+        "summary": "Tier-one suppliers are adopting Nvidia's Drive architecture for next-gen autonomous stacks.",
+        "url": "https://news.signal-ledger.local/nvda-drive-design-wins",
+        "source": "AutoTech",
+        "published_at": "2024-06-05T09:25:00Z",
+        "sentiment_score": 0.27,
+        "sentiment_label": "neutral",
+        "relevance_score": 0.6
+      },
+      {
+        "title": "Export controls remain a watch item for China mix",
+        "summary": "Policy headlines remain present but recent waivers allow shipments of H20 accelerators into key accounts.",
+        "url": "https://news.signal-ledger.local/nvda-export-controls",
+        "source": "Policy Watch",
+        "published_at": "2024-06-04T18:15:00Z",
+        "sentiment_score": 0.14,
+        "sentiment_label": "neutral",
+        "relevance_score": 0.48
+      }
+    ],
+    "timeline": [
+      {"date": "2024-06-03", "score": 0.18, "article_count": 2},
+      {"date": "2024-06-04", "score": 0.24, "article_count": 3},
+      {"date": "2024-06-05", "score": 0.29, "article_count": 4},
+      {"date": "2024-06-06", "score": 0.32, "article_count": 4}
+    ],
+    "topics": [
+      {"topic": "Data center GPUs", "mentions": 10},
+      {"topic": "AI infrastructure", "mentions": 8},
+      {"topic": "Export controls", "mentions": 5}
+    ]
+  },
+  "GOOGL": {
+    "average_score": 0.19,
+    "latest_score": 0.21,
+    "previous_score": 0.16,
+    "momentum": 0.05,
+    "label": "neutral",
+    "article_count": 3,
+    "articles": [
+      {
+        "title": "Google debuts Astra assistant with multimodal search",
+        "summary": "The company emphasized latency improvements and enterprise APIs, addressing competitive gaps.",
+        "url": "https://news.signal-ledger.local/googl-astra",
+        "source": "Signal Desk",
+        "published_at": "2024-06-07T13:05:00Z",
+        "sentiment_score": 0.27,
+        "sentiment_label": "neutral",
+        "relevance_score": 0.65
+      },
+      {
+        "title": "YouTube advertising stabilizes as direct-response improves",
+        "summary": "Short-form engagement continues to monetize better than expected, offsetting search deceleration.",
+        "url": "https://news.signal-ledger.local/googl-youtube",
+        "source": "AdTech Monitor",
+        "published_at": "2024-06-06T07:55:00Z",
+        "sentiment_score": 0.19,
+        "sentiment_label": "neutral",
+        "relevance_score": 0.58
+      },
+      {
+        "title": "EU presses forward with DMA compliance checks",
+        "summary": "Regulators requested more disclosure on search ranking changes, keeping policy overhang on the narrative.",
+        "url": "https://news.signal-ledger.local/googl-dma",
+        "source": "Policy Watch",
+        "published_at": "2024-06-05T17:40:00Z",
+        "sentiment_score": -0.04,
+        "sentiment_label": "bearish",
+        "relevance_score": 0.51
+      }
+    ],
+    "timeline": [
+      {"date": "2024-06-03", "score": 0.12, "article_count": 2},
+      {"date": "2024-06-04", "score": 0.16, "article_count": 3},
+      {"date": "2024-06-05", "score": 0.18, "article_count": 3},
+      {"date": "2024-06-06", "score": 0.21, "article_count": 3}
+    ],
+    "topics": [
+      {"topic": "Search AI", "mentions": 9},
+      {"topic": "Regulation", "mentions": 6},
+      {"topic": "YouTube", "mentions": 5}
+    ]
+  },
+  "AMZN": {
+    "average_score": 0.23,
+    "latest_score": 0.26,
+    "previous_score": 0.19,
+    "momentum": 0.07,
+    "label": "bullish",
+    "article_count": 3,
+    "articles": [
+      {
+        "title": "AWS lands multi-year AI training deal with healthcare major",
+        "summary": "A Fortune 50 payer signed a multi-year contract for Bedrock-managed models, reinforcing vertical traction.",
+        "url": "https://news.signal-ledger.local/amzn-healthcare-bedrock",
+        "source": "Signal Desk",
+        "published_at": "2024-06-07T11:25:00Z",
+        "sentiment_score": 0.35,
+        "sentiment_label": "somewhat_bullish",
+        "relevance_score": 0.72
+      },
+      {
+        "title": "Prime Day set for mid-July with expanded logistics capacity",
+        "summary": "Fulfilment build-out allows one-day coverage for 80% of U.S. Prime members ahead of the sales event.",
+        "url": "https://news.signal-ledger.local/amzn-prime-day",
+        "source": "Retail Pulse",
+        "published_at": "2024-06-06T10:15:00Z",
+        "sentiment_score": 0.24,
+        "sentiment_label": "neutral",
+        "relevance_score": 0.6
+      },
+      {
+        "title": "Advertising unit keeps double-digit growth",
+        "summary": "Sponsored product momentum remains resilient as brands lean into retail media attribution.",
+        "url": "https://news.signal-ledger.local/amzn-ads",
+        "source": "AdTech Monitor",
+        "published_at": "2024-06-05T06:45:00Z",
+        "sentiment_score": 0.21,
+        "sentiment_label": "neutral",
+        "relevance_score": 0.55
+      }
+    ],
+    "timeline": [
+      {"date": "2024-06-03", "score": 0.15, "article_count": 2},
+      {"date": "2024-06-04", "score": 0.19, "article_count": 3},
+      {"date": "2024-06-05", "score": 0.22, "article_count": 3},
+      {"date": "2024-06-06", "score": 0.26, "article_count": 3}
+    ],
+    "topics": [
+      {"topic": "AWS", "mentions": 9},
+      {"topic": "Prime logistics", "mentions": 7},
+      {"topic": "Retail media", "mentions": 5}
+    ]
+  }
+}

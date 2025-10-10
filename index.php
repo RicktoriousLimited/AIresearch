@@ -133,6 +133,40 @@ $defaultWatchlist = ['AAPL', 'MSFT', 'NVDA', 'GOOGL', 'AMZN'];
         </div>
     </section>
 
+    <section class="section" id="signals">
+        <div class="shell">
+            <div class="section-header">
+                <h2>Signal pulses</h2>
+                <p class="muted">High-impact themes and risk monitors surfaced from the watchlist.</p>
+            </div>
+            <div class="signal-grid">
+                <article class="signal-card">
+                    <h3>Coverage themes</h3>
+                    <p class="muted">Most-referenced topics across the curated universe.</p>
+                    <ul class="topic-tags" data-dashboard="narrative-topics">
+                        <li class="muted">Scanning coverage…</li>
+                    </ul>
+                </article>
+                <article class="signal-card">
+                    <h3>Volatility watch</h3>
+                    <p class="muted">Names with the highest 30-day annualised volatility.</p>
+                    <ul class="volatility-list" data-dashboard="volatility-watch">
+                        <li class="muted">Calculating dispersion…</li>
+                    </ul>
+                </article>
+                <article class="signal-card">
+                    <h3>Coverage highlights</h3>
+                    <p class="muted">Stories driving the narrative this session.</p>
+                    <div class="coverage-feed" data-dashboard="coverage-feed">
+                        <div class="empty-state">
+                            <p>Evaluating articles…</p>
+                        </div>
+                    </div>
+                </article>
+            </div>
+        </div>
+    </section>
+
     <section class="section" id="news">
         <div class="shell">
             <div class="section-header">
