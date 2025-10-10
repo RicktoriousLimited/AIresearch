@@ -975,7 +975,8 @@ final class TextRefiner
      *     keywords: array<int, array{token: string, count: int}>,
      *     spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>,
      *     qa: array<int, array{question: string, answer: string, response: string}>,
-     *     analytics: array<string, mixed>
+     *     analytics: array<string, mixed>,
+     *     is_meaningful: bool
      * }
      */
     public function analyseDocument(string $text): array
@@ -984,6 +985,7 @@ final class TextRefiner
         $rewritten = $this->rewriteDocument($text);
         $keywords = $this->extractKeywords($text);
         $analytics = $this->analyseNarrativeSignals($text, $cleaned, $keywords);
+        $isMeaningful = $this->evaluateMeaningfulness($text, $cleaned);
 
         return [
             'original' => $text,
@@ -993,7 +995,125 @@ final class TextRefiner
             'spelling' => $this->spellCheck($text),
             'qa' => $this->generateQuestionAnswerPairs($text),
             'analytics' => $analytics,
+            'is_meaningful' => $isMeaningful,
         ];
+    }
+
+    private function evaluateMeaningfulness(string $original, string $cleaned): bool
+    {
+        $source = $cleaned !== '' ? $cleaned : $original;
+        if ($source === '') {
+            return false;
+        }
+
+        $lines = preg_split("/\r\n|\r|\n/u", $source);
+        if ($lines === false) {
+            $lines = [$source];
+        }
+
+        $meaningfulSentenceDetected = false;
+        $meaningfulBulletDetected = false;
+        $tokenTotal = 0;
+        $recognizedTotal = 0;
+        $stopwordTotal = 0;
+        $hasVerbCandidate = false;
+
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+            if ($trimmed === '') {
+                continue;
+            }
+
+            $isBullet = preg_match('/^[-•·]+\s+/u', ltrim($line)) === 1;
+            $normalizedLine = $isBullet ? preg_replace('/^[-•·]+\s*/u', '', ltrim($line)) : $trimmed;
+            if (!is_string($normalizedLine)) {
+                $normalizedLine = $trimmed;
+            }
+
+            $sentenceCandidates = preg_split('/(?<=[.!?])\s+/u', $normalizedLine) ?: [$normalizedLine];
+            foreach ($sentenceCandidates as $candidate) {
+                $candidate = trim($candidate);
+                if ($candidate === '') {
+                    continue;
+                }
+
+                if ($this->isGrammaticallySoundSentence($candidate)) {
+                    $meaningfulSentenceDetected = true;
+                    break 2;
+                }
+            }
+
+            preg_match_all('/\b[\p{L}\']+\b/u', $normalizedLine, $wordMatches);
+            $tokens = is_array($wordMatches[0] ?? null) ? $wordMatches[0] : [];
+            if ($tokens === []) {
+                continue;
+            }
+
+            $recognizedLine = 0;
+            $stopwordsLine = 0;
+            $lowerLineTokens = [];
+            foreach ($tokens as $token) {
+                $lower = mb_strtolower((string) $token, 'UTF-8');
+                if ($lower === '') {
+                    continue;
+                }
+
+                $tokenTotal++;
+                $lowerLineTokens[] = $lower;
+
+                if (isset(self::$stopwords[$lower])) {
+                    $stopwordTotal++;
+                    $stopwordsLine++;
+                }
+
+                if ($this->lexicon->contains($lower) || $this->looksLikeName($lower)) {
+                    $recognizedTotal++;
+                    $recognizedLine++;
+                }
+            }
+
+            if ($lowerLineTokens !== []) {
+                $lowerLine = mb_strtolower($normalizedLine, 'UTF-8');
+                if ($this->containsVerbCandidate($lowerLine, $tokens)) {
+                    $hasVerbCandidate = true;
+                }
+
+                if (
+                    $isBullet
+                    && $recognizedLine >= 1
+                    && $this->containsVerbCandidate($lowerLine, $tokens)
+                ) {
+                    $meaningfulBulletDetected = true;
+                }
+            }
+        }
+
+        if ($meaningfulSentenceDetected || $meaningfulBulletDetected) {
+            return true;
+        }
+
+        if ($tokenTotal < 5) {
+            return false;
+        }
+
+        if ($recognizedTotal === 0) {
+            return false;
+        }
+
+        if (!$hasVerbCandidate) {
+            return false;
+        }
+
+        $recognizedRatio = $recognizedTotal / max(1, $tokenTotal);
+        if ($recognizedRatio < 0.45) {
+            return false;
+        }
+
+        if ($stopwordTotal === 0 && $recognizedRatio < 0.65) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

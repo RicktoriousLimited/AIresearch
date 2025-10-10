@@ -42,11 +42,23 @@ final class Extractor implements ExtractorInterface
             }
 
             $analysis = $refiner->analyseDocument($text);
+            if (!($analysis['is_meaningful'] ?? false)) {
+                continue;
+            }
+
             $documentsMeta[] = $analysis;
 
             $engine->registerDocumentSignals($this->deriveDocumentSignals($analysis));
 
-            $engine->extractRelations($text);
+            $sourceText = (string) ($analysis['cleaned'] ?? '');
+            if ($sourceText === '') {
+                $sourceText = (string) ($analysis['rewritten'] ?? '');
+            }
+            if ($sourceText === '') {
+                $sourceText = $text;
+            }
+
+            $engine->extractRelations($sourceText);
             $processedCount++;
         }
 

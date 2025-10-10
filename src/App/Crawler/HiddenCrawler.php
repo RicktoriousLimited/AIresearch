@@ -1483,9 +1483,14 @@ final class HiddenCrawler
         }
 
         $analysis = $this->refiner->analyseDocument($scraped->text());
+        $meaningful = (bool) ($analysis['is_meaningful'] ?? false);
 
         $keywords = $this->formatKeywords($analysis['keywords'] ?? []);
         $entities = $this->extractEntities($analysis['analytics']['entities']['top_entities'] ?? []);
+        if (!$meaningful) {
+            $keywords = [];
+            $entities = [];
+        }
         $filteredLinks = $this->filterLinks($scraped->links());
 
         $meta = $scraped->meta();
@@ -1500,6 +1505,14 @@ final class HiddenCrawler
         $summaryClean = $this->refiner->cleanDocument($summaryRaw);
         if ($summaryClean === '') {
             $summaryClean = $summaryRaw;
+        }
+        if (!$meaningful) {
+            $preview = '';
+            $summaryClean = '';
+        }
+        $narrativeAnalytics = is_array($analysis['analytics'] ?? null) ? $analysis['analytics'] : [];
+        if (!$meaningful) {
+            $narrativeAnalytics = [];
         }
 
         $entry = [
@@ -1520,7 +1533,8 @@ final class HiddenCrawler
             'published_at' => is_array($meta) ? (string) ($meta['published_at'] ?? '') : '',
             'character_count' => $scraped->characterCount(),
             'paragraph_count' => $scraped->paragraphCount(),
-            'narrative' => is_array($analysis['analytics'] ?? null) ? $analysis['analytics'] : [],
+            'narrative' => $narrativeAnalytics,
+            'meaningful' => $meaningful,
         ];
 
         $classification = $this->classifyEntry($entry);
@@ -2466,6 +2480,11 @@ final class HiddenCrawler
         if (($entry['category'] ?? '') === 'financial') {
             $score += 4.0;
             $reasons[] = 'Financial focus detected.';
+        }
+
+        if (empty($entry['meaningful'])) {
+            $score -= 32.0;
+            $reasons[] = 'Discarded meaningless text – no coherent sentences detected.';
         }
 
         if ($this->isLowConfidenceDomain($domain)) {

@@ -138,6 +138,25 @@ if ((int) ($archived[0]['revision'] ?? 0) !== 1) {
     throw new RuntimeException('Archived revision should retain its original revision number.');
 }
 
+$meaninglessStorage = sys_get_temp_dir() . '/crawler_history_' . bin2hex(random_bytes(4)) . '.json';
+$meaninglessScraper = new StubScraper();
+$meaninglessScraper->text = 'orange table river cloud stone horizon';
+$meaninglessCrawler = new HiddenCrawler($meaninglessStorage, $meaninglessScraper, new TextRefiner());
+$meaninglessResult = $meaninglessCrawler->crawl(['https://example.com/meaningless']);
+if (count($meaninglessResult) !== 1) {
+    throw new RuntimeException('Expected a single crawl result for meaningless sample.');
+}
+
+$meaninglessEntry = $meaninglessResult[0];
+if (!empty($meaninglessEntry['meaningful'])) {
+    throw new RuntimeException('Meaningless samples should be flagged as not meaningful.');
+}
+
+$meaninglessReasons = $meaninglessEntry['quality_reasons'] ?? [];
+if (!is_array($meaninglessReasons) || !in_array('Discarded meaningless text – no coherent sentences detected.', $meaninglessReasons, true)) {
+    throw new RuntimeException('Meaningless samples should explain the rejection reason.');
+}
+
 unlink($storage);
 $progressFile = preg_replace('/\.json$/', '.progress.json', $storage);
 if (!is_string($progressFile)) {
@@ -145,6 +164,15 @@ if (!is_string($progressFile)) {
 }
 if (file_exists($progressFile)) {
     unlink($progressFile);
+}
+
+unlink($meaninglessStorage);
+$meaninglessProgress = preg_replace('/\.json$/', '.progress.json', $meaninglessStorage);
+if (!is_string($meaninglessProgress)) {
+    $meaninglessProgress = $meaninglessStorage . '.progress.json';
+}
+if (file_exists($meaninglessProgress)) {
+    unlink($meaninglessProgress);
 }
 
 echo "HiddenCrawler tests passed\n";

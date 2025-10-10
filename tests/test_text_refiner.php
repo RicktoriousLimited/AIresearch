@@ -12,6 +12,12 @@ function assertTrue(bool $value, string $message = ''): void {
     }
 }
 
+function assertFalse(bool $value, string $message = ''): void {
+    if ($value) {
+        throw new AssertionError($message !== '' ? $message : 'Expected condition to be false.');
+    }
+}
+
 function assertNotEmpty($value, string $message = ''): void {
     if (empty($value)) {
         throw new AssertionError($message !== '' ? $message : 'Expected value to be non-empty.');
@@ -53,11 +59,13 @@ assertTrue(in_array('works', $wrksEntry['suggestions'] ?? [], true), 'Expected "
 
 $analysis = $refiner->analyseDocument($raw);
 assertTrue(
-    isset($analysis['cleaned'], $analysis['rewritten'], $analysis['keywords'], $analysis['spelling'], $analysis['qa']),
+    isset($analysis['cleaned'], $analysis['rewritten'], $analysis['keywords'], $analysis['spelling'], $analysis['qa'], $analysis['is_meaningful']),
     'Analysis payload should expose all fields.'
 );
 assertTrue($analysis['rewritten'] !== '', 'Rewritten text should not be empty.');
 assertTrue(is_array($analysis['qa']) && $analysis['qa'] !== [], 'QA analysis should provide at least one entry.');
+assertTrue(is_bool($analysis['is_meaningful']), 'Meaningfulness flag should be boolean.');
+assertTrue($analysis['is_meaningful'], 'Expected sample document to be marked as meaningful.');
 
 $qaPairs = $refiner->generateQuestionAnswerPairs($raw);
 assertTrue($qaPairs !== [], 'Expected QA pairs to be generated.');
@@ -154,6 +162,12 @@ TEXT;
 $gibberishCleaned = $refiner->cleanDocument($gibberish);
 assertTrue(strpos($gibberishCleaned, 'asdf qwer zxcv') === false, 'Expected meaningless text to be removed.');
 assertTrue(strpos($gibberishCleaned, 'This is a meaningful sentence') !== false, 'Expected meaningful text to remain.');
+$gibberishAnalysis = $refiner->analyseDocument($gibberish);
+assertTrue($gibberishAnalysis['is_meaningful'] ?? false, 'Mixed samples with meaningful sentences should still pass meaningfulness checks.');
+
+$wordSalad = 'orange table river cloud stone horizon';
+$wordSaladAnalysis = $refiner->analyseDocument($wordSalad);
+assertFalse($wordSaladAnalysis['is_meaningful'] ?? true, 'Expected random word list to fail meaningfulness checks.');
 
 $unknownVocabulary = <<<TEXT
 Xyzzor is qliph.
@@ -164,6 +178,8 @@ TEXT;
 $unknownCleaned = $refiner->cleanDocument($unknownVocabulary);
 assertTrue(strpos($unknownCleaned, 'Xyzzor is qliph.') !== false, 'Expected structured sentence to remain.');
 assertTrue(strpos($unknownCleaned, 'asdf qwer zxcv') === false, 'Expected gibberish to still be filtered.');
+$unknownAnalysis = $refiner->analyseDocument($unknownVocabulary);
+assertTrue($unknownAnalysis['is_meaningful'] ?? false, 'Structured sentences with unknown vocabulary should still pass meaningfulness checks.');
 
 $grammarSample = <<<TEXT
 Running down the street.
