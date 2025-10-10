@@ -1,490 +1,411 @@
 (function () {
-    function parseDataset(id) {
-        const element = document.getElementById(id);
-        if (!element || !element.textContent) {
-            return null;
-        }
+    const state = {
+        watchlist: Array.isArray(window.SignalLedger?.watchlist) ? window.SignalLedger.watchlist : ['AAPL', 'MSFT', 'NVDA'],
+        refreshHandle: null,
+        searchDebounce: null,
+    };
 
-        try {
-            const parsed = JSON.parse(element.textContent);
-            return parsed;
-        } catch (error) {
-            console.warn('Unable to parse dataset', id, error);
-            return null;
-        }
-    }
-
-    function toNumber(value) {
-        const number = Number(value);
-        return Number.isFinite(number) ? number : 0;
-    }
-
-    const billionsFormatter = new Intl.NumberFormat(undefined, {
-        minimumFractionDigits: 1,
-        maximumFractionDigits: 1,
-    });
-    const integerFormatter = new Intl.NumberFormat(undefined, {
-        maximumFractionDigits: 0,
-    });
-    const percentFormatter = new Intl.NumberFormat(undefined, {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-    });
-    const shortTimeFormatter = new Intl.DateTimeFormat(undefined, {
-        hour: '2-digit',
-        minute: '2-digit',
-    });
-    const longDateFormatter = new Intl.DateTimeFormat(undefined, {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-    });
+    const els = {
+        root: document.querySelector('main[data-page="market"]'),
+        averageChange: document.querySelector('[data-dashboard="average-change"]'),
+        averageSentiment: document.querySelector('[data-dashboard="average-sentiment"]'),
+        volatility: document.querySelector('[data-dashboard="volatility"]'),
+        generated: document.querySelector('[data-dashboard="generated"]'),
+        movers: document.querySelector('[data-dashboard="movers"]'),
+        bullish: document.querySelector('[data-dashboard="bullish"]'),
+        bearish: document.querySelector('[data-dashboard="bearish"]'),
+        headline: document.querySelector('[data-dashboard="headline"]'),
+        headlineSymbol: document.querySelector('[data-headline-symbol]'),
+        headlineMeta: document.querySelector('[data-headline-meta]'),
+        headlineTitle: document.querySelector('[data-headline-title]'),
+        headlineSummary: document.querySelector('[data-headline-summary]'),
+        headlineAction: document.querySelector('[data-headline-action]'),
+        searchForm: document.querySelector('[data-role="global-search-form"]'),
+        searchInput: document.querySelector('[data-role="global-search-input"]'),
+        searchSuggestions: document.querySelector('[data-role="global-suggestions"]'),
+        watchlist: document.querySelector('[data-role="watchlist"]'),
+    };
 
     function formatPercent(value) {
-        const number = toNumber(value);
-        if (number === 0) {
-            return '0.00%';
+        const number = Number(value);
+        if (!Number.isFinite(number)) {
+            return '—';
         }
-
-        const formatted = percentFormatter.format(Math.abs(number));
-        return `${number > 0 ? '+' : '-'}${formatted}%`;
+        const fixed = Math.abs(number).toFixed(2);
+        return `${number >= 0 ? '+' : '−'}${fixed}%`;
     }
 
-    function changeBadge(value) {
-        const number = toNumber(value);
+    function formatCurrency(value) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) {
+            return '—';
+        }
+        return number.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function classifyChange(value) {
+        const number = Number(value);
+        if (!Number.isFinite(number)) {
+            return 'change-flat';
+        }
         if (number > 0) {
             return 'change-up';
         }
-
         if (number < 0) {
             return 'change-down';
         }
-
         return 'change-flat';
     }
 
-    const indicator = document.querySelector('[data-live-indicator]');
-    const statusElement = indicator ? indicator.querySelector('[data-pulse-text="status"]') : null;
-    const countdownElement = document.querySelector('[data-pulse-countdown]');
-    const refreshButton = document.querySelector('[data-action="refresh-pulse"]');
-
-    const refreshInterval = 60_000;
-    let nextRefreshAt = Date.now() + refreshInterval;
-    let isFetching = false;
-
-    function setIndicatorState(state, message) {
-        if (indicator) {
-            indicator.setAttribute('data-state', state);
-        }
-
-        if (statusElement && message) {
-            statusElement.textContent = message;
-        }
-    }
-
-    function updateCountdown() {
-        if (!countdownElement) {
-            return;
-        }
-
-        if (isFetching) {
-            countdownElement.textContent = 'Refreshing…';
-            return;
-        }
-
-        const delta = Math.max(0, Math.round((nextRefreshAt - Date.now()) / 1000));
-        if (delta <= 0) {
-            countdownElement.textContent = 'Refreshing…';
-            return;
-        }
-
-        countdownElement.textContent = `Next refresh in ${delta}s`;
-    }
-
-    function updateTimestamp(iso, label) {
-        document.querySelectorAll('[data-pulse-timestamp]').forEach((element) => {
-            if (iso) {
-                element.setAttribute('data-initial-iso', iso);
-            } else {
-                element.removeAttribute('data-initial-iso');
-            }
-
-            element.textContent = label;
-        });
-    }
-
-    function updateMetric(name, value) {
-        const element = document.querySelector(`[data-pulse-metric="${name}"]`);
-        if (!element) {
-            return;
-        }
-
-        const format = element.getAttribute('data-format') ?? '';
-        let display = '';
-
-        switch (format) {
-            case 'currency-billions': {
-                const number = toNumber(value);
-                display = `$${billionsFormatter.format(number / 1_000_000_000)}B`;
-                break;
-            }
-            case 'percent':
-                display = formatPercent(value);
-                break;
-            case 'advancers': {
-                const advancers = typeof value === 'object' && value !== null ? toNumber(value.advancers) : toNumber(value);
-                const decliners = typeof value === 'object' && value !== null ? toNumber(value.decliners) : 0;
-                display = `${integerFormatter.format(advancers)} / ${integerFormatter.format(decliners)}`;
-                break;
-            }
-            case 'integer':
-                display = integerFormatter.format(Math.max(0, Math.round(toNumber(value))));
-                break;
+    function labelForSentiment(slug) {
+        switch (slug) {
+            case 'very_bullish':
+                return 'Very bullish';
+            case 'bullish':
+                return 'Bullish';
+            case 'somewhat_bullish':
+                return 'Somewhat bullish';
+            case 'bearish':
+                return 'Bearish';
+            case 'very_bearish':
+                return 'Very bearish';
+            case 'somewhat_bearish':
+                return 'Somewhat bearish';
             default:
-                display = typeof value === 'string' ? value : `${value ?? ''}`;
-        }
-
-        element.textContent = display;
-
-        if (element.hasAttribute('data-change-badge')) {
-            element.classList.remove('change-up', 'change-down', 'change-flat');
-            element.classList.add(changeBadge(value));
+                return 'Neutral';
         }
     }
 
-    function updateWatchlist(list) {
-        const container = document.querySelector('[data-pulse-list="watchlist"]');
-        if (!container) {
-            return;
-        }
-
-        container.innerHTML = '';
-        if (!Array.isArray(list) || list.length === 0) {
-            const empty = document.createElement('li');
-            empty.textContent = 'No movers detected';
-            container.appendChild(empty);
-            return;
-        }
-
-        list.slice(0, 5).forEach((item) => {
-            const li = document.createElement('li');
-            const badge = document.createElement('span');
-            badge.className = `badge ${changeBadge(item.change_percent)}`;
-            badge.textContent = item.symbol ?? '';
-
-            const strong = document.createElement('strong');
-            strong.textContent = item.name ?? '';
-
-            const em = document.createElement('em');
-            em.textContent = formatPercent(item.change_percent);
-
-            li.append(badge, strong, em);
-            container.appendChild(li);
-        });
-    }
-
-    function formatTime(value, formatter) {
-        if (!value) {
+    function relativeTime(iso) {
+        if (!iso) {
             return '';
         }
-
-        const date = new Date(value);
+        const date = new Date(iso);
         if (Number.isNaN(date.getTime())) {
             return '';
         }
-
-        return formatter.format(date);
+        const diff = Math.max(0, Date.now() - date.getTime());
+        const seconds = Math.round(diff / 1000);
+        if (seconds < 60) {
+            return 'just now';
+        }
+        if (seconds < 3600) {
+            const minutes = Math.floor(seconds / 60);
+            return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+        }
+        if (seconds < 86400) {
+            const hours = Math.floor(seconds / 3600);
+            return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+        }
+        const days = Math.floor(seconds / 86400);
+        return `${days} day${days === 1 ? '' : 's'} ago`;
     }
 
-    function updateHeadlines(news) {
-        const container = document.querySelector('[data-pulse-list="headlines"]');
-        if (!container) {
-            return;
+    function renderOverview(payload) {
+        const overview = payload.overview ?? {};
+        if (els.averageChange) {
+            els.averageChange.textContent = formatPercent(overview.average_change_percent ?? 0);
+            els.averageChange.classList.remove('change-up', 'change-down', 'change-flat');
+            els.averageChange.classList.add(classifyChange(overview.average_change_percent ?? 0));
         }
-
-        container.innerHTML = '';
-        if (!Array.isArray(news) || news.length === 0) {
-            const empty = document.createElement('li');
-            empty.textContent = 'No headlines cached yet';
-            container.appendChild(empty);
-            return;
+        if (els.averageSentiment) {
+            const sentiment = Number(overview.average_sentiment ?? 0);
+            els.averageSentiment.textContent = sentiment.toFixed(2);
+            els.averageSentiment.classList.remove('change-up', 'change-down', 'change-flat');
+            els.averageSentiment.classList.add(classifyChange(sentiment));
         }
-
-        news.slice(0, 3).forEach((item) => {
-            const li = document.createElement('li');
-            const strong = document.createElement('strong');
-            strong.textContent = item.news?.title ?? '';
-            const em = document.createElement('em');
-            const source = item.news?.source ?? '';
-            const time = formatTime(item.news?.published_at, shortTimeFormatter);
-            em.textContent = time ? `${source} · ${time}` : source;
-            li.append(strong, em);
-            container.appendChild(li);
-        });
+        if (els.volatility) {
+            const vol = Number(overview.volatility ?? 0);
+            els.volatility.textContent = Number.isFinite(vol) ? `${vol.toFixed(1)}%` : '—';
+        }
+        if (els.generated) {
+            els.generated.textContent = `Updated ${relativeTime(payload.generated_at)} · ${overview.bullish_count ?? 0} bullish · ${overview.bearish_count ?? 0} bearish · ${overview.neutral_count ?? 0} neutral`;
+        }
     }
 
-    function updateSectors(sectors) {
-        const container = document.querySelector('[data-pulse-list="sectors"]');
-        if (!container) {
+    function renderMovers(payload) {
+        if (!els.movers) {
             return;
         }
-
-        container.innerHTML = '';
-        if (!Array.isArray(sectors) || sectors.length === 0) {
-            return;
-        }
-
-        sectors.slice(0, 6).forEach((sector) => {
-            const article = document.createElement('article');
-            article.className = 'sector-card';
-
-            const title = document.createElement('h3');
-            title.textContent = sector.sector ?? '';
-
-            const change = document.createElement('p');
-            change.className = `sector-change ${changeBadge(sector.avg_change)}`;
-            change.textContent = formatPercent(sector.avg_change);
-
-            const meta = document.createElement('p');
-            meta.className = 'muted';
-            meta.textContent = `Constituents: ${integerFormatter.format(toNumber(sector.count))}`;
-
-            article.append(title, change, meta);
-            container.appendChild(article);
-        });
-    }
-
-    function updateNews(news) {
-        const region = document.querySelector('[data-pulse-region="news"]');
-        if (!region) {
-            return;
-        }
-
-        region.innerHTML = '';
-        if (!Array.isArray(news) || news.length === 0) {
+        const entries = Array.isArray(payload.leaders?.movers) ? payload.leaders.movers : [];
+        els.movers.innerHTML = '';
+        if (entries.length === 0) {
             const empty = document.createElement('div');
             empty.className = 'empty-state';
-            empty.innerHTML = '<p>No articles available in the cache yet. Add more companies to expand coverage.</p>';
-            region.appendChild(empty);
+            empty.innerHTML = '<p>No movers detected.</p>';
+            els.movers.appendChild(empty);
             return;
         }
 
-        news.slice(0, 12).forEach((item) => {
+        entries.slice(0, 6).forEach((entry) => {
             const card = document.createElement('article');
-            card.className = 'news-card';
+            card.className = 'watch-card';
 
             const header = document.createElement('header');
+            const title = document.createElement('h3');
+            title.textContent = entry.symbol ?? '';
+            const subtitle = document.createElement('p');
+            subtitle.className = 'muted';
+            subtitle.textContent = entry.name ?? '';
+            header.append(title, subtitle);
 
-            const badge = document.createElement('span');
-            badge.className = `badge ${changeBadge(item.sentiment_score)}`;
-            badge.textContent = item.company?.symbol ?? '';
+            const price = document.createElement('p');
+            price.className = 'watch-price';
+            price.textContent = formatCurrency(entry.price ?? 0);
 
-            const source = document.createElement('p');
-            source.className = 'news-source';
-            const time = formatTime(item.news?.published_at, longDateFormatter);
-            source.textContent = `${item.news?.source ?? ''}${time ? ` · ${time}` : ''}`;
+            const change = document.createElement('p');
+            change.className = `watch-change ${classifyChange(entry.change_percent)}`;
+            change.textContent = formatPercent(entry.change_percent ?? 0);
 
-            const heading = document.createElement('h3');
-            const link = document.createElement('a');
-            link.href = item.news?.url ?? '#';
-            link.target = '_blank';
-            link.rel = 'noopener';
-            link.textContent = item.news?.title ?? '';
-            heading.appendChild(link);
+            const sentiment = document.createElement('span');
+            sentiment.className = 'badge';
+            sentiment.textContent = labelForSentiment(entry.sentiment_label);
 
-            header.append(badge, source, heading);
+            card.append(header, price, change, sentiment);
+            card.addEventListener('click', () => {
+                window.location.href = `/company.php?symbol=${encodeURIComponent(entry.symbol ?? '')}`;
+            });
 
-            const summary = document.createElement('p');
-            summary.textContent = item.news?.summary ?? '';
-
-            const footer = document.createElement('footer');
-            const action = document.createElement('a');
-            action.className = 'button ghost';
-            const symbol = item.company?.symbol ?? '';
-            action.href = `/company.php?q=${encodeURIComponent(symbol)}`;
-            action.textContent = 'View company brief';
-            footer.appendChild(action);
-
-            card.append(header, summary, footer);
-            region.appendChild(card);
+            els.movers.appendChild(card);
         });
     }
 
-    function updateAutonomy(overview) {
-        const target = document.querySelector('[data-pulse-text="autonomy"]');
+    function renderSentimentList(target, entries) {
         if (!target) {
             return;
         }
-
-        const age = typeof overview.cache_age_minutes === 'number' ? overview.cache_age_minutes : null;
-        let message = 'All systems nominal';
-
-        if (age !== null) {
-            if (age <= 5) {
-                message = 'Offline cache fresh';
-            } else if (age <= 30) {
-                message = `Cache ${age} min old`;
-            } else {
-                message = 'Cache due for refresh';
-            }
-        }
-
-        target.textContent = message;
-    }
-
-    function applyPulse(pulse) {
-        if (!pulse || typeof pulse !== 'object') {
+        target.innerHTML = '';
+        if (!Array.isArray(entries) || entries.length === 0) {
+            const li = document.createElement('li');
+            li.className = 'muted';
+            li.textContent = 'Awaiting data…';
+            target.appendChild(li);
             return;
         }
 
-        const overview = pulse.overview ?? {};
-        updateMetric('total_market_cap', overview.total_market_cap);
-        updateMetric('average_change_percent', overview.average_change_percent);
-        updateMetric('advancers_decliners', {
-            advancers: overview.advancers,
-            decliners: overview.decliners,
+        entries.slice(0, 5).forEach((entry) => {
+            const li = document.createElement('li');
+            const symbol = document.createElement('strong');
+            symbol.textContent = entry.symbol ?? '';
+            const score = document.createElement('span');
+            score.textContent = entry.sentiment_score != null ? entry.sentiment_score.toFixed(2) : '0.00';
+            li.append(symbol, score);
+            li.addEventListener('click', () => {
+                window.location.href = `/company.php?symbol=${encodeURIComponent(entry.symbol ?? '')}`;
+            });
+            target.appendChild(li);
         });
-        updateMetric('company_count', overview.company_count);
-        updateMetric('news_count', overview.news_count);
-
-        updateWatchlist(pulse.watchlist ?? []);
-        updateHeadlines(pulse.latest_news ?? []);
-        updateSectors(pulse.sectors ?? overview.sectors ?? []);
-        updateNews(pulse.latest_news ?? []);
-        updateAutonomy(overview);
-
-        const label = overview.last_updated_relative ?? 'recently';
-        updateTimestamp(overview.last_updated_iso ?? null, label);
-        setIndicatorState('ready', `Cache synced ${label}`);
     }
 
-    async function fetchPulse(manual) {
-        if (isFetching) {
+    function renderHeadline(payload) {
+        if (!els.headline) {
+            return;
+        }
+        const headline = payload.overview?.headline ?? null;
+        if (!headline) {
+            els.headline.classList.add('is-empty');
+            if (els.headlineMeta) {
+                els.headlineMeta.textContent = 'No high-signal headline selected yet.';
+            }
             return;
         }
 
-        isFetching = true;
-        setIndicatorState('syncing', manual ? 'Refreshing now…' : 'Syncing with offline cache…');
-        updateCountdown();
+        els.headline.classList.remove('is-empty');
+        if (els.headlineSymbol) {
+            els.headlineSymbol.textContent = headline.symbol ?? '—';
+            els.headlineSymbol.classList.remove('change-up', 'change-down', 'change-flat');
+            els.headlineSymbol.classList.add(classifyChange(headline.sentiment_score ?? 0));
+        }
+        if (els.headlineMeta) {
+            const metaParts = [];
+            if (headline.source) {
+                metaParts.push(headline.source);
+            }
+            if (headline.published_at) {
+                metaParts.push(relativeTime(headline.published_at));
+            }
+            els.headlineMeta.textContent = metaParts.join(' · ');
+        }
+        if (els.headlineTitle) {
+            els.headlineTitle.textContent = headline.title ?? 'Live coverage highlight';
+        }
+        if (els.headlineSummary) {
+            els.headlineSummary.textContent = headline.summary ?? 'Stay on site with our curated digest.';
+        }
+        if (els.headlineAction) {
+            const symbol = headline.symbol ?? '';
+            els.headlineAction.href = `/company.php?symbol=${encodeURIComponent(symbol)}`;
+        }
+    }
 
+    function applyDashboard(payload) {
+        renderOverview(payload);
+        renderMovers(payload);
+        renderSentimentList(els.bullish, payload.leaders?.bullish);
+        renderSentimentList(els.bearish, payload.leaders?.bearish);
+        renderHeadline(payload);
+    }
+
+    async function fetchDashboard() {
         try {
-            const response = await fetch('/api/market-pulse.php', {
+            const params = state.watchlist && state.watchlist.length > 0
+                ? `?symbols=${encodeURIComponent(state.watchlist.join(','))}`
+                : '';
+            const response = await fetch(`/api/market-dashboard.php${params}`, {
                 method: 'GET',
-                credentials: 'same-origin',
                 cache: 'no-store',
             });
-
             if (!response.ok) {
                 throw new Error(`Request failed with status ${response.status}`);
             }
-
             const payload = await response.json();
-            applyPulse(payload);
-            nextRefreshAt = Date.now() + refreshInterval;
+            applyDashboard(payload);
         } catch (error) {
-            console.warn('Unable to refresh market pulse', error);
-            setIndicatorState('error', 'Refresh failed – retrying soon');
-            nextRefreshAt = Date.now() + refreshInterval;
+            console.error('Unable to refresh dashboard', error);
+            if (els.generated) {
+                els.generated.textContent = 'Unable to refresh dashboard right now. Retrying soon…';
+            }
         } finally {
-            isFetching = false;
-            updateCountdown();
+            scheduleRefresh();
         }
     }
 
-    function setupPulse() {
-        const initialPulse = parseDataset('market-pulse');
-        if (initialPulse) {
-            applyPulse(initialPulse);
+    function scheduleRefresh() {
+        if (state.refreshHandle) {
+            clearTimeout(state.refreshHandle);
         }
-
-        updateCountdown();
-        window.setInterval(() => {
-            fetchPulse(false);
-        }, refreshInterval);
-        window.setInterval(updateCountdown, 1000);
-
-        if (refreshButton) {
-            refreshButton.addEventListener('click', () => {
-                fetchPulse(true);
-            });
-        }
+        state.refreshHandle = window.setTimeout(fetchDashboard, 180000);
     }
 
-    function setupSearchSuggestions() {
-        const dataset = parseDataset('company-dataset');
-        const input = document.getElementById('company-query');
-        if (!input || !Array.isArray(dataset) || dataset.length === 0) {
+    async function searchCompanies(query) {
+        const trimmed = query.trim();
+        if (trimmed.length < 2) {
+            hideSuggestions();
             return;
         }
-
-        const companies = dataset;
-        const wrapper = document.createElement('div');
-        wrapper.className = 'search-suggestions';
-        input.parentElement?.appendChild(wrapper);
-
-        function renderSuggestions(value) {
-            const normalized = value.trim().toLowerCase();
-            if (normalized === '') {
-                wrapper.innerHTML = '';
-                wrapper.classList.remove('visible');
-                return;
-            }
-
-            const results = companies.filter((company) => {
-                return (
-                    company.symbol.toLowerCase().includes(normalized) ||
-                    company.name.toLowerCase().includes(normalized) ||
-                    company.sector.toLowerCase().includes(normalized)
-                );
-            }).slice(0, 5);
-
-            if (results.length === 0) {
-                wrapper.innerHTML = '';
-                wrapper.classList.remove('visible');
-                return;
-            }
-
-            wrapper.innerHTML = '';
-            results.forEach((company) => {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = 'suggestion-item';
-                button.innerHTML = `
-                    <strong>${company.symbol}</strong>
-                    <span>${company.name}</span>
-                    <em>${company.sector}</em>
-                `;
-                button.addEventListener('click', () => {
-                    input.value = company.symbol;
-                    wrapper.classList.remove('visible');
-                    input.form?.submit();
-                });
-                wrapper.appendChild(button);
+        try {
+            const response = await fetch(`/api/company-search.php?q=${encodeURIComponent(trimmed)}&limit=8`, {
+                method: 'GET',
+                cache: 'force-cache',
             });
-
-            wrapper.classList.add('visible');
+            if (!response.ok) {
+                throw new Error('Search failed');
+            }
+            const payload = await response.json();
+            renderSuggestions(payload.results ?? []);
+        } catch (error) {
+            hideSuggestions();
         }
+    }
 
-        input.addEventListener('input', (event) => {
-            renderSuggestions(event.target.value);
+    function renderSuggestions(results) {
+        if (!els.searchSuggestions) {
+            return;
+        }
+        els.searchSuggestions.innerHTML = '';
+        if (!Array.isArray(results) || results.length === 0) {
+            els.searchSuggestions.hidden = true;
+            return;
+        }
+        results.forEach((item) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'suggestion';
+            button.dataset.symbol = item.symbol ?? '';
+            button.innerHTML = `<strong>${item.symbol ?? ''}</strong><span>${item.name ?? ''}</span>`;
+            button.addEventListener('click', () => {
+                window.location.href = `/company.php?symbol=${encodeURIComponent(item.symbol ?? '')}`;
+            });
+            els.searchSuggestions.appendChild(button);
         });
+        els.searchSuggestions.hidden = false;
+    }
 
-        input.addEventListener('focus', (event) => {
-            if (event.target.value) {
-                renderSuggestions(event.target.value);
-            }
-        });
+    function hideSuggestions() {
+        if (els.searchSuggestions) {
+            els.searchSuggestions.hidden = true;
+            els.searchSuggestions.innerHTML = '';
+        }
+    }
 
-        document.addEventListener('click', (event) => {
-            if (event.target === input || wrapper.contains(event.target)) {
-                return;
-            }
+    function onSearchInput(event) {
+        const value = event.currentTarget.value;
+        if (state.searchDebounce) {
+            clearTimeout(state.searchDebounce);
+        }
+        state.searchDebounce = window.setTimeout(() => searchCompanies(value), 200);
+    }
 
-            wrapper.classList.remove('visible');
+    function onSearchSubmit(event) {
+        if (!els.searchInput) {
+            return;
+        }
+        const value = els.searchInput.value.trim();
+        if (value === '') {
+            event.preventDefault();
+            return;
+        }
+        // allow form submission to redirect to company page
+    }
+
+    function bindWatchlist() {
+        if (!els.watchlist) {
+            return;
+        }
+        els.watchlist.querySelectorAll('button[data-symbol]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const symbol = button.dataset.symbol ?? '';
+                window.location.href = `/company.php?symbol=${encodeURIComponent(symbol)}`;
+            });
         });
     }
 
-    setupPulse();
-    setupSearchSuggestions();
+    function populateWatchlist() {
+        if (!els.watchlist || !state.watchlist || state.watchlist.length === 0) {
+            return;
+        }
+        if (els.watchlist.children.length === 0) {
+            state.watchlist.forEach((symbol) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'pill';
+                button.dataset.symbol = symbol;
+                button.textContent = symbol;
+                els.watchlist.appendChild(button);
+            });
+        }
+        bindWatchlist();
+    }
+
+    function bootstrap() {
+        if (!els.root) {
+            return;
+        }
+        if (els.searchInput) {
+            els.searchInput.addEventListener('input', onSearchInput);
+            els.searchInput.addEventListener('focus', () => {
+                if (els.searchInput && els.searchInput.value.trim().length >= 2) {
+                    searchCompanies(els.searchInput.value);
+                }
+            });
+        }
+        if (els.searchForm) {
+            els.searchForm.addEventListener('submit', onSearchSubmit);
+        }
+        if (els.searchSuggestions) {
+            document.addEventListener('click', (event) => {
+                if (!els.searchSuggestions.contains(event.target) && event.target !== els.searchInput) {
+                    hideSuggestions();
+                }
+            });
+        }
+        populateWatchlist();
+        fetchDashboard();
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bootstrap);
+    } else {
+        bootstrap();
+    }
 })();
