@@ -1,0 +1,245 @@
+{
+  "last_updated": "2024-06-05T14:30:00Z",
+  "indices": [
+    {
+      "name": "S&P 500",
+      "price": 5342.11,
+      "change": 24.58,
+      "change_percent": 0.46
+    },
+    {
+      "name": "NASDAQ 100",
+      "price": 18952.74,
+      "change": 112.34,
+      "change_percent": 0.60
+    },
+    {
+      "name": "Dow Jones",
+      "price": 39210.27,
+      "change": -58.21,
+      "change_percent": -0.15
+    }
+  ],
+  "companies": [
+    {
+      "symbol": "ACME",
+      "name": "Acme Corp",
+      "sector": "Technology",
+      "price": 142.63,
+      "change": 2.87,
+      "change_percent": 2.05,
+      "market_cap": 125400000000,
+      "summary": "Acme Corp builds edge AI infrastructure and developer tooling for connected devices.",
+      "news": [
+        {
+          "title": "Acme unveils dedicated edge AI accelerator for enterprise IoT",
+          "url": "https://example.com/acme/edge-ai",
+          "source": "TechCrunch",
+          "summary": "The new accelerator promises a 30% reduction in energy consumption for industrial IoT deployments.",
+          "published_at": "2024-06-05T12:00:00Z",
+          "sentiment": {"label": "positive", "score": 0.41}
+        },
+        {
+          "title": "Acme partners with cloud hyperscaler to deliver turnkey analytics",
+          "url": "https://example.com/acme/cloud",
+          "source": "Bloomberg",
+          "summary": "Joint reference architectures target regulated industries seeking hybrid deployment options.",
+          "published_at": "2024-06-04T09:45:00Z",
+          "sentiment": {"label": "positive", "score": 0.28}
+        },
+        {
+          "title": "Short interest in Acme drops as funds rotate into AI infrastructure",
+          "url": "https://example.com/acme/short-interest",
+          "source": "MarketWatch",
+          "summary": "Hedge funds that previously shorted Acme are trimming positions following strong product demand.",
+          "published_at": "2024-06-03T07:15:00Z",
+          "sentiment": {"label": "neutral", "score": 0.10}
+        },
+        {
+          "title": "Acme beats earnings expectations with record developer adoption",
+          "url": "https://example.com/acme/earnings",
+          "source": "CNBC",
+          "summary": "The company reported 44% year-on-year revenue growth as enterprise developers expand usage.",
+          "published_at": "2024-06-01T08:00:00Z",
+          "sentiment": {"label": "positive", "score": 0.53}
+        }
+      ]
+    },
+    {
+      "symbol": "BETA",
+      "name": "Beta Dynamics",
+      "sector": "Aerospace",
+      "price": 87.14,
+      "change": -1.92,
+      "change_percent": -2.16,
+      "market_cap": 45400000000,
+      "summary": "Beta Dynamics manufactures electric short-haul aircraft for cargo and passenger services.",
+      "news": [
+        {
+          "title": "Beta Dynamics delays certification timeline after regulator request",
+          "url": "https://example.com/beta/regulator",
+          "source": "Wall Street Journal",
+          "summary": "Management now expects commercial routes in early 2025 as additional safety data is compiled.",
+          "published_at": "2024-06-05T10:30:00Z",
+          "sentiment": {"label": "negative", "score": -0.42}
+        },
+        {
+          "title": "Regional airlines reaffirm Beta aircraft orders despite delay",
+          "url": "https://example.com/beta/orders",
+          "source": "Reuters",
+          "summary": "Operators cite lower operating costs and sustainability mandates as reasons to stick with Beta.",
+          "published_at": "2024-06-04T16:05:00Z",
+          "sentiment": {"label": "positive", "score": 0.19}
+        },
+        {
+          "title": "Labor union urges Beta to expand pilot retraining program",
+          "url": "https://example.com/beta/union",
+          "source": "Financial Times",
+          "summary": "Union leaders want additional simulator hours for crews transitioning to electric propulsion.",
+          "published_at": "2024-06-02T13:15:00Z",
+          "sentiment": {"label": "neutral", "score": -0.02}
+        },
+        {
+          "title": "Beta Dynamics opens battery manufacturing campus in Ohio",
+          "url": "https://example.com/beta/battery",
+          "source": "Bloomberg",
+          "summary": "The new facility triples cell output and positions Beta for vertically integrated production.",
+          "published_at": "2024-05-31T09:50:00Z",
+          "sentiment": {"label": "positive", "score": 0.31}
+        }
+      ]
+    },
+    {
+      "symbol": "COSM",
+      "name": "Cosmo Retail Group",
+      "sector": "Consumer Discretionary",
+      "price": 63.28,
+      "change": 0.74,
+      "change_percent": 1.18,
+      "market_cap": 38900000000,
+      "summary": "Cosmo operates direct-to-consumer lifestyle brands across beauty, apparel, and home goods.",
+      "news": [
+        {
+          "title": "Cosmo launches experiential concept stores in six major cities",
+          "url": "https://example.com/cosmo/stores",
+          "source": "Vogue Business",
+          "summary": "Immersive stores blend e-commerce data with in-person styling to boost conversion rates.",
+          "published_at": "2024-06-05T08:45:00Z",
+          "sentiment": {"label": "positive", "score": 0.34}
+        },
+        {
+          "title": "Cosmo names former streaming executive as chief loyalty officer",
+          "url": "https://example.com/cosmo/loyalty",
+          "source": "Adweek",
+          "summary": "The new leader is tasked with expanding subscription memberships and cross-brand bundles.",
+          "published_at": "2024-06-03T11:20:00Z",
+          "sentiment": {"label": "neutral", "score": 0.05}
+        },
+        {
+          "title": "Cosmo hikes guidance as private-label cosmetics outperform",
+          "url": "https://example.com/cosmo/guidance",
+          "source": "CNBC",
+          "summary": "Management raised revenue targets on double-digit growth in premium skincare lines.",
+          "published_at": "2024-06-02T09:00:00Z",
+          "sentiment": {"label": "positive", "score": 0.45}
+        },
+        {
+          "title": "Supply chain upgrades cut Cosmo fulfillment times by 25%",
+          "url": "https://example.com/cosmo/logistics",
+          "source": "Supply Chain Dive",
+          "summary": "Automation investments reduce split shipments and improve margins heading into peak season.",
+          "published_at": "2024-05-30T07:40:00Z",
+          "sentiment": {"label": "positive", "score": 0.29}
+        }
+      ]
+    },
+    {
+      "symbol": "DREN",
+      "name": "Delta Renewables",
+      "sector": "Energy",
+      "price": 51.92,
+      "change": 1.12,
+      "change_percent": 2.20,
+      "market_cap": 61200000000,
+      "summary": "Delta Renewables develops utility-scale solar, wind, and green hydrogen projects globally.",
+      "news": [
+        {
+          "title": "Delta Renewables secures 2GW solar contract with federal agency",
+          "url": "https://example.com/delta/contract",
+          "source": "Utility Dive",
+          "summary": "The 15-year contract provides predictable revenue and expands Delta's government portfolio.",
+          "published_at": "2024-06-05T06:30:00Z",
+          "sentiment": {"label": "positive", "score": 0.52}
+        },
+        {
+          "title": "Hydrogen joint venture receives environmental approval",
+          "url": "https://example.com/delta/hydrogen",
+          "source": "Bloomberg",
+          "summary": "Regulators cleared the way for Delta's hydrogen export hub scheduled to open in 2026.",
+          "published_at": "2024-06-04T15:10:00Z",
+          "sentiment": {"label": "positive", "score": 0.33}
+        },
+        {
+          "title": "Analysts debate valuation as Delta accelerates project pipeline",
+          "url": "https://example.com/delta/valuation",
+          "source": "Barron's",
+          "summary": "Some analysts warn of execution risk while others highlight industry-leading backlog visibility.",
+          "published_at": "2024-06-03T12:25:00Z",
+          "sentiment": {"label": "neutral", "score": 0.08}
+        },
+        {
+          "title": "Delta to expand battery storage partnership with utilities",
+          "url": "https://example.com/delta/storage",
+          "source": "Greentech Media",
+          "summary": "Extended collaboration integrates grid-scale storage into existing solar assets.",
+          "published_at": "2024-06-01T10:05:00Z",
+          "sentiment": {"label": "positive", "score": 0.26}
+        }
+      ]
+    },
+    {
+      "symbol": "EVBK",
+      "name": "Everest Bank",
+      "sector": "Financials",
+      "price": 38.47,
+      "change": -0.54,
+      "change_percent": -1.39,
+      "market_cap": 27800000000,
+      "summary": "Everest Bank provides commercial lending, wealth management, and treasury services across North America.",
+      "news": [
+        {
+          "title": "Everest Bank expands small-business lending program with fintech partnership",
+          "url": "https://example.com/everest/fintech",
+          "source": "American Banker",
+          "summary": "The partnership introduces real-time underwriting for borrowers under $2 million.",
+          "published_at": "2024-06-05T09:05:00Z",
+          "sentiment": {"label": "positive", "score": 0.22}
+        },
+        {
+          "title": "Everest CFO signals cautious approach to commercial real estate",
+          "url": "https://example.com/everest/cre",
+          "source": "Bloomberg",
+          "summary": "Leadership highlighted proactive provisioning but noted stabilisation in office delinquencies.",
+          "published_at": "2024-06-04T14:40:00Z",
+          "sentiment": {"label": "neutral", "score": -0.04}
+        },
+        {
+          "title": "Dividend hike positions Everest among highest-yield regional banks",
+          "url": "https://example.com/everest/dividend",
+          "source": "Seeking Alpha",
+          "summary": "Yield-focused investors applauded the third dividend increase in twelve months.",
+          "published_at": "2024-06-03T07:35:00Z",
+          "sentiment": {"label": "positive", "score": 0.37}
+        },
+        {
+          "title": "Everest enhances fraud monitoring with AI-driven alerts",
+          "url": "https://example.com/everest/fraud",
+          "source": "The Banker",
+          "summary": "New analytics platform flags suspicious transactions across corporate treasury clients.",
+          "published_at": "2024-06-01T11:50:00Z",
+          "sentiment": {"label": "positive", "score": 0.31}
+        }
+      ]
+    }
+  ]
+}
