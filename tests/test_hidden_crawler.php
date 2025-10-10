@@ -153,8 +153,12 @@ if (!empty($meaninglessEntry['meaningful'])) {
 }
 
 $meaninglessReasons = $meaninglessEntry['quality_reasons'] ?? [];
-if (!is_array($meaninglessReasons) || !in_array('Discarded meaningless text – no coherent sentences detected.', $meaninglessReasons, true)) {
+if (!is_array($meaninglessReasons) || !in_array('Flagged meaningless text – no coherent sentences detected.', $meaninglessReasons, true)) {
     throw new RuntimeException('Meaningless samples should explain the rejection reason.');
+}
+
+if (!in_array('Quality below recommended threshold – included for comprehensive coverage.', $meaninglessReasons, true)) {
+    throw new RuntimeException('Low quality inclusions should note comprehensive coverage.');
 }
 
 unlink($storage);
