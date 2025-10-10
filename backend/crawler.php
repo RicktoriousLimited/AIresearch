@@ -9,6 +9,7 @@ require __DIR__ . '/../src/Ricktorious/Ecommerce/bootstrap.php';
 require_once __DIR__ . '/../src/App/Crawler/HiddenCrawler.php';
 
 use App\Crawler\HiddenCrawler;
+use App\KnowledgeGraph\ResearchService;
 use Ricktorious\Ecommerce\User\OneTimePasswordManager;
 use Ricktorious\Ecommerce\User\UserService;
 
@@ -37,7 +38,7 @@ $userService = $container->get(UserService::class);
 $otpManager = $container->get(OneTimePasswordManager::class);
 
 $crawlerStorage = __DIR__ . '/../storage/backend/crawler-history.json';
-$crawler = new HiddenCrawler($crawlerStorage);
+$crawler = new HiddenCrawler($crawlerStorage, null, null, new ResearchService());
 
 $messages = [];
 $errors = [];

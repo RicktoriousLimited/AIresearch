@@ -36,6 +36,16 @@ if (!isset($first['topics']) || !is_array($first['topics']) || $first['topics'] 
     throw new RuntimeException('Crawler results should include at least one topic.');
 }
 
+$narrative = $first['narrative'] ?? [];
+if (!is_array($narrative)) {
+    throw new RuntimeException('Crawler results should expose narrative analytics.');
+}
+
+$graph = $first['graph'] ?? [];
+if (!is_array($graph) || !array_key_exists('ingested', $graph)) {
+    throw new RuntimeException('Crawler results should include graph integration metadata.');
+}
+
 $history = $crawler->history();
 if ($history === []) {
     throw new RuntimeException('Crawler history should persist results.');
