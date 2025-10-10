@@ -9,6 +9,8 @@ use App\Scraping\ScraperInterface;
 use App\Scraping\WebScraper;
 use App\KnowledgeGraph\ResearchService;
 use App\Text\TextRefiner;
+use DateInterval;
+use DateTimeImmutable;
 use RuntimeException;
 use Throwable;
 
@@ -19,6 +21,7 @@ use function array_unique;
 use function array_values;
 use function array_diff;
 use function array_keys;
+use function array_filter;
 use function count;
 use function dirname;
 use function filter_var;
@@ -36,6 +39,7 @@ use function max;
 use function mb_strlen;
 use function mb_substr;
 use function mb_strtolower;
+use function explode;
 use function mkdir;
 use function preg_match;
 use function preg_replace;
@@ -46,6 +50,8 @@ use function round;
 use function rtrim;
 use function str_contains;
 use function str_ends_with;
+use function strrpos;
+use function substr;
 use function strtolower;
 use function trim;
 use function usort;
@@ -216,6 +222,61 @@ final class HiddenCrawler
 
     private const MAX_VERSION_HISTORY = 8;
 
+    private const PROGRESS_FILE_SUFFIX = '.progress.json';
+
+    private const MAX_QUEUE_SIZE = 60;
+
+    private const MAX_DISCOVERED_PER_PAGE = 6;
+
+    private const USELESS_LINK_SEGMENTS = [
+        'about' => true,
+        'account' => true,
+        'advert' => true,
+        'advertisement' => true,
+        'advertising' => true,
+        'careers' => true,
+        'company' => true,
+        'contact' => true,
+        'cookies' => true,
+        'copyright' => true,
+        'faq' => true,
+        'feedback' => true,
+        'finance' => true,
+        'help' => true,
+        'home' => true,
+        'investors' => true,
+        'legal' => true,
+        'login' => true,
+        'logout' => true,
+        'menu' => true,
+        'newsletter' => true,
+        'privacy' => true,
+        'register' => true,
+        'settings' => true,
+        'signin' => true,
+        'signout' => true,
+        'signup' => true,
+        'subscribe' => true,
+        'support' => true,
+        'terms' => true,
+    ];
+
+    private const DISCARDED_KEYWORDS = [
+        'home' => true,
+        'menu' => true,
+        'privacy' => true,
+        'terms' => true,
+        'subscribe' => true,
+        'account' => true,
+        'contact' => true,
+        'login' => true,
+        'signup' => true,
+        'copyright' => true,
+        'navigation' => true,
+        'newsletter' => true,
+        'cookie' => true,
+    ];
+
     private ScraperInterface $scraper;
 
     private TextRefiner $refiner;
@@ -223,6 +284,8 @@ final class HiddenCrawler
     private ?ResearchService $graphService;
 
     private string $storagePath;
+
+    private string $progressPath;
 
     public function __construct(
         string $storagePath,
@@ -235,6 +298,7 @@ final class HiddenCrawler
         $this->scraper = $scraper ?? new WebScraper();
         $this->refiner = $refiner ?? new TextRefiner();
         $this->graphService = $graphService;
+        $this->progressPath = $this->deriveProgressPath($storagePath);
 
         $directory = dirname($storagePath);
         if (!is_dir($directory)) {
@@ -244,6 +308,13 @@ final class HiddenCrawler
         if (!file_exists($storagePath)) {
             file_put_contents($storagePath, json_encode([]));
         }
+
+        if (!file_exists($this->progressPath)) {
+            file_put_contents(
+                $this->progressPath,
+                json_encode($this->defaultProgressState(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+            );
+        }
     }
 
     /**
@@ -251,31 +322,141 @@ final class HiddenCrawler
      *
      * @return array<int, array<string, mixed>>
      */
-    public function crawl(array $targets): array
+    public function crawl(array $targets, int $maxDepth = 0, int $autoInterval = 0, bool $autoStart = false): array
     {
-        $entries = [];
+        $maxDepth = max(0, $maxDepth);
+        $autoInterval = max(0, $autoInterval);
+
+        [$queue, $seen, $seedUrls] = $this->buildQueue($targets);
+
         $historyEntries = $this->loadStoredEntries();
         $history = $this->indexHistoryByUrl($historyEntries);
+        $entries = [];
 
-        foreach ($targets as $target) {
-            if (!is_string($target)) {
-                continue;
-            }
+        $startedAt = date(DATE_ATOM);
+        $progress = $this->defaultProgressState();
+        $progress['status'] = 'initialising';
+        $progress['message'] = 'Preparing crawl run.';
+        $progress['started_at'] = $startedAt;
+        $progress['last_updated_at'] = $startedAt;
+        $progress['seed_urls'] = $seedUrls;
+        $progress['total'] = count($queue);
+        $progress['queued'] = count($queue);
+        $progress['processed'] = 0;
+        $progress['options'] = [
+            'depth' => $maxDepth,
+            'auto_interval' => $autoInterval,
+            'auto_start' => $autoStart,
+        ];
+        $progress['auto_interval'] = $autoInterval;
+        $progress['auto_start'] = $autoStart;
+        $progress['errors'] = [];
+        $progress['last_result'] = null;
+        $this->writeProgress($progress);
 
-            $url = trim($target);
-            if ($url === '') {
-                continue;
-            }
+        if ($queue === []) {
+            $progress['status'] = 'idle';
+            $progress['message'] = 'No valid targets were provided.';
+            $progress['finished_at'] = $startedAt;
+            $progress['last_run_at'] = $startedAt;
+            $progress['next_run_due_at'] = $this->computeNextRunAt($autoInterval, $autoStart, $startedAt);
+            $progress['last_updated_at'] = date(DATE_ATOM);
+            $this->writeProgress($progress);
 
-            [$history, $result] = $this->crawlUrl($url, $history);
-            $entries[] = $result;
-        }
-
-        if ($entries === []) {
             return [];
         }
 
-        $this->storeHistory($history);
+        $processed = 0;
+        $discoveredTotal = 0;
+
+        while ($queue !== []) {
+            $current = array_shift($queue);
+            if (!is_array($current) || !isset($current['url'])) {
+                continue;
+            }
+
+            $processed++;
+            $currentUrl = (string) ($current['url'] ?? '');
+            $currentDepth = (int) ($current['depth'] ?? 0);
+            $progress['status'] = 'fetching';
+            $progress['message'] = 'Fetching ' . $currentUrl;
+            $progress['current_url'] = $currentUrl;
+            $progress['current_depth'] = $currentDepth;
+            $progress['processed'] = $processed - 1;
+            $progress['queued'] = count($queue) + 1;
+            $progress['last_updated_at'] = date(DATE_ATOM);
+            $this->writeProgress($progress);
+
+            [$history, $result, $scraped] = $this->crawlUrl($currentUrl, $history);
+            $entries[] = $result;
+
+            $progress['processed'] = $processed;
+            $progress['queued'] = count($queue);
+            $progress['message'] = 'Processed ' . $processed . ' of ' . max(1, (int) $progress['total']) . ' page(s).';
+            $progress['last_result'] = [
+                'url' => (string) ($result['url'] ?? $currentUrl),
+                'title' => (string) ($result['title'] ?? ''),
+                'quality' => isset($result['quality_score']) ? (float) $result['quality_score'] : 0.0,
+                'ingested' => !empty($result['graph']['ingested'] ?? false),
+                'error' => isset($result['error']) ? (string) $result['error'] : null,
+                'content_type' => (string) ($result['content_type'] ?? ''),
+                'revision' => (int) ($result['revision'] ?? 0),
+            ];
+
+            if (isset($result['error'])) {
+                if (!isset($progress['errors']) || !is_array($progress['errors'])) {
+                    $progress['errors'] = [];
+                }
+                $progress['errors'][] = [
+                    'url' => $currentUrl,
+                    'message' => (string) $result['error'],
+                    'occurred_at' => date(DATE_ATOM),
+                ];
+                if (count($progress['errors']) > 20) {
+                    $progress['errors'] = array_slice($progress['errors'], -20);
+                }
+            }
+
+            if ($scraped !== null && $currentDepth < $maxDepth) {
+                $parentDomain = $this->extractDomain($currentUrl);
+                $added = $this->enqueueDiscoveredLinks(
+                    $queue,
+                    $seen,
+                    $scraped->links(),
+                    $currentDepth + 1,
+                    $parentDomain
+                );
+                if ($added > 0) {
+                    $discoveredTotal += $added;
+                    $progress['discovered'] = ($progress['discovered'] ?? 0) + $added;
+                    $progress['total'] = ($progress['total'] ?? 0) + $added;
+                    $progress['queued'] = count($queue);
+                    $progress['message'] = 'Discovered ' . $discoveredTotal . ' additional page(s).';
+                }
+            }
+
+            $progress['last_updated_at'] = date(DATE_ATOM);
+            $this->writeProgress($progress);
+        }
+
+        if ($entries === []) {
+            $progress['status'] = 'idle';
+            $progress['message'] = 'No entries were processed.';
+        } else {
+            $this->storeHistory($history);
+            $progress['status'] = 'idle';
+            $progress['message'] = 'Idle';
+        }
+
+        $finishedAt = date(DATE_ATOM);
+        $progress['finished_at'] = $finishedAt;
+        $progress['last_run_at'] = $finishedAt;
+        $progress['current_url'] = null;
+        $progress['current_depth'] = 0;
+        $progress['queued'] = 0;
+        $progress['next_run_due_at'] = $this->computeNextRunAt($autoInterval, $autoStart, $finishedAt);
+        $progress['last_updated_at'] = $finishedAt;
+        $this->writeProgress($progress);
 
         return $entries;
     }
@@ -294,9 +475,343 @@ final class HiddenCrawler
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public function progress(): array
+    {
+        return $this->readProgress();
+    }
+
+    private function deriveProgressPath(string $storagePath): string
+    {
+        $suffixPosition = strrpos($storagePath, '.json');
+        if ($suffixPosition !== false) {
+            return substr($storagePath, 0, $suffixPosition) . self::PROGRESS_FILE_SUFFIX;
+        }
+
+        return $storagePath . self::PROGRESS_FILE_SUFFIX;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function defaultProgressState(): array
+    {
+        $now = date(DATE_ATOM);
+
+        return [
+            'status' => 'idle',
+            'message' => 'Idle',
+            'started_at' => null,
+            'finished_at' => null,
+            'last_run_at' => null,
+            'last_updated_at' => $now,
+            'processed' => 0,
+            'total' => 0,
+            'queued' => 0,
+            'current_url' => null,
+            'current_depth' => 0,
+            'seed_urls' => [],
+            'discovered' => 0,
+            'last_result' => null,
+            'errors' => [],
+            'auto_interval' => 0,
+            'auto_start' => false,
+            'options' => [
+                'depth' => 0,
+                'auto_interval' => 0,
+                'auto_start' => false,
+            ],
+            'next_run_due_at' => null,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $state
+     */
+    private function writeProgress(array $state): void
+    {
+        file_put_contents(
+            $this->progressPath,
+            json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            LOCK_EX
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function readProgress(): array
+    {
+        if (!file_exists($this->progressPath)) {
+            return $this->defaultProgressState();
+        }
+
+        $contents = file_get_contents($this->progressPath);
+        if (!is_string($contents) || trim($contents) === '') {
+            return $this->defaultProgressState();
+        }
+
+        $decoded = json_decode($contents, true);
+        if (!is_array($decoded)) {
+            return $this->defaultProgressState();
+        }
+
+        return $decoded;
+    }
+
+    /**
+     * @param array<int, string> $targets
+     *
+     * @return array{0: array<int, array<string, mixed>>, 1: array<string, bool>, 2: array<int, string>}
+     */
+    private function buildQueue(array $targets): array
+    {
+        $queue = [];
+        $seen = [];
+        $seeds = [];
+
+        foreach ($targets as $target) {
+            if (!is_string($target)) {
+                continue;
+            }
+
+            $normalised = $this->normaliseSeedTarget($target);
+            if ($normalised === null) {
+                continue;
+            }
+
+            $key = $this->queueKey($normalised);
+            if (isset($seen[$key])) {
+                continue;
+            }
+
+            $domain = $this->extractDomain($normalised);
+            $priority = $this->baseScoreForDomain($domain) + 0.25;
+
+            $queue[] = [
+                'url' => $normalised,
+                'depth' => 0,
+                'priority' => $priority,
+                'seed' => true,
+            ];
+            $seen[$key] = true;
+            $seeds[] = $normalised;
+        }
+
+        $this->sortQueueByPriority($queue);
+
+        if (count($queue) > self::MAX_QUEUE_SIZE) {
+            $queue = array_slice($queue, 0, self::MAX_QUEUE_SIZE);
+        }
+
+        return [$queue, $seen, $seeds];
+    }
+
+    private function normaliseSeedTarget(string $target): ?string
+    {
+        $candidate = trim($target);
+        if ($candidate === '') {
+            return null;
+        }
+
+        if (!preg_match('/^https?:\/\//i', $candidate)) {
+            $candidate = 'https://' . $candidate;
+        }
+
+        if (!filter_var($candidate, FILTER_VALIDATE_URL)) {
+            return null;
+        }
+
+        return $candidate;
+    }
+
+    private function queueKey(string $url): string
+    {
+        $normalised = $this->normaliseStoredUrl($url);
+        if ($normalised === '') {
+            $normalised = mb_strtolower(trim($url));
+        }
+
+        return $normalised;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $queue
+     */
+    private function sortQueueByPriority(array &$queue): void
+    {
+        usort($queue, static function (array $left, array $right): int {
+            $leftPriority = (float) ($left['priority'] ?? 0.0);
+            $rightPriority = (float) ($right['priority'] ?? 0.0);
+
+            return $rightPriority <=> $leftPriority;
+        });
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $queue
+     * @param array<string, bool> $seen
+     * @param array<int, string> $links
+     */
+    private function enqueueDiscoveredLinks(
+        array &$queue,
+        array &$seen,
+        array $links,
+        int $depth,
+        string $parentDomain
+    ): int {
+        $depth = max(0, $depth);
+
+        $filtered = $this->filterLinks($links);
+        if ($filtered === []) {
+            return 0;
+        }
+
+        $added = 0;
+
+        foreach ($filtered as $normalised) {
+            if (count($queue) >= self::MAX_QUEUE_SIZE) {
+                break;
+            }
+
+            $key = $this->queueKey($normalised);
+            if (isset($seen[$key])) {
+                continue;
+            }
+
+            $domain = $this->extractDomain($normalised);
+            if ($this->isLowConfidenceDomain($domain)) {
+                continue;
+            }
+
+            $priority = $this->baseScoreForDomain($domain);
+            if ($domain === $parentDomain) {
+                $priority += 0.1;
+            }
+
+            if ($priority < self::SOURCE_BASELINE) {
+                continue;
+            }
+
+            $queue[] = [
+                'url' => $normalised,
+                'depth' => $depth,
+                'priority' => $priority,
+                'seed' => false,
+            ];
+            $seen[$key] = true;
+            $added++;
+
+            if ($added >= self::MAX_DISCOVERED_PER_PAGE) {
+                break;
+            }
+        }
+
+        if ($added > 0) {
+            $this->sortQueueByPriority($queue);
+        }
+
+        return $added;
+    }
+
+    /**
+     * @param array<int, string> $links
+     *
+     * @return array<int, string>
+     */
+    private function filterLinks(array $links): array
+    {
+        $filtered = [];
+
+        foreach ($links as $link) {
+            if (!is_string($link)) {
+                continue;
+            }
+
+            $candidate = trim($link);
+            if ($candidate === '') {
+                continue;
+            }
+
+            $normalised = $this->normaliseSeedTarget($candidate);
+            if ($normalised === null) {
+                continue;
+            }
+
+            if (!$this->isUsefulLink($normalised)) {
+                continue;
+            }
+
+            $filtered[] = $normalised;
+        }
+
+        return array_values(array_slice(array_unique($filtered), 0, 40));
+    }
+
+    private function isUsefulLink(string $url): bool
+    {
+        $parts = parse_url($url);
+        if ($parts === false) {
+            return false;
+        }
+
+        $path = isset($parts['path']) ? mb_strtolower((string) $parts['path']) : '';
+        if ($path !== '') {
+            $segments = array_filter(explode('/', $path));
+            foreach ($segments as $segment) {
+                $segment = trim($segment);
+                if ($segment === '') {
+                    continue;
+                }
+
+                if (isset(self::USELESS_LINK_SEGMENTS[$segment])) {
+                    return false;
+                }
+            }
+        }
+
+        $query = isset($parts['query']) ? mb_strtolower((string) $parts['query']) : '';
+        if ($query !== '') {
+            foreach (self::USELESS_LINK_SEGMENTS as $segment => $flag) {
+                if ($flag && str_contains($query, $segment)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private function computeNextRunAt(int $autoInterval, bool $autoStart, string $from): ?string
+    {
+        if (!$autoStart || $autoInterval <= 0) {
+            return null;
+        }
+
+        try {
+            $origin = new DateTimeImmutable($from);
+        } catch (Throwable $exception) {
+            return null;
+        }
+
+        try {
+            $interval = new DateInterval('PT' . $autoInterval . 'M');
+            return $origin->add($interval)->format(DATE_ATOM);
+        } catch (Throwable $exception) {
+            return null;
+        }
+    }
+
+    /**
      * @param array<string, array<string, mixed>> $history
      *
      * @return array{0: array<string, array<string, mixed>>, 1: array<string, mixed>}
+     */
+    /**
+     * @param array<string, array<string, mixed>> $history
+     *
+     * @return array{0: array<string, array<string, mixed>>, 1: array<string, mixed>, 2: ?ScrapeResult}
      */
     private function crawlUrl(string $url, array $history): array
     {
@@ -315,28 +830,39 @@ final class HiddenCrawler
                 'unchanged' => false,
             ];
 
-            return [$history, $entry];
+            return [$history, $entry, null];
         }
 
         $analysis = $this->refiner->analyseDocument($scraped->text());
 
         $keywords = $this->formatKeywords($analysis['keywords'] ?? []);
         $entities = $this->extractEntities($analysis['analytics']['entities']['top_entities'] ?? []);
+        $filteredLinks = $this->filterLinks($scraped->links());
 
         $meta = $scraped->meta();
         $thumbnail = $this->normaliseThumbnail($scraped->thumbnail());
         $fetchedAt = date(DATE_ATOM);
+        $previewRaw = $scraped->preview(240);
+        $preview = $this->refiner->cleanDocument($previewRaw);
+        if ($preview === '') {
+            $preview = $previewRaw;
+        }
+        $summaryRaw = (string) ($analysis['rewritten'] ?? '');
+        $summaryClean = $this->refiner->cleanDocument($summaryRaw);
+        if ($summaryClean === '') {
+            $summaryClean = $summaryRaw;
+        }
 
         $entry = [
             'url' => $scraped->url(),
             'title' => $scraped->title(),
             'fetched_at' => $fetchedAt,
             'last_checked_at' => $fetchedAt,
-            'preview' => $scraped->preview(240),
+            'preview' => $preview,
             'keywords' => $keywords,
-            'summary' => mb_substr((string) ($analysis['rewritten'] ?? ''), 0, 3200),
+            'summary' => mb_substr($summaryClean, 0, 3200),
             'entities' => $entities,
-            'links' => array_slice($scraped->links(), 0, 20),
+            'links' => array_slice($filteredLinks, 0, 20),
             'thumbnail' => $thumbnail,
             'site_name' => is_array($meta) ? (string) ($meta['site_name'] ?? '') : '',
             'meta_description' => is_array($meta) ? (string) ($meta['description'] ?? '') : '',
@@ -350,7 +876,7 @@ final class HiddenCrawler
 
         $classification = $this->classifyEntry($entry);
         $quality = $this->evaluateQuality($entry, $scraped);
-        $recommendations = $this->recommendSources($scraped, (string) ($quality['source_domain'] ?? ''));
+        $recommendations = $this->recommendSources($filteredLinks, (string) ($quality['source_domain'] ?? ''));
 
         $graphContext = ['ingested' => false];
         if ($this->graphService !== null && ($quality['ingest'] ?? false)) {
@@ -383,7 +909,7 @@ final class HiddenCrawler
 
         [$history, $merged] = $this->mergeEntry($fullEntry, $history);
 
-        return [$history, $merged];
+        return [$history, $merged, $scraped];
     }
 
     /**
@@ -980,17 +1506,41 @@ final class HiddenCrawler
      */
     private function formatKeywords(array $keywords): array
     {
-        $keywords = array_values(array_map(
-            static function (array $keyword): array {
-                return [
-                    'token' => (string) ($keyword['token'] ?? ''),
-                    'count' => (int) ($keyword['count'] ?? 0),
-                ];
-            },
-            $keywords
-        ));
+        $normalised = [];
 
-        return array_slice($keywords, 0, 10);
+        foreach ($keywords as $keyword) {
+            if (!is_array($keyword)) {
+                continue;
+            }
+
+            $token = trim((string) ($keyword['token'] ?? ''));
+            if ($token === '') {
+                continue;
+            }
+
+            $tokenLower = mb_strtolower($token);
+            if (isset(self::DISCARDED_KEYWORDS[$tokenLower])) {
+                continue;
+            }
+
+            if (mb_strlen($tokenLower) <= 2) {
+                continue;
+            }
+
+            $count = (int) ($keyword['count'] ?? 0);
+            if (!isset($normalised[$tokenLower]) || $count > $normalised[$tokenLower]['count']) {
+                $normalised[$tokenLower] = [
+                    'token' => $token,
+                    'count' => $count,
+                ];
+            }
+        }
+
+        usort($normalised, static function (array $left, array $right): int {
+            return (int) ($right['count'] ?? 0) <=> (int) ($left['count'] ?? 0);
+        });
+
+        return array_slice(array_values($normalised), 0, 10);
     }
 
     /**
@@ -1339,9 +1889,13 @@ final class HiddenCrawler
     /**
      * @return array<int, array{url: string, domain: string, trust_score: float}>
      */
-    private function recommendSources(ScrapeResult $scraped, string $currentDomain): array
+    /**
+     * @param array<int, string> $links
+     *
+     * @return array<int, array{url: string, domain: string, trust_score: float}>
+     */
+    private function recommendSources(array $links, string $currentDomain): array
     {
-        $links = $scraped->links();
         if ($links === []) {
             return [];
         }
