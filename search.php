@@ -376,13 +376,6 @@ $updatedLabel = $formatDate($updatedAt) ?? $updatedAt;
                 <form class="news-form" data-news-search-form>
                     <label class="visually-hidden" for="news-query">Search the news index</label>
                     <input id="news-query" type="search" name="news-query" placeholder="Search headlines, tickers or topics" autocomplete="off" spellcheck="false" data-news-query>
-                    <label class="visually-hidden" for="news-quality">Minimum quality score</label>
-                    <select id="news-quality" data-news-quality>
-                        <option value="60" selected>High quality (60+)</option>
-                        <option value="50">Good quality (50+)</option>
-                        <option value="70">Exceptional (70+)</option>
-                        <option value="0">All stories</option>
-                    </select>
                     <button type="submit" class="button ghost">Search news</button>
                 </form>
             </header>

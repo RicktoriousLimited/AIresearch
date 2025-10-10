@@ -61,8 +61,6 @@ final class NewsSearchService
         $history = $this->crawler->history();
         $limit = (int) ($options['limit'] ?? 24);
         $limit = max(1, min(100, $limit));
-        $minQuality = (float) ($options['min_quality'] ?? 0.0);
-        $minQuality = max(0.0, min(100.0, $minQuality));
 
         $normalisedQuery = mb_strtolower(trim($query));
         $terms = array_values(array_filter(preg_split('/\s+/u', $normalisedQuery) ?: [], static fn(string $term): bool => $term !== ''));
@@ -76,9 +74,6 @@ final class NewsSearchService
             }
 
             $quality = (float) ($row['quality_score'] ?? 0.0);
-            if ($quality < $minQuality) {
-                continue;
-            }
 
             $matchScore = $this->matchScore($row, $terms);
             if ($terms !== [] && $matchScore <= 0.0) {
@@ -102,7 +97,7 @@ final class NewsSearchService
         }
 
         if (count($matches) < $limit) {
-            $this->augmentMatchesFromGraph($matches, $terms, $minQuality, $now, $limit);
+            $this->augmentMatchesFromGraph($matches, $terms, $now, $limit);
         }
 
         $sorted = array_values($matches);
@@ -114,7 +109,6 @@ final class NewsSearchService
 
         return [
             'query' => $query,
-            'min_quality' => $minQuality,
             'limit' => $limit,
             'results' => $results,
             'meta' => $meta,
@@ -154,7 +148,6 @@ final class NewsSearchService
     private function augmentMatchesFromGraph(
         array &$matches,
         array $terms,
-        float $minQuality,
         DateTimeImmutable $now,
         int $limit
     ): void {
@@ -171,9 +164,6 @@ final class NewsSearchService
 
             $entry = $this->normaliseGraphSource($source);
             $quality = (float) ($entry['quality_score'] ?? 0.0);
-            if ($quality < $minQuality) {
-                continue;
-            }
 
             $matchScore = $this->matchScore($entry, $terms);
             if ($terms !== [] && $matchScore <= 0.0) {

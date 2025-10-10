@@ -11,7 +11,6 @@
 
     const form = root.querySelector('[data-news-search-form]');
     const input = root.querySelector('[data-news-query]');
-    const quality = root.querySelector('[data-news-quality]');
     const statusEl = root.querySelector('[data-news-status]');
     const topicsEl = root.querySelector('[data-news-topics]');
     const topicsListEl = root.querySelector('[data-news-topics-list]');
@@ -376,7 +375,7 @@
         if (!results.length) {
             const empty = document.createElement('div');
             empty.className = 'news-empty';
-            empty.textContent = 'No stories match this filter yet. Broaden the query or lower the quality threshold.';
+            empty.textContent = 'No stories match this search yet. Try broadening the query or checking back soon.';
             resultsEl.appendChild(empty);
             return;
         }
@@ -654,12 +653,11 @@
     }
 
     function fetchResults() {
-        if (!input || !quality) {
+        if (!input) {
             return;
         }
         const params = new URLSearchParams({
             q: input.value.trim(),
-            min_quality: quality.value,
             limit: '24',
         });
 
@@ -698,12 +696,6 @@
     if (form) {
         form.addEventListener('submit', (event) => {
             event.preventDefault();
-            fetchResults();
-        });
-    }
-
-    if (quality) {
-        quality.addEventListener('change', () => {
             fetchResults();
         });
     }
