@@ -64,7 +64,7 @@ commerce experience built on the Ricktorious kernel:
 - **Commerce extension** – A dedicated `CommerceExtension` wires catalogue,
   cart, checkout, and API routes into the runtime without bloating the core
   extension.
-- **Storefront application** – `web/ricktorious.php` now handles product detail
+- **Storefront application** – `ricktorious.php` now handles product detail
   views, cart interactions, checkout flows, and JSON API calls while continuing
   to showcase block-driven content.
 - **Expanded API** – `/api/catalog/products`, `/api/cart/summary`, `/api/cart/add`,

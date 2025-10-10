@@ -7,7 +7,7 @@ options so you can get the experience online today.
 ## 1. Run locally with PHP's built-in server
 
 ```bash
-php -S 0.0.0.0:8000 -t web
+php -S 0.0.0.0:8000
 ```
 
 Visit `http://localhost:8000/storefront.php` for the headless storefront or
@@ -27,14 +27,15 @@ Visit `http://localhost:8000/storefront.php` for the headless storefront or
 3. Browse to `http://localhost:8080/storefront.php`.
 
 The container uses the official `php:8.2-apache` image with the document root
-configured to `web/`. Storage directories are mounted as a volume so that order,
+configured to `/var/www/html`. Storage directories are mounted as a volume so that order,
 shipping, POS, and user data survive restarts.
 
 ## 3. Shared hosting / Apache
 
-1. Upload the `web/`, `src/`, and `storage/` directories along with `index.php`
-   to your hosting environment.
-2. Point the virtual host's document root at the `web/` directory.
+1. Upload the repository contents (including `assets/`, `api/`, `src/`, and the
+   PHP entrypoints) to your hosting environment.
+2. Point the virtual host's document root at the project root (where
+   `index.php` and `company.php` live).
 3. Ensure the `storage/` directory is writable by the web server user.
 
 ### Health check endpoint

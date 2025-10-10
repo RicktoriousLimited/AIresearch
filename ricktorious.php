@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-require __DIR__ . '/../src/Ricktorious/Ecommerce/bootstrap.php';
+require __DIR__ . '/src/Ricktorious/Ecommerce/bootstrap.php';
 
 use Ricktorious\Ecommerce\Analytics\UserBehaviorTracker;
 use Ricktorious\Ecommerce\Catalog\ProductRepository;

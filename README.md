@@ -7,14 +7,19 @@ built on top of the same semantic core:
 
 1. **Data Preparation Studio UI** – A guided web workflow for ingesting messy
    text, reviewing the cleaned output, exploring extracted entities, and
-   exporting ready-to-use prompt/response pairs in JSON or CSV.
+   exporting ready-to-use prompt/response pairs in JSON or CSV. The homepage now
+   ships with an operations centre that surfaces live cache telemetry, manual
+   refresh controls, and real-time movers without touching third-party feeds.
 2. **JSON API** – `/api/analyse.php` accepts POST payloads and returns structured
    extraction data for automation and integrations.
-3. **Command Line Interface** – The original `php index.php` utility remains for
+3. **Command Line Interface** – The original `php cli.php` utility remains for
    batch processing, scripting, and CSV/JSON exports.
-4. **Markets Intelligence** – `web/markets.php` autonomously discovers capital
+4. **Markets Intelligence** – `markets.php` autonomously discovers capital
    markets coverage for any company, analyses sentiment across investor
    personas, and renders highlights suitable for trading desks.
+5. **Live market pulse API** – `/api/market-pulse.php` streams the offline
+   market snapshot so other dashboards can poll for updates without reloading
+   the entire interface.
 
 Under the hood every surface uses the same `SemanticEngine`, making it easy to
 swap between manual exploration, automated pipelines, and command-line
@@ -25,7 +30,7 @@ experiments without sacrificing consistency.
 ### Web studio
 
 ```bash
-php -S 0.0.0.0:8000 -t web
+php -S 0.0.0.0:8000
 ```
 
 Open `http://localhost:8000/index.php` and paste a few biographies or company
@@ -47,7 +52,7 @@ The new discovery interface exposes the shared knowledge graph as a public
 search engine.
 
 ```bash
-php -S 0.0.0.0:8000 -t web
+php -S 0.0.0.0:8000
 ```
 
 Open `http://localhost:8000/search.php` to:
@@ -63,7 +68,7 @@ Open `http://localhost:8000/search.php` to:
 
 - **Markets intelligence dashboard**
 
-`php -S 0.0.0.0:8000 -t web`
+`php -S 0.0.0.0:8000`
 
 Open `http://localhost:8000/markets.php` to generate an autonomous investor
 sentiment report for any company or ticker. The dashboard:
@@ -134,6 +139,13 @@ Response (truncated):
 }
 ```
 
+#### Live market pulse
+
+`GET /api/market-pulse.php` returns the cached market overview, watchlist,
+sector leaders, and headline summaries as JSON. Poll the endpoint from
+dashboards or cron jobs to mirror the offline market state without reloading the
+full UI.
+
 Supply an array via `documents` to analyse multiple snippets at once. Use the
 optional `include` field with any of `triples`, `synonyms`, `relations`,
 `entities`, `summary`, or `state` to limit the response payload. Provide the
@@ -157,11 +169,11 @@ the API for automated dataset generation.
 ### CLI
 
 ```bash
-php index.php sample.txt -f json -e triples -e synonyms
+php cli.php sample.txt -f json -e triples -e synonyms
 ```
 
 The CLI continues to support JSON, CSV, and text exports, snapshot persistence,
-and STDIN piping. Run `php index.php --help` for the full option list.
+and STDIN piping. Run `php cli.php --help` for the full option list.
 
 ### Research CLI
 
@@ -248,10 +260,10 @@ automation.
 
 - The shared service layer lives under `src/App/Extraction` and wraps the core
   `SemanticEngine` for stable results across every interface.
-- Frontend assets for the workbench are in `web/assets/workbench.*`.
+- Frontend assets for the workbench are in `assets/workbench.*`.
 - The ecommerce prototype that previously shipped with the project now lives at
-  `web/ricktorious.php` for archival purposes, while the new markets module
-  powering `web/markets.php` focuses the semantic stack on autonomous news and
+  `ricktorious.php` for archival purposes, while the new markets module
+  powering `markets.php` focuses the semantic stack on autonomous news and
   sentiment analytics.
 
 Contributions and feature ideas are welcome—open an issue or submit a pull

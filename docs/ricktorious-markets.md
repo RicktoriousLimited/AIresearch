@@ -40,7 +40,7 @@ signals into an investor-ready briefing.
 
 ## Initial deliverable
 
-- `/web/markets.php` renders the autonomous briefing experience with:
+- `/markets.php` renders the autonomous briefing experience with:
   - Company query field and hero explainer.
   - Overview narrative and shareable highlights.
   - Persona cards showing current and average sentiment.
