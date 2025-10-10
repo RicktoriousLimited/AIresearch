@@ -27,16 +27,23 @@ final class ScrapeResult
     private array $links;
 
     /**
+     * @var array<string, mixed>
+     */
+    private array $meta;
+
+    /**
      * @param array<int, string> $paragraphs
      * @param array<int, string> $links
+     * @param array<string, mixed> $meta
      */
-    public function __construct(string $url, string $title, string $text, array $paragraphs, array $links = [])
+    public function __construct(string $url, string $title, string $text, array $paragraphs, array $links = [], array $meta = [])
     {
         $this->url = $url;
         $this->title = $title;
         $this->text = $text;
         $this->paragraphs = $paragraphs;
         $this->links = array_values($links);
+        $this->meta = $meta;
     }
 
     public function url(): string
@@ -68,6 +75,24 @@ final class ScrapeResult
     public function links(): array
     {
         return $this->links;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function meta(): array
+    {
+        return $this->meta;
+    }
+
+    public function thumbnail(): ?string
+    {
+        $image = $this->meta['image'] ?? null;
+        if (!is_string($image) || trim($image) === '') {
+            return null;
+        }
+
+        return $image;
     }
 
     public function characterCount(): int
@@ -110,6 +135,7 @@ final class ScrapeResult
             'paragraphs' => $this->paragraphCount(),
             'preview' => $this->preview(),
             'links' => array_slice($this->links, 0, 20),
+            'meta' => $this->meta,
         ];
     }
 }

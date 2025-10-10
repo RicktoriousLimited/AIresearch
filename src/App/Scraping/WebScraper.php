@@ -57,7 +57,8 @@ final class WebScraper implements ScraperInterface
             $document['title'],
             $text,
             $paragraphs,
-            $document['links']
+            $document['links'],
+            $document['meta']
         );
     }
 
@@ -124,13 +125,21 @@ final class WebScraper implements ScraperInterface
     }
 
     /**
-     * @return array{title: string, paragraphs: array<int, string>, links: array<int, string>}
+     * @return array{title: string, paragraphs: array<int, string>, links: array<int, string>, meta: array<string, mixed>}
      */
     private function extractDocument(string $html, string $baseUrl): array
     {
         $paragraphs = [];
         $title = '';
         $links = [];
+        $meta = [
+            'description' => '',
+            'image' => null,
+            'site_name' => '',
+            'published_at' => '',
+            'language' => '',
+            'canonical' => '',
+        ];
 
         $internalErrors = libxml_use_internal_errors(true);
         try {
@@ -146,6 +155,7 @@ final class WebScraper implements ScraperInterface
                     'title' => '',
                     'paragraphs' => $text === '' ? [] : [$text],
                     'links' => [],
+                    'meta' => $meta,
                 ];
             }
 
@@ -162,6 +172,79 @@ final class WebScraper implements ScraperInterface
             $titleNodes = $dom->getElementsByTagName('title');
             if ($titleNodes->length > 0) {
                 $title = $this->normaliseText($titleNodes->item(0)?->textContent ?? '');
+            }
+
+            $htmlNodes = $dom->getElementsByTagName('html');
+            if ($htmlNodes->length > 0) {
+                $languageAttr = $htmlNodes->item(0)?->attributes?->getNamedItem('lang')?->nodeValue ?? '';
+                if (is_string($languageAttr)) {
+                    $meta['language'] = trim($languageAttr);
+                }
+            }
+
+            foreach ($dom->getElementsByTagName('link') as $linkMeta) {
+                $rel = $linkMeta->attributes?->getNamedItem('rel')?->nodeValue ?? '';
+                $href = $linkMeta->attributes?->getNamedItem('href')?->nodeValue ?? '';
+                if (!is_string($rel) || $rel === '' || !is_string($href) || $href === '') {
+                    continue;
+                }
+
+                $relLower = mb_strtolower(trim($rel));
+                if ($relLower === 'canonical') {
+                    $resolved = $this->resolveLink($href, $baseUrl);
+                    if ($resolved !== null) {
+                        $meta['canonical'] = $resolved;
+                    }
+                }
+            }
+
+            foreach ($dom->getElementsByTagName('meta') as $metaNode) {
+                $name = $metaNode->attributes?->getNamedItem('name')?->nodeValue ?? '';
+                $property = $metaNode->attributes?->getNamedItem('property')?->nodeValue ?? '';
+                $content = $metaNode->attributes?->getNamedItem('content')?->nodeValue ?? '';
+
+                if (!is_string($content) || trim($content) === '') {
+                    continue;
+                }
+
+                $key = $name !== '' ? $name : $property;
+                if (!is_string($key) || $key === '') {
+                    continue;
+                }
+
+                $keyNormalised = mb_strtolower(trim($key));
+                $content = trim($content);
+
+                switch ($keyNormalised) {
+                    case 'description':
+                    case 'og:description':
+                        if ($meta['description'] === '') {
+                            $meta['description'] = $this->normaliseText($content);
+                        }
+                        break;
+                    case 'og:image':
+                    case 'twitter:image':
+                    case 'twitter:image:src':
+                        if (!is_string($meta['image']) || $meta['image'] === '') {
+                            $resolved = $this->resolveLink($content, $baseUrl);
+                            if ($resolved !== null) {
+                                $meta['image'] = $resolved;
+                            }
+                        }
+                        break;
+                    case 'og:site_name':
+                        if ($meta['site_name'] === '') {
+                            $meta['site_name'] = $this->normaliseText($content);
+                        }
+                        break;
+                    case 'article:published_time':
+                    case 'og:updated_time':
+                    case 'article:modified_time':
+                        if ($meta['published_at'] === '') {
+                            $meta['published_at'] = $content;
+                        }
+                        break;
+                }
             }
 
             $nodes = $xpath->query('//body//*[self::p or self::li or self::blockquote or self::h1 or self::h2 or self::h3 or self::h4 or self::h5 or self::h6]');
@@ -205,6 +288,7 @@ final class WebScraper implements ScraperInterface
             'title' => $title,
             'paragraphs' => $paragraphs,
             'links' => $links,
+            'meta' => $meta,
         ];
     }
 

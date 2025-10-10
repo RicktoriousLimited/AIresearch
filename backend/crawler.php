@@ -11,7 +11,6 @@ require_once __DIR__ . '/../src/App/Crawler/HiddenCrawler.php';
 use App\Crawler\HiddenCrawler;
 use Ricktorious\Ecommerce\User\OneTimePasswordManager;
 use Ricktorious\Ecommerce\User\UserService;
-use Throwable;
 
 /**
  * Simple escape helper for HTML context.
@@ -175,6 +174,22 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
         .category-label--financial { background: rgba(16, 185, 129, 0.18); border-color: rgba(16, 185, 129, 0.45); color: #34d399; }
         .category-label--global { background: rgba(96, 165, 250, 0.18); border-color: rgba(96, 165, 250, 0.45); color: #93c5fd; }
         .topic-chip { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 999px; background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.3); font-size: 0.75rem; }
+        .quality-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem; margin: 0.6rem 0; }
+        .quality-pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.8rem; border-radius: 999px; font-weight: 600; font-size: 0.85rem; background: rgba(99, 102, 241, 0.18); border: 1px solid rgba(129, 140, 248, 0.45); color: #c7d2fe; }
+        .quality-pill span { font-weight: 500; font-size: 0.8rem; opacity: 0.85; }
+        .quality-pill--approved { background: rgba(34, 197, 94, 0.18); border-color: rgba(34, 197, 94, 0.45); color: #bbf7d0; }
+        .quality-pill--held { background: rgba(248, 113, 113, 0.18); border-color: rgba(248, 113, 113, 0.35); color: #fecaca; }
+        .ingest-flag { display: inline-flex; align-items: center; padding: 0.25rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid transparent; }
+        .ingest-flag--yes { background: rgba(16, 185, 129, 0.18); border-color: rgba(16, 185, 129, 0.45); color: #6ee7b7; }
+        .ingest-flag--no { background: rgba(244, 114, 182, 0.12); border-color: rgba(244, 114, 182, 0.4); color: #fbcfe8; }
+        .quality-reasons { margin: 0.75rem 0 0; padding-left: 1.1rem; color: rgba(148, 163, 184, 0.9); font-size: 0.9rem; }
+        .quality-reasons li { margin-bottom: 0.35rem; }
+        .recommended { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.8rem; margin-top: 0.6rem; }
+        .recommended span { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(148, 163, 184, 0.9); }
+        .recommended a { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.25rem 0.6rem; border-radius: 999px; background: rgba(59, 130, 246, 0.16); border: 1px solid rgba(96, 165, 250, 0.4); color: #bfdbfe; font-size: 0.75rem; text-decoration: none; }
+        .recommended a:hover { text-decoration: underline; }
+        .history-thumb { margin: 0.5rem 0; max-width: 220px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(148, 163, 184, 0.2); }
+        .history-thumb img { display: block; width: 100%; height: auto; object-fit: cover; background: rgba(148, 163, 184, 0.1); }
     </style>
 </head>
 <body>
@@ -297,6 +312,56 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
                                 $topicChips[] = $topicValue;
                             }
                         }
+                        $qualityScore = isset($item['quality_score']) ? (float) $item['quality_score'] : 0.0;
+                        $qualityLabelRaw = isset($item['quality_label']) ? (string) $item['quality_label'] : '';
+                        $qualityLabel = $qualityLabelRaw !== '' ? $qualityLabelRaw : 'Scored';
+                        $ingestDecision = !empty($item['ingest']);
+                        $qualityBadgeClass = $ingestDecision ? 'quality-pill quality-pill--approved' : 'quality-pill quality-pill--held';
+                        $domainLabel = isset($item['source_domain']) ? (string) $item['source_domain'] : '';
+                        $qualityReasons = [];
+                        if (isset($item['quality_reasons']) && is_array($item['quality_reasons'])) {
+                            foreach ($item['quality_reasons'] as $reason) {
+                                if (!is_string($reason)) {
+                                    continue;
+                                }
+
+                                $reason = trim($reason);
+                                if ($reason === '') {
+                                    continue;
+                                }
+
+                                $qualityReasons[] = $reason;
+                            }
+                        }
+                        $recommendedSources = [];
+                        if (isset($item['recommended_sources']) && is_array($item['recommended_sources'])) {
+                            foreach ($item['recommended_sources'] as $sourceRow) {
+                                if (!is_array($sourceRow)) {
+                                    continue;
+                                }
+
+                                $sourceUrl = (string) ($sourceRow['url'] ?? '');
+                                $sourceDomain = (string) ($sourceRow['domain'] ?? '');
+                                $trust = (float) ($sourceRow['trust_score'] ?? 0.0);
+
+                                if ($sourceUrl === '' || $sourceDomain === '') {
+                                    continue;
+                                }
+
+                                $recommendedSources[] = [
+                                    'url' => $sourceUrl,
+                                    'domain' => $sourceDomain,
+                                    'trust' => $trust,
+                                ];
+                            }
+                        }
+                        $thumbnailUrl = '';
+                        if (isset($item['thumbnail']) && is_string($item['thumbnail'])) {
+                            $thumbnailCandidate = trim($item['thumbnail']);
+                            if ($thumbnailCandidate !== '') {
+                                $thumbnailUrl = $thumbnailCandidate;
+                            }
+                        }
                     ?>
                     <div class="history-item-meta">
                         <span class="category-label category-label--<?= esc($categoryNormalised); ?>"><?= esc(ucfirst($categoryNormalised)); ?></span>
@@ -307,6 +372,21 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
                             <?php endforeach; ?>
                         <?php endif; ?>
                     </div>
+                    <div class="quality-row">
+                        <span class="<?= esc($qualityBadgeClass); ?>">
+                            <?= esc($qualityLabel); ?>
+                            <span><?= esc(number_format($qualityScore, 1)); ?>/100</span>
+                        </span>
+                        <?php if ($domainLabel !== ''): ?>
+                            <span class="muted">Source: <?= esc($domainLabel); ?></span>
+                        <?php endif; ?>
+                        <span class="ingest-flag ingest-flag--<?= esc($ingestDecision ? 'yes' : 'no'); ?>"><?= $ingestDecision ? 'Auto-ingested' : 'Held for review'; ?></span>
+                    </div>
+                    <?php if ($thumbnailUrl !== ''): ?>
+                        <div class="history-thumb">
+                            <img src="<?= esc($thumbnailUrl); ?>" alt="" loading="lazy">
+                        </div>
+                    <?php endif; ?>
                     <?php if (isset($item['error'])): ?>
                         <p class="errors" style="margin-top: 0.5rem;"><?= esc((string) $item['error']); ?></p>
                     <?php else: ?>
@@ -322,6 +402,23 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
                             <div class="entities">
                                 <?php foreach ($item['entities'] as $entity): ?>
                                     <span><?= esc((string) ($entity['label'] ?? '')); ?><?= isset($entity['type']) && $entity['type'] !== '' ? ' · ' . esc((string) $entity['type']) : ''; ?></span>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                        <?php if ($qualityReasons !== []): ?>
+                            <ul class="quality-reasons">
+                                <?php foreach ($qualityReasons as $reason): ?>
+                                    <li><?= esc($reason); ?></li>
+                                <?php endforeach; ?>
+                            </ul>
+                        <?php endif; ?>
+                        <?php if ($recommendedSources !== []): ?>
+                            <div class="recommended">
+                                <span>Trusted exits</span>
+                                <?php foreach ($recommendedSources as $source): ?>
+                                    <a href="<?= esc($source['url']); ?>" target="_blank" rel="noopener">
+                                        <?= esc($source['domain']); ?> · <?= esc(number_format($source['trust'], 2)); ?>
+                                    </a>
                                 <?php endforeach; ?>
                             </div>
                         <?php endif; ?>
