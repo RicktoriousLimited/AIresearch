@@ -47,6 +47,7 @@ use function date;
 use function parse_url;
 use function parse_str;
 use function round;
+use function log;
 use function rtrim;
 use function str_contains;
 use function str_ends_with;
@@ -331,7 +332,9 @@ final class HiddenCrawler
 
         $historyEntries = $this->loadStoredEntries();
         $history = $this->indexHistoryByUrl($historyEntries);
-        $entries = [];
+        $discoveryLedger = $this->initialiseDiscoveryLedger($historyEntries);
+        $queue = $this->initialiseQueueDiscovery($queue, $discoveryLedger);
+        $processedKeys = [];
 
         $startedAt = date(DATE_ATOM);
         $progress = $this->defaultProgressState();
@@ -368,6 +371,7 @@ final class HiddenCrawler
 
         $processed = 0;
         $discoveredTotal = 0;
+        $lastProcessedKey = null;
 
         while ($queue !== []) {
             $current = array_shift($queue);
@@ -378,6 +382,9 @@ final class HiddenCrawler
             $processed++;
             $currentUrl = (string) ($current['url'] ?? '');
             $currentDepth = (int) ($current['depth'] ?? 0);
+
+            $this->registerDiscovery($discoveryLedger, $currentUrl, null, !empty($current['seed']));
+
             $progress['status'] = 'fetching';
             $progress['message'] = 'Fetching ' . $currentUrl;
             $progress['current_url'] = $currentUrl;
@@ -388,7 +395,26 @@ final class HiddenCrawler
             $this->writeProgress($progress);
 
             [$history, $result, $scraped] = $this->crawlUrl($currentUrl, $history);
-            $entries[] = $result;
+
+            $normalizedAfterCrawl = (string) ($result['normalized_url'] ?? '');
+            $this->reconcileDiscoveryKey(
+                $discoveryLedger,
+                $currentUrl,
+                $normalizedAfterCrawl,
+                (string) ($result['url'] ?? '')
+            );
+
+            $processedKey = $this->normaliseStoredUrl(
+                $normalizedAfterCrawl !== ''
+                    ? $normalizedAfterCrawl
+                    : ((string) ($result['url'] ?? $currentUrl))
+            );
+            if ($processedKey === '') {
+                $processedKey = $this->queueKey($currentUrl);
+            }
+            $seen[$processedKey] = true;
+            $processedKeys[] = $processedKey;
+            $lastProcessedKey = $processedKey;
 
             $progress['processed'] = $processed;
             $progress['queued'] = count($queue);
@@ -424,7 +450,9 @@ final class HiddenCrawler
                     $seen,
                     $scraped->links(),
                     $currentDepth + 1,
-                    $parentDomain
+                    $parentDomain,
+                    $currentUrl,
+                    $discoveryLedger
                 );
                 if ($added > 0) {
                     $discoveredTotal += $added;
@@ -439,6 +467,9 @@ final class HiddenCrawler
             $this->writeProgress($progress);
         }
 
+        [$history, $authorityProfiles] = $this->finaliseHistoryMetadata($history, $discoveryLedger);
+        $entries = $this->collectProcessedEntries($history, $processedKeys);
+
         if ($entries === []) {
             $progress['status'] = 'idle';
             $progress['message'] = 'No entries were processed.';
@@ -446,6 +477,15 @@ final class HiddenCrawler
             $this->storeHistory($history);
             $progress['status'] = 'idle';
             $progress['message'] = 'Idle';
+            if ($lastProcessedKey !== null && isset($history[$lastProcessedKey])) {
+                $lastEntry = $history[$lastProcessedKey];
+                if (!isset($progress['last_result'])) {
+                    $progress['last_result'] = [];
+                }
+                $progress['last_result']['authority'] = (float) ($lastEntry['ranking']['page_authority'] ?? 0.0);
+                $progress['last_result']['domain_authority'] = (float) ($lastEntry['ranking']['domain_authority'] ?? 0.0);
+                $progress['last_result']['inbound_links'] = (int) ($lastEntry['ranking']['inbound_links'] ?? 0);
+            }
         }
 
         $finishedAt = date(DATE_ATOM);
@@ -480,6 +520,135 @@ final class HiddenCrawler
     public function progress(): array
     {
         return $this->readProgress();
+    }
+
+    /**
+     * @return array{
+     *     generated_at: string,
+     *     domains: array<int, array<string, mixed>>,
+     *     pages: array<int, array<string, mixed>>
+     * }
+     */
+    public function sourceDirectory(): array
+    {
+        $entries = $this->history();
+        $domains = [];
+        $pages = [];
+
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $url = (string) ($entry['url'] ?? '');
+            $normalized = (string) ($entry['normalized_url'] ?? $url);
+            $domain = $this->extractDomain($normalized !== '' ? $normalized : $url);
+            if ($domain === '') {
+                continue;
+            }
+
+            $ranking = is_array($entry['ranking'] ?? null) ? $entry['ranking'] : [];
+            $pageAuthority = (float) ($ranking['page_authority'] ?? 0.0);
+            $domainAuthority = (float) ($ranking['domain_authority'] ?? $this->baseScoreForDomain($domain));
+            $inboundLinks = (int) ($ranking['inbound_links'] ?? 0);
+            $uniqueSources = (int) ($ranking['unique_sources'] ?? 0);
+
+            $pages[] = [
+                'url' => $url,
+                'title' => (string) ($entry['title'] ?? $url),
+                'domain' => $domain,
+                'page_authority' => $pageAuthority,
+                'domain_authority' => $domainAuthority,
+                'inbound_links' => $inboundLinks,
+                'unique_sources' => $uniqueSources,
+                'fetched_at' => (string) ($entry['fetched_at'] ?? ''),
+                'preview' => (string) ($entry['preview'] ?? ''),
+            ];
+
+            if (!isset($domains[$domain])) {
+                $domains[$domain] = [
+                    'domain' => $domain,
+                    'page_count' => 0,
+                    'authority_sum' => 0.0,
+                    'baseline' => $this->baseScoreForDomain($domain),
+                    'inbound_links' => 0,
+                    'unique_sources' => [],
+                    'top_page' => null,
+                    'last_seen_at' => (string) ($entry['last_checked_at'] ?? $entry['fetched_at'] ?? ''),
+                ];
+            }
+
+            $domains[$domain]['page_count']++;
+            $domains[$domain]['authority_sum'] += $pageAuthority;
+            $domains[$domain]['inbound_links'] += $inboundLinks;
+
+            $entryLastSeen = (string) ($entry['last_checked_at'] ?? $entry['fetched_at'] ?? '');
+            if ($domains[$domain]['last_seen_at'] === '' || $domains[$domain]['last_seen_at'] < $entryLastSeen) {
+                $domains[$domain]['last_seen_at'] = $entryLastSeen;
+            }
+
+            if (
+                $domains[$domain]['top_page'] === null
+                || $pageAuthority > (float) ($domains[$domain]['top_page']['authority'] ?? 0.0)
+            ) {
+                $domains[$domain]['top_page'] = [
+                    'url' => $url,
+                    'title' => (string) ($entry['title'] ?? $url),
+                    'authority' => $pageAuthority,
+                ];
+            }
+
+            $discoverySources = is_array($entry['discovery']['sources'] ?? null) ? $entry['discovery']['sources'] : [];
+            foreach ($discoverySources as $source) {
+                if (!is_array($source)) {
+                    continue;
+                }
+
+                $sourceDomain = (string) ($source['domain'] ?? $this->extractDomain((string) ($source['url'] ?? '')));
+                if ($sourceDomain === '') {
+                    continue;
+                }
+
+                $domains[$domain]['unique_sources'][$sourceDomain] = true;
+            }
+        }
+
+        $domainList = [];
+        foreach ($domains as $domain => $data) {
+            $average = $data['page_count'] > 0 ? $data['authority_sum'] / $data['page_count'] : 0.0;
+            $diversityBoost = min(0.25, count($data['unique_sources']) * 0.05);
+            $volumeBoost = $data['page_count'] > 1 ? min(0.15, log(1 + $data['page_count']) / 3) : 0.0;
+            $domainAuthority = round(
+                min(1.0, max(0.0, $data['baseline'] + ($average * 0.4) + $diversityBoost + $volumeBoost)),
+                3
+            );
+
+            $domainList[] = [
+                'domain' => $domain,
+                'domain_authority' => $domainAuthority,
+                'average_page_authority' => round($average, 3),
+                'page_count' => $data['page_count'],
+                'inbound_links' => $data['inbound_links'],
+                'unique_sources' => count($data['unique_sources']),
+                'top_page' => $data['top_page'],
+                'last_seen_at' => $data['last_seen_at'],
+                'baseline' => $data['baseline'],
+            ];
+        }
+
+        usort($domainList, static function (array $left, array $right): int {
+            return (float) ($right['domain_authority'] ?? 0.0) <=> (float) ($left['domain_authority'] ?? 0.0);
+        });
+
+        usort($pages, static function (array $left, array $right): int {
+            return (float) ($right['page_authority'] ?? 0.0) <=> (float) ($left['page_authority'] ?? 0.0);
+        });
+
+        return [
+            'generated_at' => date(DATE_ATOM),
+            'domains' => $domainList,
+            'pages' => array_slice($pages, 0, 200),
+        ];
     }
 
     private function deriveProgressPath(string $storagePath): string
@@ -659,7 +828,9 @@ final class HiddenCrawler
         array &$seen,
         array $links,
         int $depth,
-        string $parentDomain
+        string $parentDomain,
+        string $parentUrl,
+        array &$ledger
     ): int {
         $depth = max(0, $depth);
 
@@ -674,6 +845,8 @@ final class HiddenCrawler
             if (count($queue) >= self::MAX_QUEUE_SIZE) {
                 break;
             }
+
+            $this->registerDiscovery($ledger, $normalised, $parentUrl, false);
 
             $key = $this->queueKey($normalised);
             if (isset($seen[$key])) {
@@ -713,6 +886,482 @@ final class HiddenCrawler
         }
 
         return $added;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $queue
+     * @param array<string, array<string, mixed>> $ledger
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function initialiseQueueDiscovery(array $queue, array &$ledger): array
+    {
+        foreach ($queue as $index => $item) {
+            if (!is_array($item) || !isset($item['url'])) {
+                continue;
+            }
+
+            $queue[$index]['seed'] = !empty($item['seed']);
+            $queue[$index]['depth'] = (int) ($item['depth'] ?? 0);
+
+            if ($queue[$index]['seed']) {
+                $this->registerDiscovery($ledger, (string) $item['url'], null, true);
+            }
+        }
+
+        return $queue;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $entries
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function initialiseDiscoveryLedger(array $entries): array
+    {
+        $ledger = [];
+
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $normalizedUrl = (string) ($entry['normalized_url'] ?? '');
+            $url = (string) ($entry['url'] ?? $normalizedUrl);
+            $candidate = $normalizedUrl !== '' ? $normalizedUrl : $url;
+            $key = $candidate !== '' ? $this->queueKey($candidate) : $this->queueKey($url);
+            if ($key === '') {
+                continue;
+            }
+
+            $discovery = is_array($entry['discovery'] ?? null) ? $entry['discovery'] : [];
+            $firstSeen = (string) ($discovery['first_seen_at'] ?? ($entry['fetched_at'] ?? ''));
+            $lastSeen = (string) ($discovery['last_seen_at'] ?? ($entry['last_checked_at'] ?? ($entry['fetched_at'] ?? '')));
+
+            $ledger[$key] = [
+                'url' => $candidate !== '' ? $candidate : $url,
+                'seed' => !empty($discovery['seed']),
+                'first_seen_at' => $firstSeen,
+                'last_seen_at' => $lastSeen,
+                'sources' => [],
+            ];
+
+            $sources = is_array($discovery['sources'] ?? null) ? $discovery['sources'] : [];
+            foreach ($sources as $source) {
+                if (!is_array($source)) {
+                    continue;
+                }
+
+                $sourceUrl = (string) ($source['url'] ?? '');
+                if ($sourceUrl === '') {
+                    continue;
+                }
+
+                $sourceKey = $this->queueKey($sourceUrl);
+                if ($sourceKey === '') {
+                    continue;
+                }
+
+                $ledger[$key]['sources'][$sourceKey] = [
+                    'url' => $sourceUrl,
+                    'domain' => (string) ($source['domain'] ?? $this->extractDomain($sourceUrl)),
+                    'count' => (int) ($source['count'] ?? 1),
+                    'last_seen_at' => (string) ($source['last_seen_at'] ?? $lastSeen),
+                ];
+            }
+        }
+
+        return $ledger;
+    }
+
+    private function registerDiscovery(array &$ledger, string $url, ?string $source, bool $seed): void
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return;
+        }
+
+        $key = $this->queueKey($url);
+        if ($key === '') {
+            return;
+        }
+
+        $timestamp = date(DATE_ATOM);
+
+        if (!isset($ledger[$key])) {
+            $ledger[$key] = [
+                'url' => $url,
+                'seed' => $seed,
+                'first_seen_at' => $timestamp,
+                'last_seen_at' => $timestamp,
+                'sources' => [],
+            ];
+        } else {
+            if (!isset($ledger[$key]['url']) || $ledger[$key]['url'] === '') {
+                $ledger[$key]['url'] = $url;
+            }
+            if (!isset($ledger[$key]['first_seen_at']) || $ledger[$key]['first_seen_at'] === '') {
+                $ledger[$key]['first_seen_at'] = $timestamp;
+            }
+            $ledger[$key]['last_seen_at'] = $this->latestTimestamp(
+                (string) ($ledger[$key]['last_seen_at'] ?? ''),
+                $timestamp
+            );
+            if ($seed) {
+                $ledger[$key]['seed'] = true;
+            }
+        }
+
+        if ($source === null) {
+            return;
+        }
+
+        $source = trim($source);
+        if ($source === '' || $source === $url) {
+            return;
+        }
+
+        $sourceKey = $this->queueKey($source);
+        if ($sourceKey === '') {
+            return;
+        }
+
+        if (!isset($ledger[$key]['sources'][$sourceKey])) {
+            $ledger[$key]['sources'][$sourceKey] = [
+                'url' => $source,
+                'domain' => $this->extractDomain($source),
+                'count' => 0,
+                'last_seen_at' => $timestamp,
+            ];
+        }
+
+        $ledger[$key]['sources'][$sourceKey]['count'] = (int) ($ledger[$key]['sources'][$sourceKey]['count'] ?? 0) + 1;
+        $ledger[$key]['sources'][$sourceKey]['last_seen_at'] = $timestamp;
+    }
+
+    private function reconcileDiscoveryKey(array &$ledger, string $originalUrl, string $normalizedUrl, string $resultUrl): void
+    {
+        $originalKey = $this->queueKey($originalUrl);
+        if ($originalKey === '') {
+            $originalKey = $this->queueKey($resultUrl);
+        }
+
+        $targetCandidate = $normalizedUrl !== '' ? $normalizedUrl : ($resultUrl !== '' ? $resultUrl : $originalUrl);
+        $targetKey = $this->queueKey($targetCandidate);
+
+        if ($originalKey === '' || $targetKey === '' || $originalKey === $targetKey) {
+            if ($originalKey !== '' && isset($ledger[$originalKey])) {
+                if ($normalizedUrl !== '') {
+                    $ledger[$originalKey]['url'] = $normalizedUrl;
+                } elseif ($resultUrl !== '') {
+                    $ledger[$originalKey]['url'] = $resultUrl;
+                }
+            }
+
+            return;
+        }
+
+        if (!isset($ledger[$originalKey])) {
+            return;
+        }
+
+        $entry = $ledger[$originalKey];
+        $entry['url'] = $targetCandidate;
+
+        if (isset($ledger[$targetKey])) {
+            $ledger[$targetKey]['seed'] = !empty($ledger[$targetKey]['seed']) || !empty($entry['seed']);
+            $ledger[$targetKey]['first_seen_at'] = $this->earliestTimestamp(
+                (string) ($ledger[$targetKey]['first_seen_at'] ?? ''),
+                (string) ($entry['first_seen_at'] ?? '')
+            );
+            $ledger[$targetKey]['last_seen_at'] = $this->latestTimestamp(
+                (string) ($ledger[$targetKey]['last_seen_at'] ?? ''),
+                (string) ($entry['last_seen_at'] ?? '')
+            );
+
+            foreach ($entry['sources'] ?? [] as $sourceKey => $sourceMeta) {
+                if (!is_array($sourceMeta)) {
+                    continue;
+                }
+
+                if (!isset($ledger[$targetKey]['sources'][$sourceKey])) {
+                    $ledger[$targetKey]['sources'][$sourceKey] = $sourceMeta;
+                    continue;
+                }
+
+                $ledger[$targetKey]['sources'][$sourceKey]['count'] = (int) ($ledger[$targetKey]['sources'][$sourceKey]['count'] ?? 0)
+                    + (int) ($sourceMeta['count'] ?? 0);
+                $ledger[$targetKey]['sources'][$sourceKey]['last_seen_at'] = $this->latestTimestamp(
+                    (string) ($ledger[$targetKey]['sources'][$sourceKey]['last_seen_at'] ?? ''),
+                    (string) ($sourceMeta['last_seen_at'] ?? '')
+                );
+            }
+        } else {
+            $ledger[$targetKey] = $entry;
+        }
+
+        unset($ledger[$originalKey]);
+    }
+
+    private function earliestTimestamp(string $left, string $right): string
+    {
+        if ($left === '') {
+            return $right;
+        }
+
+        if ($right === '') {
+            return $left;
+        }
+
+        return $left <= $right ? $left : $right;
+    }
+
+    private function latestTimestamp(string $left, string $right): string
+    {
+        if ($left === '') {
+            return $right;
+        }
+
+        if ($right === '') {
+            return $left;
+        }
+
+        return $left >= $right ? $left : $right;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $history
+     * @param array<string, array<string, mixed>> $ledger
+     *
+     * @return array{0: array<string, array<string, mixed>>, 1: array<string, array<string, mixed>>}
+     */
+    private function finaliseHistoryMetadata(array $history, array $ledger): array
+    {
+        $history = $this->applyDiscoveryMetadata($history, $ledger);
+
+        return $this->applyAuthorityProfiles($history, $ledger);
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $history
+     * @param array<string, array<string, mixed>> $ledger
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function applyDiscoveryMetadata(array $history, array $ledger): array
+    {
+        foreach ($history as $key => $entry) {
+            $lookupKey = $this->queueKey((string) ($entry['normalized_url'] ?? $entry['url'] ?? ''));
+            if ($lookupKey === '' || !isset($ledger[$lookupKey])) {
+                continue;
+            }
+
+            $history[$key]['discovery'] = $this->formatDiscoveryForEntry($ledger[$lookupKey]);
+        }
+
+        return $history;
+    }
+
+    /**
+     * @param array<string, mixed> $ledgerEntry
+     *
+     * @return array<string, mixed>
+     */
+    private function formatDiscoveryForEntry(array $ledgerEntry): array
+    {
+        $sources = [];
+        $totalReferences = 0;
+        $uniqueDomains = [];
+
+        $ledgerSources = is_array($ledgerEntry['sources'] ?? null) ? $ledgerEntry['sources'] : [];
+        foreach ($ledgerSources as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+
+            $url = (string) ($source['url'] ?? '');
+            if ($url === '') {
+                continue;
+            }
+
+            $domain = (string) ($source['domain'] ?? $this->extractDomain($url));
+            $count = max(1, (int) ($source['count'] ?? 1));
+            $totalReferences += $count;
+
+            if ($domain !== '') {
+                $uniqueDomains[$domain] = true;
+            }
+
+            $sources[] = [
+                'url' => $url,
+                'domain' => $domain,
+                'count' => $count,
+                'last_seen_at' => (string) ($source['last_seen_at'] ?? ''),
+            ];
+        }
+
+        usort($sources, static function (array $left, array $right): int {
+            return (int) ($right['count'] ?? 0) <=> (int) ($left['count'] ?? 0);
+        });
+
+        return [
+            'seed' => !empty($ledgerEntry['seed']),
+            'first_seen_at' => (string) ($ledgerEntry['first_seen_at'] ?? ''),
+            'last_seen_at' => (string) ($ledgerEntry['last_seen_at'] ?? ''),
+            'sources' => array_slice($sources, 0, 20),
+            'total_sources' => $totalReferences,
+            'unique_source_domains' => count($uniqueDomains),
+        ];
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $history
+     * @param array<string, array<string, mixed>> $ledger
+     *
+     * @return array{0: array<string, array<string, mixed>>, 1: array<string, array<string, mixed>>}
+     */
+    private function applyAuthorityProfiles(array $history, array $ledger): array
+    {
+        $pageMetrics = [];
+        $domainProfiles = [];
+
+        foreach ($ledger as $key => $meta) {
+            if (!is_array($meta)) {
+                continue;
+            }
+
+            $url = (string) ($meta['url'] ?? $key);
+            $domain = $this->extractDomain($url);
+            $sources = is_array($meta['sources'] ?? null) ? $meta['sources'] : [];
+
+            $weightedInbound = 0.0;
+            $inboundCount = 0;
+            $uniqueDomains = [];
+
+            foreach ($sources as $sourceMeta) {
+                if (!is_array($sourceMeta)) {
+                    continue;
+                }
+
+                $count = max(1, (int) ($sourceMeta['count'] ?? 0));
+                $sourceDomain = (string) ($sourceMeta['domain'] ?? $this->extractDomain((string) ($sourceMeta['url'] ?? '')));
+                if ($sourceDomain === '') {
+                    continue;
+                }
+
+                $domainScore = $this->baseScoreForDomain($sourceDomain);
+                $weightedInbound += $domainScore * log(1 + $count);
+                $inboundCount += $count;
+                $uniqueDomains[$sourceDomain] = true;
+            }
+
+            $baseline = $this->baseScoreForDomain($domain);
+            $diversityBoost = $uniqueDomains === [] ? 0.0 : min(0.25, count($uniqueDomains) * 0.05);
+            $weightedBoost = $weightedInbound > 0 ? min(0.4, log(1 + $weightedInbound) / 3) : 0.0;
+            $pageAuthority = round(min(1.0, max(0.0, $baseline + $diversityBoost + $weightedBoost)), 3);
+
+            $pageMetrics[$key] = [
+                'page_authority' => $pageAuthority,
+                'baseline' => $baseline,
+                'domain' => $domain,
+                'inbound_links' => $inboundCount,
+                'unique_sources' => count($uniqueDomains),
+            ];
+
+            if ($domain === '') {
+                continue;
+            }
+
+            if (!isset($domainProfiles[$domain])) {
+                $domainProfiles[$domain] = [
+                    'domain' => $domain,
+                    'page_count' => 0,
+                    'authority_sum' => 0.0,
+                    'baseline' => $this->baseScoreForDomain($domain),
+                    'inbound_links' => 0,
+                    'unique_source_domains' => [],
+                    'top_page' => ['key' => $key, 'authority' => $pageAuthority],
+                ];
+            }
+
+            $domainProfiles[$domain]['page_count']++;
+            $domainProfiles[$domain]['authority_sum'] += $pageAuthority;
+            $domainProfiles[$domain]['inbound_links'] += $inboundCount;
+            if ($pageAuthority > $domainProfiles[$domain]['top_page']['authority']) {
+                $domainProfiles[$domain]['top_page'] = ['key' => $key, 'authority' => $pageAuthority];
+            }
+
+            foreach (array_keys($uniqueDomains) as $refDomain) {
+                $domainProfiles[$domain]['unique_source_domains'][$refDomain] = true;
+            }
+        }
+
+        foreach ($domainProfiles as $domain => &$profile) {
+            $average = $profile['page_count'] > 0 ? $profile['authority_sum'] / $profile['page_count'] : 0.0;
+            $diversityBoost = min(0.25, count($profile['unique_source_domains']) * 0.05);
+            $volumeBoost = $profile['page_count'] > 1 ? min(0.15, log(1 + $profile['page_count']) / 3) : 0.0;
+            $profile['domain_authority'] = round(
+                min(1.0, max(0.0, $profile['baseline'] + ($average * 0.4) + $diversityBoost + $volumeBoost)),
+                3
+            );
+            $profile['average_page_authority'] = round($average, 3);
+            $profile['unique_source_domains'] = count($profile['unique_source_domains']);
+        }
+        unset($profile);
+
+        foreach ($history as $key => $entry) {
+            $lookupKey = $this->queueKey((string) ($entry['normalized_url'] ?? $entry['url'] ?? ''));
+            if ($lookupKey === '') {
+                continue;
+            }
+
+            if (isset($pageMetrics[$lookupKey])) {
+                $metrics = $pageMetrics[$lookupKey];
+                $domainAuthority = $metrics['domain'] !== '' && isset($domainProfiles[$metrics['domain']])
+                    ? (float) $domainProfiles[$metrics['domain']]['domain_authority']
+                    : $metrics['baseline'];
+
+                $history[$key]['ranking'] = [
+                    'page_authority' => $metrics['page_authority'],
+                    'domain_authority' => $domainAuthority,
+                    'inbound_links' => $metrics['inbound_links'],
+                    'unique_sources' => $metrics['unique_sources'],
+                ];
+            } elseif (!isset($history[$key]['ranking'])) {
+                $history[$key]['ranking'] = [
+                    'page_authority' => 0.0,
+                    'domain_authority' => 0.0,
+                    'inbound_links' => 0,
+                    'unique_sources' => 0,
+                ];
+            }
+        }
+
+        return [$history, $domainProfiles];
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $history
+     * @param array<int, string> $processedKeys
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function collectProcessedEntries(array $history, array $processedKeys): array
+    {
+        if ($processedKeys === []) {
+            return [];
+        }
+
+        $entries = [];
+        foreach ($processedKeys as $key) {
+            if (!isset($history[$key])) {
+                continue;
+            }
+
+            $entries[] = $history[$key];
+        }
+
+        return $entries;
     }
 
     /**
@@ -1474,6 +2123,26 @@ final class HiddenCrawler
                 'sha256',
                 mb_strtolower((string) ($entry['summary'] ?? '')) . '|' . mb_strtolower((string) ($entry['title'] ?? ''))
             );
+        }
+
+        if (!isset($entry['discovery']) || !is_array($entry['discovery'])) {
+            $entry['discovery'] = [
+                'seed' => false,
+                'first_seen_at' => (string) ($entry['fetched_at'] ?? ''),
+                'last_seen_at' => (string) ($entry['last_checked_at'] ?? ($entry['fetched_at'] ?? '')),
+                'sources' => [],
+                'total_sources' => 0,
+                'unique_source_domains' => 0,
+            ];
+        }
+
+        if (!isset($entry['ranking']) || !is_array($entry['ranking'])) {
+            $entry['ranking'] = [
+                'page_authority' => 0.0,
+                'domain_authority' => 0.0,
+                'inbound_links' => 0,
+                'unique_sources' => 0,
+            ];
         }
 
         return $entry;
