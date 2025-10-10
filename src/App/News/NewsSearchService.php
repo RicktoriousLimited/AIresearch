@@ -22,6 +22,7 @@ use function implode;
 use function is_array;
 use function is_string;
 use function max;
+use function mb_strlen;
 use function mb_strtolower;
 use function min;
 use function parse_url;
@@ -29,6 +30,7 @@ use function preg_replace;
 use function preg_split;
 use function round;
 use function strtolower;
+use function str_replace;
 use function str_contains;
 use function trim;
 use function ucfirst;
@@ -757,6 +759,8 @@ final class NewsSearchService
             }
         }
 
+        $contentType = $this->normaliseContentType((string) ($entry['content_type'] ?? 'page'), $entry, $topics);
+
         return [
             'title' => (string) ($entry['title'] ?? $entry['url'] ?? ''),
             'url' => (string) ($entry['url'] ?? ''),
@@ -777,13 +781,49 @@ final class NewsSearchService
             'thumbnail' => (string) ($entry['thumbnail'] ?? ''),
             'meta_description' => (string) ($entry['meta_description'] ?? ''),
             'recommended_sources' => $recommended,
-            'content_type' => (string) ($entry['content_type'] ?? 'page'),
+            'content_type' => $contentType,
             'revision' => (int) ($entry['revision'] ?? 1),
             'normalized_url' => (string) ($entry['normalized_url'] ?? $entry['url'] ?? ''),
             'unchanged' => (bool) ($entry['unchanged'] ?? false),
             'changes' => $this->formatChangeSummary($entry['changes'] ?? null),
             'versions' => $this->formatVersions($entry['versions'] ?? null),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     * @param array<int, string> $topics
+     */
+    private function normaliseContentType(string $value, array $entry, array $topics): string
+    {
+        $normalised = trim(mb_strtolower(str_replace(' ', '_', $value)));
+        if ($normalised === '' || $normalised === 'unknown') {
+            $normalised = 'page';
+        }
+
+        $characters = (int) ($entry['character_count'] ?? 0);
+        $paragraphs = (int) ($entry['paragraph_count'] ?? 0);
+        $summary = (string) ($entry['summary'] ?? $entry['preview'] ?? '');
+        $summaryLength = mb_strlen($summary);
+        $publishedAt = trim((string) ($entry['source_published_at'] ?? $entry['published_at'] ?? ''));
+        $hasMetadata = $publishedAt !== '' || trim((string) ($entry['source_site_name'] ?? '')) !== '';
+        $topicCount = count($topics);
+
+        if ($normalised === 'non_article') {
+            if ($characters >= 900 || $paragraphs >= 4 || $summaryLength >= 240 || $hasMetadata || $topicCount >= 5) {
+                return 'article';
+            }
+
+            if ($characters >= 400 || $paragraphs >= 3 || $summaryLength >= 140) {
+                return 'page';
+            }
+        }
+
+        if ($normalised === 'page' && ($characters >= 1400 || $paragraphs >= 6 || $summaryLength >= 360)) {
+            return 'article';
+        }
+
+        return $normalised === '' ? 'page' : $normalised;
     }
 
     /**

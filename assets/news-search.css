@@ -189,6 +189,25 @@
     line-height: 1.5;
 }
 
+.news-card__summary-list {
+    margin: 0;
+    padding-left: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.news-card__summary-list li {
+    margin: 0;
+}
+
+.news-card__summary-list li strong {
+    color: #f8fafc;
+    font-weight: 600;
+    margin-right: 0.35rem;
+    display: inline-block;
+}
+
 .news-card__meta {
     display: flex;
     flex-wrap: wrap;
