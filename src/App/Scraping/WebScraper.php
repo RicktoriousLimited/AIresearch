@@ -150,10 +150,9 @@ final class WebScraper implements ScraperInterface
             }
 
             if (!$dom->loadHTML($htmlUtf8, LIBXML_NOERROR | LIBXML_NOWARNING)) {
-                $text = $this->fallbackText($html);
                 return [
                     'title' => '',
-                    'paragraphs' => $text === '' ? [] : [$text],
+                    'paragraphs' => $this->fallbackParagraphs($html),
                     'links' => [],
                     'meta' => $meta,
                 ];
@@ -247,7 +246,7 @@ final class WebScraper implements ScraperInterface
                 }
             }
 
-            $nodes = $xpath->query('//body//*[self::p or self::li or self::blockquote or self::h1 or self::h2 or self::h3 or self::h4 or self::h5 or self::h6]');
+            $nodes = $xpath->query('//body//p');
             if ($nodes !== false) {
                 foreach ($nodes as $node) {
                     $textContent = $this->normaliseText($node->textContent ?? '');
@@ -265,16 +264,6 @@ final class WebScraper implements ScraperInterface
                     continue;
                 }
                 $links[] = $resolved;
-            }
-
-            if ($paragraphs === []) {
-                $body = $dom->getElementsByTagName('body')->item(0);
-                if ($body !== null) {
-                    $text = $this->normaliseText($body->textContent ?? '');
-                    if ($text !== '') {
-                        $paragraphs[] = $text;
-                    }
-                }
             }
 
             $paragraphs = array_values(array_unique($paragraphs));
@@ -303,10 +292,26 @@ final class WebScraper implements ScraperInterface
         return trim($collapsed);
     }
 
-    private function fallbackText(string $html): string
+    /**
+     * @return array<int, string>
+     */
+    private function fallbackParagraphs(string $html): array
     {
-        $stripped = strip_tags($html);
-        return $this->normaliseText($stripped);
+        if ($html === '') {
+            return [];
+        }
+
+        $paragraphs = [];
+        if (preg_match_all('/<p\b[^>]*>(.*?)<\/p>/is', $html, $matches)) {
+            foreach ($matches[1] as $rawParagraph) {
+                $text = $this->normaliseText(strip_tags($rawParagraph));
+                if ($text !== '') {
+                    $paragraphs[] = $text;
+                }
+            }
+        }
+
+        return array_values(array_unique($paragraphs));
     }
 
     private function resolveLink(string $href, string $baseUrl): ?string
