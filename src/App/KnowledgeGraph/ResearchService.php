@@ -32,6 +32,8 @@ final class ResearchService
 
     private ExtractorInterface $extractor;
 
+    private ?ReportBuilder $reportBuilder = null;
+
     public function __construct(
         ?GraphRepository $repository = null,
         ?ScraperInterface $scraper = null,
@@ -261,6 +263,26 @@ final class ResearchService
     }
 
     /**
+     * Compare stored sources and surface uniqueness metrics.
+     *
+     * @param array<int, string> $selectors
+     */
+    public function compareSources(array $selectors = [], int $limit = 12): array
+    {
+        return $this->reportBuilder()->compareSources($selectors, $limit);
+    }
+
+    /**
+     * Build a multi-source research brief for the provided query.
+     *
+     * @param array<int, string> $selectors
+     */
+    public function buildResearchBrief(string $query, int $limit = 5, array $selectors = []): array
+    {
+        return $this->reportBuilder()->buildReport($query, $limit, $selectors);
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     public function currentGraph(): ?array
@@ -292,6 +314,15 @@ final class ResearchService
         } catch (Throwable $exception) {
             return null;
         }
+    }
+
+    private function reportBuilder(): ReportBuilder
+    {
+        if ($this->reportBuilder === null) {
+            $this->reportBuilder = new ReportBuilder($this->repository);
+        }
+
+        return $this->reportBuilder;
     }
 }
 

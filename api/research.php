@@ -8,6 +8,7 @@ use App\KnowledgeGraph\AutoCrawler;
 use App\KnowledgeGraph\GraphResearcher;
 use App\KnowledgeGraph\GraphRepository;
 use App\KnowledgeGraph\ResearchService;
+use App\Support\InputNormaliser;
 
 $startTime = microtime(true);
 
@@ -50,6 +51,18 @@ switch ($method) {
                     'meta' => ['processing_time_ms' => runtime($startTime)],
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
                 return;
+            case 'compare':
+                $limit = isset($_GET['limit']) ? max(1, (int) $_GET['limit']) : 12;
+                $selectors = isset($_GET['sources']) ? InputNormaliser::selectors($_GET['sources']) : [];
+                $comparison = $service->compareSources($selectors, $limit);
+
+                echo json_encode([
+                    'data' => [
+                        'comparison' => $comparison,
+                    ],
+                    'meta' => ['processing_time_ms' => runtime($startTime)],
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                return;
             case 'search':
                 $limit = isset($_GET['limit']) ? max(1, (int) $_GET['limit']) : 12;
                 $query = isset($_GET['q']) && is_string($_GET['q']) ? (string) $_GET['q'] : '';
@@ -59,6 +72,19 @@ switch ($method) {
                 echo json_encode([
                     'data' => [
                         'search' => $search,
+                    ],
+                    'meta' => ['processing_time_ms' => runtime($startTime)],
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                return;
+            case 'report':
+                $query = isset($_GET['q']) && is_string($_GET['q']) ? (string) $_GET['q'] : '';
+                $limit = isset($_GET['limit']) ? max(1, (int) $_GET['limit']) : 5;
+                $selectors = isset($_GET['sources']) ? InputNormaliser::selectors($_GET['sources']) : [];
+                $report = $service->buildResearchBrief($query, $limit, $selectors);
+
+                echo json_encode([
+                    'data' => [
+                        'report' => $report,
                     ],
                     'meta' => ['processing_time_ms' => runtime($startTime)],
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -131,7 +157,7 @@ switch ($method) {
             case 'crawl':
                 $seeds = [];
                 if (isset($decoded['seeds'])) {
-                    $seeds = normaliseSeeds($decoded['seeds']);
+                    $seeds = InputNormaliser::seeds($decoded['seeds']);
                 }
 
                 if ($seeds === []) {
@@ -192,31 +218,6 @@ function sanitiseSources(array $sources): array
         },
         $sources
     );
-}
-
-/**
- * @param mixed $value
- * @return array<int, string>
- */
-function normaliseSeeds($value): array
-{
-    if (is_string($value)) {
-        $items = preg_split('/[\n,]+/', $value) ?: [];
-    } elseif (is_array($value)) {
-        $items = $value;
-    } else {
-        return [];
-    }
-
-    return array_values(array_filter(
-        array_map(
-            static function ($seed): string {
-                return is_string($seed) ? trim($seed) : '';
-            },
-            $items
-        ),
-        static fn(string $seed): bool => $seed !== ''
-    ));
 }
 
 function runtime(float $start): int
