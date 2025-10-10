@@ -433,6 +433,142 @@ a:focus {
     color: #fecaca;
 }
 
+.query-form {
+    display: grid;
+    gap: 1rem;
+    max-width: 420px;
+    margin-top: 2rem;
+}
+
+.query-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-weight: 600;
+}
+
+.query-form input {
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 0.85rem 1rem;
+    font: inherit;
+    color: inherit;
+}
+
+.feature-list {
+    list-style: none;
+    padding: 0;
+    margin: 1.5rem 0 0;
+    display: grid;
+    gap: 0.75rem;
+}
+
+.feature-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.feature-list li::before {
+    content: '✓';
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.sentiment-grid .insight-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.sentiment-positive {
+    color: var(--success);
+}
+
+.sentiment-negative {
+    color: var(--error);
+}
+
+.sentiment-neutral {
+    color: var(--accent);
+}
+
+.generated-at {
+    font-size: 0.85rem;
+    margin-top: 0.5rem;
+}
+
+.timeline {
+    padding: 3rem 0;
+}
+
+.timeline-table-wrapper {
+    overflow-x: auto;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: var(--shadow);
+}
+
+.timeline-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 640px;
+}
+
+.timeline-table th,
+.timeline-table td {
+    text-align: left;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.timeline-table tr:last-child td {
+    border-bottom: none;
+}
+
+.article-grid {
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    margin-top: 1.5rem;
+}
+
+.article-card {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    padding: 1.75rem;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.article-card h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.article-card p {
+    margin: 0;
+}
+
+.badge.sentiment-positive {
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--success);
+}
+
+.badge.sentiment-negative {
+    background: rgba(248, 113, 113, 0.15);
+    color: var(--error);
+}
+
+.badge.sentiment-neutral {
+    background: rgba(129, 140, 248, 0.15);
+    color: var(--accent-strong);
+}
+
 .cart-overlay {
     position: fixed;
     inset: 0;

@@ -1,4 +1,8 @@
-# Ricktorious Limited Ecommerce Platform Vision
+# Ricktorious Limited Ecommerce Platform Vision _(archived)_
+
+> **Note:** The active Ricktorious roadmap now focuses on the autonomous
+> markets intelligence module documented in `ricktorious-markets.md`. The
+> ecommerce blueprint below is preserved for historical reference only.
 
 This document captures the target architecture for transforming the existing
 semantic tooling codebase into an extensible, AI-driven ecommerce experience
