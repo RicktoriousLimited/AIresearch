@@ -162,12 +162,19 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
         .history-item { border-top: 1px solid rgba(148, 163, 184, 0.2); padding: 1rem 0; }
         .history-item:first-of-type { border-top: none; }
         .history-item h3 { margin: 0 0 0.5rem; font-size: 1.1rem; }
-        .history-grid { display: grid; gap: 1rem; }
+        .history-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
         .muted { color: rgba(148, 163, 184, 0.9); }
         .keywords span { display: inline-flex; margin: 0.2rem 0.4rem 0.2rem 0; padding: 0.25rem 0.5rem; border-radius: 999px; background: rgba(99, 102, 241, 0.2); }
         .entities span { display: inline-flex; margin: 0.2rem 0.4rem 0.2rem 0; padding: 0.25rem 0.5rem; border-radius: 999px; background: rgba(34, 197, 94, 0.15); }
         .otp-code { font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; letter-spacing: 0.2rem; background: rgba(15, 23, 42, 0.7); padding: 0.5rem 1rem; border-radius: 8px; display: inline-block; margin-top: 0.5rem; }
         .logout { background: rgba(248, 113, 113, 0.2); border: 1px solid rgba(248, 113, 113, 0.4); color: #fecaca; }
+        .card.card--ghost { background: transparent; border: 1px dashed rgba(148, 163, 184, 0.3); box-shadow: none; }
+        .form-controls { display: flex; gap: 1rem; align-items: center; margin-top: 1rem; flex-wrap: wrap; }
+        .history-item-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0; }
+        .category-label { display: inline-flex; align-items: center; padding: 0.2rem 0.7rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid transparent; }
+        .category-label--financial { background: rgba(16, 185, 129, 0.18); border-color: rgba(16, 185, 129, 0.45); color: #34d399; }
+        .category-label--global { background: rgba(96, 165, 250, 0.18); border-color: rgba(96, 165, 250, 0.45); color: #93c5fd; }
+        .topic-chip { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 999px; background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.3); font-size: 0.75rem; }
     </style>
 </head>
 <body>
@@ -209,7 +216,7 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
         <h2>Account access</h2>
         <?php if (!isset($_SESSION['backend_user'])): ?>
             <div class="history-grid">
-                <form method="post" class="card" style="background: transparent; border: 1px dashed rgba(148, 163, 184, 0.3);">
+                <form method="post" class="card card--ghost">
                     <input type="hidden" name="action" value="login">
                     <label for="login-email">Email address</label>
                     <input id="login-email" name="email" type="email" required value="<?= esc((string) ($_POST['email'] ?? 'waheed.rahman@ricktorious.com')); ?>">
@@ -217,13 +224,13 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
                     <input id="login-password" name="password" type="password" required>
                     <button type="submit">Sign in</button>
                 </form>
-                <form method="post" class="card" style="background: transparent; border: 1px dashed rgba(148, 163, 184, 0.3);">
+                <form method="post" class="card card--ghost">
                     <input type="hidden" name="action" value="request-otp">
                     <label for="otp-email">Request one-time password</label>
                     <input id="otp-email" name="email" type="email" required value="<?= esc((string) ($_POST['email'] ?? 'waheed.rahman@ricktorious.com')); ?>">
                     <button type="submit">Send OTP</button>
                 </form>
-                <form method="post" class="card" style="background: transparent; border: 1px dashed rgba(148, 163, 184, 0.3);">
+                <form method="post" class="card card--ghost">
                     <input type="hidden" name="action" value="reset-password">
                     <label for="reset-email">Email address</label>
                     <input id="reset-email" name="email" type="email" required value="<?= esc((string) ($_POST['email'] ?? 'waheed.rahman@ricktorious.com')); ?>">
@@ -249,41 +256,70 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
             <input type="hidden" name="action" value="crawl">
             <label for="urls">Seed URLs (one per line)</label>
             <textarea id="urls" name="urls" spellcheck="false"><?= esc($urlsDefault); ?></textarea>
-            <div style=\"display: flex; gap: 1rem; align-items: center; margin-top: 1rem; flex-wrap: wrap;\">
+            <div class="form-controls">
                 <div>
-                    <label for=\"auto_interval\">Auto-refresh interval (minutes)</label>
-                    <input id=\"auto_interval\" name=\"auto_interval\" type=\"number\" min=\"0\" value=\"<?= esc((string) $autoInterval); ?>\">
+                    <label for="auto_interval">Auto-refresh interval (minutes)</label>
+                    <input id="auto_interval" name="auto_interval" type="number" min="0" value="<?= esc((string) $autoInterval); ?>">
                 </div>
-                <button type=\"submit\">Run crawl now</button>
+                <button type="submit">Run crawl now</button>
             </div>
-            <p class=\"muted\" style=\"margin-top: 0.5rem;\">Set the auto-refresh interval to keep the crawler running while this tab remains open.</p>
+            <p class="muted" style="margin-top: 0.5rem;">Set the auto-refresh interval to keep the crawler running while this tab remains open.</p>
         </form>
     </section>
 
-    <section class=\"card\">
+    <section class="card">
         <h2>Recent crawl history</h2>
         <?php if ($history === []): ?>
-            <p class=\"muted\">No crawl results yet. Launch a crawl to populate this feed.</p>
+            <p class="muted">No crawl results yet. Launch a crawl to populate this feed.</p>
         <?php else: ?>
             <?php foreach ($history as $item): ?>
-                <article class=\"history-item\">
-                    <h3><a href=\"<?= esc((string) ($item['url'] ?? '#')); ?>\" target=\"_blank\" rel=\"noopener\" style=\"color: #c4b5fd; text-decoration: none;\">
+                <article class="history-item">
+                    <h3><a href="<?= esc((string) ($item['url'] ?? '#')); ?>" target="_blank" rel="noopener" style="color: #c4b5fd; text-decoration: none;">
                         <?= esc((string) ($item['title'] ?? $item['url'] ?? 'Untitled page')); ?>
                     </a></h3>
-                    <p class=\"muted\">Fetched <?= esc((string) ($item['fetched_at'] ?? 'unknown')); ?></p>
+                    <p class="muted">Fetched <?= esc((string) ($item['fetched_at'] ?? 'unknown')); ?></p>
+                    <?php
+                        $categoryRaw = isset($item['category']) ? (string) $item['category'] : 'global';
+                        $categoryNormalised = $categoryRaw === 'financial' ? 'financial' : 'global';
+                        $topicsRaw = $item['topics'] ?? [];
+                        $topicChips = [];
+                        if (is_array($topicsRaw)) {
+                            foreach ($topicsRaw as $topicValue) {
+                                if (!is_string($topicValue)) {
+                                    continue;
+                                }
+
+                                $topicValue = trim($topicValue);
+                                if ($topicValue === '') {
+                                    continue;
+                                }
+
+                                $topicChips[] = $topicValue;
+                            }
+                        }
+                    ?>
+                    <div class="history-item-meta">
+                        <span class="category-label category-label--<?= esc($categoryNormalised); ?>"><?= esc(ucfirst($categoryNormalised)); ?></span>
+                        <?php if ($topicChips !== []): ?>
+                            <span class="muted">Topics:</span>
+                            <?php foreach ($topicChips as $topic): ?>
+                                <span class="topic-chip"><?= esc($topic); ?></span>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
                     <?php if (isset($item['error'])): ?>
-                        <p class=\"errors\" style=\"margin-top: 0.5rem;\"><?= esc((string) $item['error']); ?></p>
+                        <p class="errors" style="margin-top: 0.5rem;"><?= esc((string) $item['error']); ?></p>
                     <?php else: ?>
                         <p><?= esc((string) ($item['preview'] ?? '')); ?></p>
                         <?php if (!empty($item['keywords'])): ?>
-                            <div class=\"keywords\">
+                            <div class="keywords">
                                 <?php foreach ($item['keywords'] as $keyword): ?>
                                     <span><?= esc((string) ($keyword['token'] ?? '')); ?> · <?= esc((string) ($keyword['count'] ?? '0')); ?></span>
                                 <?php endforeach; ?>
                             </div>
                         <?php endif; ?>
                         <?php if (!empty($item['entities'])): ?>
-                            <div class=\"entities\">
+                            <div class="entities">
                                 <?php foreach ($item['entities'] as $entity): ?>
                                     <span><?= esc((string) ($entity['label'] ?? '')); ?><?= isset($entity['type']) && $entity['type'] !== '' ? ' · ' . esc((string) $entity['type']) : ''; ?></span>
                                 <?php endforeach; ?>
@@ -303,7 +339,7 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
         return;
     }
 
-    const intervalField = form.querySelector('[name=\"auto_interval\"]');
+    const intervalField = form.querySelector('[name="auto_interval"]');
     const interval = intervalField ? parseInt(intervalField.value, 10) : 0;
     if (!interval || Number.isNaN(interval) || interval <= 0) {
         return;
