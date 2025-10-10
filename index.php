@@ -111,54 +111,153 @@ if (!is_string($placeholderJson)) {
     $placeholderJson = '[]';
 }
 
+$heroPillars = [
+    'Continuously monitors filings, transcripts, technical blogs, and academic papers related to your mandate.',
+    'Normalises entities, relationships, and metrics into a transparent graph with citations you can audit.',
+    'Packages evidence into analyst-ready briefs, exports, and slides without leaving the workspace.',
+];
+
+$statGroups = [
+    [
+        'label' => 'Documents analysed',
+        'value' => $documentsProcessed,
+    ],
+    [
+        'label' => 'Knowledge triples',
+        'value' => $triplesExtracted,
+    ],
+    [
+        'label' => 'Entities indexed',
+        'value' => $uniqueEntities,
+    ],
+    [
+        'label' => 'Synonym groups',
+        'value' => $synonymGroups,
+    ],
+    [
+        'label' => 'Curated sources',
+        'value' => $sourcesTracked,
+    ],
+];
+
+if ($updatedLabel !== null) {
+    $statGroups[] = [
+        'label' => 'Last refreshed',
+        'value' => $updatedLabel,
+    ];
+}
+
 $featureHighlights = [
     [
-        'title' => 'Unified research knowledge graph',
-        'description' => 'Search across structured triples, relations, and citations sourced from crawls, uploads, and live research feeds.',
+        'title' => 'Entity intelligence without manual stitching',
+        'description' => 'Resolve aliases, join biographies, and surface network relationships across every import, crawl, or analyst upload.',
     ],
     [
-        'title' => 'Research-grade relevance ranking',
-        'description' => 'Hybrid semantic retrieval blends keyword precision with vector recall so expert queries surface the right evidence first.',
+        'title' => 'Context-aware retrieval for specialists',
+        'description' => 'Hybrid ranking blends semantic expansion with precision filters so niche questions return defensible evidence first.',
     ],
     [
-        'title' => 'Explainable citations for every fact',
-        'description' => 'Every entity, relation, and metric links back to the original paragraph so analysts can verify context instantly.',
+        'title' => 'Transparent provenance on every insight',
+        'description' => 'Trace each metric to the exact passage, document, and ingestion time to accelerate approvals and peer review.',
+    ],
+];
+
+$insightStages = [
+    [
+        'step' => '01',
+        'title' => 'Capture every signal',
+        'description' => 'Ingest regulatory filings, product updates, community posts, and internal notes into a single research memory.',
+    ],
+    [
+        'step' => '02',
+        'title' => 'Model the landscape',
+        'description' => 'Map entities, relationships, and velocity metrics to reveal emerging movements across your coverage area.',
+    ],
+    [
+        'step' => '03',
+        'title' => 'Deliver the briefing',
+        'description' => 'Compose narratives, exports, and dashboards that stay linked to citations so stakeholders trust every recommendation.',
+    ],
+];
+
+$useCases = [
+    [
+        'title' => 'Market landscaping dossiers',
+        'description' => 'Build defensible market maps with transparent sourcing for executives and go-to-market leaders.',
+        'items' => [
+            'Funding rounds and partnership velocity',
+            'Executive moves and hiring signals',
+            'Product positioning and roadmap mentions',
+        ],
+    ],
+    [
+        'title' => 'Technical horizon scanning',
+        'description' => 'Track the pace of innovation across labs, vendors, and standards bodies in one living brief.',
+        'items' => [
+            'Patent, paper, and benchmark coverage',
+            'Competitor release cadence',
+            'Risk and compliance commentary',
+        ],
+    ],
+    [
+        'title' => 'Executive decision memos',
+        'description' => 'Answer urgent leadership questions with citations, comparable data, and a clear audit trail.',
+        'items' => [
+            'Auto-generated evidence packets',
+            'Cross-team collaboration notes',
+            'Export-ready appendices',
+        ],
+    ],
+];
+
+$spotlightCollections = [
+    [
+        'title' => 'AI safety & policy observatory',
+        'description' => 'Comparative tracker for national frameworks, regulator briefings, and governance pledges as they happen.',
+        'tags' => ['Governance', 'Risk'],
+    ],
+    [
+        'title' => 'Sustainable industry transitions',
+        'description' => 'Monitor climate tech investments, industrial pilots, and supply chain collaborations with weekly deltas.',
+        'tags' => ['Climate', 'Operations'],
+    ],
+    [
+        'title' => 'Automation adoption watchlist',
+        'description' => 'Surface which platforms are actually deployed, adjacent vendors shortlisted, and the use cases they solve.',
+        'tags' => ['Automation', 'Productivity'],
     ],
 ];
 
 $workflowSteps = [
     [
         'step' => '01',
-        'title' => 'Ask an ambitious question',
-        'description' => 'Start with a broad topic, emerging company, or strategic theme. The search engine expands the query and fetches corroborating evidence.',
+        'title' => 'Frame the research objective',
+        'description' => 'Capture the strategic context, define evidence needs, and spin up the shared workspace for collaborators.',
     ],
     [
         'step' => '02',
-        'title' => 'Trace the knowledge graph',
-        'description' => 'Drill into entities to inspect related organisations, technologies, key people, and supporting documents.',
+        'title' => 'Interrogate the graph',
+        'description' => 'Iterate on search prompts, pivot across entities, and bookmark passages that answer the core question.',
     ],
     [
         'step' => '03',
-        'title' => 'Export the insight',
-        'description' => 'Capture clean triples, entity summaries, and citation trails that plug into memos, RFP responses, or downstream models.',
+        'title' => 'Ship the deliverable',
+        'description' => 'Turn curated findings into narratives, CSV extracts, or decks with confidence scoring and traceability intact.',
     ],
 ];
 
-$spotlightCollections = [
+$researchPrinciples = [
     [
-        'title' => 'AI policy & regulation tracker',
-        'description' => 'Live monitoring of AI safety legislation, national frameworks, and regulator commentary across jurisdictions.',
-        'tags' => ['Governance', 'Risk'],
+        'title' => 'Evidence-forward culture',
+        'description' => 'Every insight is anchored to verifiable passages and document metadata so reviewers can double-click instantly.',
     ],
     [
-        'title' => 'Climate innovation landscape',
-        'description' => 'Rapidly surface clean tech founders, funding rounds, partnerships, and supply-chain moves in one query.',
-        'tags' => ['Climate', 'Innovation'],
+        'title' => 'Collaboration without chaos',
+        'description' => 'Shared annotations, saved queries, and change history keep research teams aligned across geographies.',
     ],
     [
-        'title' => 'Enterprise automation signals',
-        'description' => 'Track which platforms enterprises deploy, adjacent vendors they shortlist, and the problems each solution actually solves.',
-        'tags' => ['Automation', 'Market intelligence'],
+        'title' => 'Secure by design',
+        'description' => 'Granular access controls and air-gapped storage options ensure sensitive investigations stay private.',
     ],
 ];
 ?>
@@ -189,55 +288,49 @@ $spotlightCollections = [
 <main class="home-main">
     <section class="search-hero" id="search">
         <div class="shell">
-            <div class="search-hero__intro">
-                <p class="eyebrow">Research search</p>
-                <h1>Search and understand any topic in seconds</h1>
-                <p class="lead">Instantly surface entities, relationships, and citations across the shared knowledge graph built from analyst notes, crawled articles, and curated datasets.</p>
-            </div>
-            <form class="search-form" method="get" action="<?= esc($assetBase . '/search.php'); ?>" role="search" data-home-search>
-                <label class="visually-hidden" for="home-search-input">Search the AIresearch graph</label>
-                <div class="search-form__field">
-                    <input id="home-search-input" name="q" type="search" placeholder="Try &ldquo;<?= esc($placeholderPhrases[0] ?? 'emerging AI research hubs'); ?>&rdquo;" autocomplete="off" spellcheck="false" data-home-search-input data-home-phrases='<?= esc($placeholderJson); ?>'>
-                    <button type="submit" class="button primary">Search graph</button>
+            <div class="search-hero__layout">
+                <div class="search-hero__intro">
+                    <p class="eyebrow">Focused research workspace</p>
+                    <h1>Focus your analysis on evidence, not tab juggling</h1>
+                    <p class="lead">AIresearch transforms continuous monitoring into shareable intelligence by unifying entities, relationships, and citations in a single research graph.</p>
+                    <ul class="hero-pillars">
+                        <?php foreach ($heroPillars as $pillar): ?>
+                            <li><?= esc($pillar); ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <form class="search-form" method="get" action="<?= esc($assetBase . '/search.php'); ?>" role="search" data-home-search>
+                        <label class="visually-hidden" for="home-search-input">Search the AIresearch graph</label>
+                        <div class="search-form__field">
+                            <input id="home-search-input" name="q" type="search" placeholder="Try &ldquo;<?= esc($placeholderPhrases[0] ?? 'emerging AI research hubs'); ?>&rdquo;" autocomplete="off" spellcheck="false" data-home-search-input data-home-phrases='<?= esc($placeholderJson); ?>'>
+                            <button type="submit" class="button primary">Search graph</button>
+                        </div>
+                    </form>
+                    <?php if ($trendingQueries !== []): ?>
+                    <div class="search-trending" data-home-trending>
+                        <span class="search-trending__label">Trending research prompts</span>
+                        <div class="search-trending__chips">
+                            <?php foreach ($trendingQueries as $query): ?>
+                                <button type="button" class="chip" data-home-chip="<?= esc($query); ?>"><?= esc($query); ?></button>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
                 </div>
-            </form>
-            <?php if ($trendingQueries !== []): ?>
-            <div class="search-trending" data-home-trending>
-                <span class="search-trending__label">Trending research</span>
-                <div class="search-trending__chips">
-                    <?php foreach ($trendingQueries as $query): ?>
-                        <button type="button" class="chip" data-home-chip="<?= esc($query); ?>"><?= esc($query); ?></button>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-            <?php endif; ?>
-            <div class="search-stats" aria-live="polite">
-                <div class="stat">
-                    <span class="stat__value"><?= esc($documentsProcessed); ?></span>
-                    <span class="stat__label">Documents analysed</span>
-                </div>
-                <div class="stat">
-                    <span class="stat__value"><?= esc($triplesExtracted); ?></span>
-                    <span class="stat__label">Knowledge triples</span>
-                </div>
-                <div class="stat">
-                    <span class="stat__value"><?= esc($uniqueEntities); ?></span>
-                    <span class="stat__label">Entities indexed</span>
-                </div>
-                <div class="stat">
-                    <span class="stat__value"><?= esc($synonymGroups); ?></span>
-                    <span class="stat__label">Synonym groups</span>
-                </div>
-                <div class="stat">
-                    <span class="stat__value"><?= esc($sourcesTracked); ?></span>
-                    <span class="stat__label">Curated sources</span>
-                </div>
-                <?php if ($updatedLabel !== null): ?>
-                <div class="stat">
-                    <span class="stat__value"><?= esc($updatedLabel); ?></span>
-                    <span class="stat__label">Last refreshed</span>
-                </div>
-                <?php endif; ?>
+                <aside class="search-hero__panel">
+                    <div class="panel-card" aria-live="polite">
+                        <h2>Knowledge graph at a glance</h2>
+                        <p class="panel-card__lead">Live coverage from crawls, analyst uploads, and trusted research partners.</p>
+                        <dl class="panel-card__metrics">
+                            <?php foreach ($statGroups as $stat): ?>
+                                <div class="panel-card__metric">
+                                    <dt><?= esc($stat['label']); ?></dt>
+                                    <dd><?= esc($stat['value']); ?></dd>
+                                </div>
+                            <?php endforeach; ?>
+                        </dl>
+                        <p class="panel-card__note">Need deeper context? <a href="<?= esc($assetBase . '/knowledge-graph.php'); ?>">Browse the live graph</a> or <a href="<?= esc($assetBase . '/docs'); ?>">review the ingestion playbook</a>.</p>
+                    </div>
+                </aside>
             </div>
         </div>
     </section>
@@ -245,8 +338,8 @@ $spotlightCollections = [
     <section class="section section--features" id="features">
         <div class="shell">
             <div class="section-header">
-                <h2>Why researchers choose AIresearch</h2>
-                <p class="muted">Purpose-built for analysts, strategists, and operators who need trusted insight backed by verifiable sources.</p>
+                <h2>Built for focused research teams</h2>
+                <p class="muted">Synthesise complex domains with tooling that keeps citations and context together.</p>
             </div>
             <div class="feature-grid">
                 <?php foreach ($featureHighlights as $feature): ?>
@@ -259,11 +352,53 @@ $spotlightCollections = [
         </div>
     </section>
 
+    <section class="section section--insights" id="pipeline">
+        <div class="shell">
+            <div class="section-header">
+                <h2>From signal intake to shareable intelligence</h2>
+                <p class="muted">Follow a consistent pipeline to capture, enrich, and distribute research.</p>
+            </div>
+            <div class="insight-pipeline">
+                <?php foreach ($insightStages as $stage): ?>
+                    <article class="insight-card">
+                        <span class="insight-card__index"><?= esc($stage['step']); ?></span>
+                        <h3><?= esc($stage['title']); ?></h3>
+                        <p><?= esc($stage['description']); ?></p>
+                    </article>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </section>
+
+    <section class="section section--usecases" id="use-cases">
+        <div class="shell">
+            <div class="section-header">
+                <h2>Where teams rely on AIresearch</h2>
+                <p class="muted">Each workspace packages the same knowledge graph around a specific decision.</p>
+            </div>
+            <div class="use-case-grid">
+                <?php foreach ($useCases as $useCase): ?>
+                    <article class="use-case-card">
+                        <h3><?= esc($useCase['title']); ?></h3>
+                        <p><?= esc($useCase['description']); ?></p>
+                        <?php if (!empty($useCase['items'])): ?>
+                            <ul>
+                                <?php foreach ($useCase['items'] as $item): ?>
+                                    <li><?= esc($item); ?></li>
+                                <?php endforeach; ?>
+                            </ul>
+                        <?php endif; ?>
+                    </article>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </section>
+
     <section class="section section--collections" id="collections">
         <div class="shell">
             <div class="section-header">
-                <h2>Spotlight collections</h2>
-                <p class="muted">Jump-start your next briefing with curated discovery sets updated continuously.</p>
+                <h2>Curated evidence libraries</h2>
+                <p class="muted">Jump-start your next briefing with collections maintained by the research team.</p>
             </div>
             <div class="collection-grid">
                 <?php foreach ($spotlightCollections as $collection): ?>
@@ -286,8 +421,8 @@ $spotlightCollections = [
     <section class="section section--workflow" id="workflow">
         <div class="shell">
             <div class="section-header">
-                <h2>Research workflow in one interface</h2>
-                <p class="muted">From first query to export-ready facts, every step stays connected to the same knowledge graph.</p>
+                <h2>Deliver research with confidence</h2>
+                <p class="muted">From discovery to deliverable, every step stays linked to provenance.</p>
             </div>
             <div class="workflow-grid">
                 <?php foreach ($workflowSteps as $step): ?>
@@ -297,6 +432,33 @@ $spotlightCollections = [
                         <p><?= esc($step['description']); ?></p>
                     </article>
                 <?php endforeach; ?>
+            </div>
+        </div>
+    </section>
+
+    <section class="section section--principles" id="principles">
+        <div class="shell">
+            <div class="section-header">
+                <h2>Designed for research operations</h2>
+                <p class="muted">Governance, collaboration, and auditability are built into the workflow.</p>
+            </div>
+            <div class="principle-grid">
+                <?php foreach ($researchPrinciples as $principle): ?>
+                    <article class="principle-card">
+                        <h3><?= esc($principle['title']); ?></h3>
+                        <p><?= esc($principle['description']); ?></p>
+                    </article>
+                <?php endforeach; ?>
+            </div>
+            <div class="cta-panel">
+                <div>
+                    <h3>Ready to explore the research graph?</h3>
+                    <p class="muted">Launch the graph explorer or follow the onboarding checklist to seed your workspace.</p>
+                </div>
+                <div class="cta-panel__actions">
+                    <a class="button primary" href="<?= esc($assetBase . '/search.php'); ?>">Launch search</a>
+                    <a class="button ghost" href="<?= esc($assetBase . '/docs/guides/getting-started.md'); ?>">Onboarding guide</a>
+                </div>
             </div>
         </div>
     </section>
