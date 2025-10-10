@@ -1578,6 +1578,40 @@ td {
     font-size: 0.85rem;
 }
 
+.crawler-results li {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
+}
+
+.crawler-results li .label {
+    font-weight: 600;
+}
+
+.crawler-results li .value {
+    font-size: 0.75rem;
+    color: rgba(148, 163, 184, 0.8);
+    align-self: flex-end;
+}
+
+.crawler-meta-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.crawler-meta {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.4rem;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.15);
+    color: rgba(226, 232, 240, 0.85);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
 .crawler-results li:last-child,
 .crawler-errors li:last-child {
     border-bottom: none;

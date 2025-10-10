@@ -17,6 +17,8 @@ use function array_merge;
 use function array_slice;
 use function array_unique;
 use function array_values;
+use function array_diff;
+use function array_keys;
 use function count;
 use function dirname;
 use function filter_var;
@@ -27,6 +29,7 @@ use function implode;
 use function is_array;
 use function is_dir;
 use function in_array;
+use function http_build_query;
 use function json_decode;
 use function json_encode;
 use function max;
@@ -38,11 +41,18 @@ use function preg_match;
 use function preg_replace;
 use function date;
 use function parse_url;
+use function parse_str;
 use function round;
+use function rtrim;
 use function str_contains;
 use function str_ends_with;
+use function strtolower;
 use function trim;
 use function usort;
+use function hash;
+use function ksort;
+use function sprintf;
+
 
 use const DATE_ATOM;
 use const FILTER_VALIDATE_URL;
@@ -183,6 +193,29 @@ final class HiddenCrawler
         0 => 'Low',
     ];
 
+    private const TRACKING_QUERY_PARAMETERS = [
+        'utm_source',
+        'utm_medium',
+        'utm_campaign',
+        'utm_term',
+        'utm_content',
+        'utm_id',
+        'gclid',
+        'fbclid',
+        'mc_cid',
+        'mc_eid',
+        'mkt_tok',
+        'icid',
+        'ref',
+        'ref_',
+        'cmpid',
+        'clid',
+    ];
+
+    private const MAX_HISTORY_ENTRIES = 50;
+
+    private const MAX_VERSION_HISTORY = 8;
+
     private ScraperInterface $scraper;
 
     private TextRefiner $refiner;
@@ -221,6 +254,9 @@ final class HiddenCrawler
     public function crawl(array $targets): array
     {
         $entries = [];
+        $historyEntries = $this->loadStoredEntries();
+        $history = $this->indexHistoryByUrl($historyEntries);
+
         foreach ($targets as $target) {
             if (!is_string($target)) {
                 continue;
@@ -231,18 +267,15 @@ final class HiddenCrawler
                 continue;
             }
 
-            $entries[] = $this->crawlUrl($url);
+            [$history, $result] = $this->crawlUrl($url, $history);
+            $entries[] = $result;
         }
 
         if ($entries === []) {
             return [];
         }
 
-        $history = $this->history();
-        $history = array_values(array_merge($entries, $history));
-        $history = array_slice($history, 0, 50);
-
-        $this->store($history);
+        $this->storeHistory($history);
 
         return $entries;
     }
@@ -252,44 +285,37 @@ final class HiddenCrawler
      */
     public function history(): array
     {
-        $contents = file_get_contents($this->storagePath);
-        if ($contents === false) {
-            return [];
+        $entries = $this->loadStoredEntries();
+        foreach ($entries as $index => $entry) {
+            $entries[$index]['unchanged'] = false;
         }
 
-        $decoded = json_decode($contents, true);
-        if (!is_array($decoded)) {
-            return [];
-        }
-
-        return $decoded;
-    }
-
-    private function store(array $entries): void
-    {
-        $result = file_put_contents(
-            $this->storagePath,
-            json_encode(array_values($entries), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
-        );
-
-        if ($result === false) {
-            throw new RuntimeException('Unable to persist crawler history.');
-        }
+        return $entries;
     }
 
     /**
-     * @return array<string, mixed>
+     * @param array<string, array<string, mixed>> $history
+     *
+     * @return array{0: array<string, array<string, mixed>>, 1: array<string, mixed>}
      */
-    private function crawlUrl(string $url): array
+    private function crawlUrl(string $url, array $history): array
     {
         try {
             $scraped = $this->scraper->scrape($url);
         } catch (RuntimeException $exception) {
-            return [
+            $entry = [
                 'url' => $url,
                 'fetched_at' => date(DATE_ATOM),
+                'last_checked_at' => date(DATE_ATOM),
                 'error' => $exception->getMessage(),
+                'content_type' => 'error',
+                'revision' => null,
+                'versions' => [],
+                'changes' => $this->buildNoChangeSummary(),
+                'unchanged' => false,
             ];
+
+            return [$history, $entry];
         }
 
         $analysis = $this->refiner->analyseDocument($scraped->text());
@@ -299,11 +325,13 @@ final class HiddenCrawler
 
         $meta = $scraped->meta();
         $thumbnail = $this->normaliseThumbnail($scraped->thumbnail());
+        $fetchedAt = date(DATE_ATOM);
 
         $entry = [
             'url' => $scraped->url(),
             'title' => $scraped->title(),
-            'fetched_at' => date(DATE_ATOM),
+            'fetched_at' => $fetchedAt,
+            'last_checked_at' => $fetchedAt,
             'preview' => $scraped->preview(240),
             'keywords' => $keywords,
             'summary' => mb_substr((string) ($analysis['rewritten'] ?? ''), 0, 3200),
@@ -341,10 +369,608 @@ final class HiddenCrawler
             }
         }
 
-        return array_merge($entry, $classification, $quality, [
+        $normalizedUrl = $this->normalisePageUrl($entry['url'], (string) $entry['canonical_url']);
+        $contentType = $this->detectContentType($scraped, $entry);
+        $fingerprint = $this->fingerprint($scraped);
+
+        $fullEntry = array_merge($entry, $classification, $quality, [
             'recommended_sources' => $recommendations,
             'graph' => $graphContext,
+            'normalized_url' => $normalizedUrl,
+            'content_type' => $contentType,
+            'fingerprint' => $fingerprint,
         ]);
+
+        [$history, $merged] = $this->mergeEntry($fullEntry, $history);
+
+        return [$history, $merged];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function loadStoredEntries(): array
+    {
+        $contents = file_get_contents($this->storagePath);
+        if (!is_string($contents) || trim($contents) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($contents, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $entries = [];
+        foreach ($decoded as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $entries[] = $this->upgradeLegacyEntry($entry);
+        }
+
+        usort($entries, static function (array $a, array $b): int {
+            $left = (string) ($a['fetched_at'] ?? '');
+            $right = (string) ($b['fetched_at'] ?? '');
+
+            return $right <=> $left;
+        });
+
+        return $entries;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $entries
+     * @return array<string, array<string, mixed>>
+     */
+    private function indexHistoryByUrl(array $entries): array
+    {
+        $indexed = [];
+
+        foreach ($entries as $entry) {
+            $key = (string) ($entry['normalized_url'] ?? '');
+            if ($key === '') {
+                $key = $this->normaliseStoredUrl((string) ($entry['canonical_url'] ?? $entry['url'] ?? ''));
+            }
+
+            if ($key === '') {
+                $key = (string) ($entry['url'] ?? '');
+            }
+
+            if ($key === '') {
+                continue;
+            }
+
+            $indexed[$key] = $entry;
+        }
+
+        return $indexed;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $history
+     */
+    private function storeHistory(array $history): void
+    {
+        $entries = array_values($history);
+
+        usort($entries, static function (array $a, array $b): int {
+            $left = (string) ($a['fetched_at'] ?? '');
+            $right = (string) ($b['fetched_at'] ?? '');
+
+            return $right <=> $left;
+        });
+
+        $entries = array_slice($entries, 0, self::MAX_HISTORY_ENTRIES);
+        $entries = array_map([$this, 'sanitiseEntryForStorage'], $entries);
+
+        $result = file_put_contents(
+            $this->storagePath,
+            json_encode($entries, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+        );
+
+        if ($result === false) {
+            throw new RuntimeException('Unable to persist crawler history.');
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     * @param array<string, array<string, mixed>> $history
+     *
+     * @return array{0: array<string, array<string, mixed>>, 1: array<string, mixed>}
+     */
+    private function mergeEntry(array $entry, array $history): array
+    {
+        $key = (string) ($entry['normalized_url'] ?? $entry['url'] ?? '');
+        if ($key === '') {
+            $key = $this->normaliseStoredUrl((string) ($entry['url'] ?? ''));
+        }
+
+        $entry['versions'] = is_array($entry['versions'] ?? null)
+            ? $this->normaliseVersions($entry['versions'])
+            : [];
+        $entry['changes'] = $this->normaliseChanges($entry['changes'] ?? null);
+        $entry['unchanged'] = false;
+
+        if (isset($history[$key])) {
+            $existing = $history[$key];
+            $existing['changes'] = $this->normaliseChanges($existing['changes'] ?? null);
+            $existing['versions'] = $this->normaliseVersions($existing['versions'] ?? []);
+
+            $previousFingerprint = (string) ($existing['fingerprint'] ?? '');
+            if ($previousFingerprint === (string) ($entry['fingerprint'] ?? '')) {
+                $existing['last_checked_at'] = $entry['last_checked_at'] ?? $entry['fetched_at'] ?? date(DATE_ATOM);
+                $history[$key] = $existing;
+
+                $result = $existing;
+                $result['unchanged'] = true;
+                $result['changes'] = $this->buildNoChangeSummary();
+
+                return [$history, $result];
+            }
+
+            $entry['revision'] = (int) ($existing['revision'] ?? 1) + 1;
+            $entry['versions'] = $this->prependVersion($existing);
+            $entry['changes'] = $this->summariseChanges($existing, $entry);
+        } else {
+            $entry['revision'] = 1;
+            $entry['versions'] = [];
+            $entry['changes'] = $this->buildInitialChangeSummary($entry);
+        }
+
+        $history[$key] = $entry;
+
+        return [$history, $entry];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildNoChangeSummary(): array
+    {
+        return [
+            'summary' => 'No content changes detected.',
+            'keywords_added' => [],
+            'keywords_removed' => [],
+            'entities_added' => [],
+            'entities_removed' => [],
+            'length_delta' => 0,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     *
+     * @return array<string, mixed>
+     */
+    private function buildInitialChangeSummary(array $entry): array
+    {
+        $keywords = $this->indexKeywords($entry['keywords'] ?? []);
+        $entities = $this->indexEntities($entry['entities'] ?? []);
+
+        return [
+            'summary' => 'Initial capture',
+            'keywords_added' => array_values($keywords),
+            'keywords_removed' => [],
+            'entities_added' => array_values($entities),
+            'entities_removed' => [],
+            'length_delta' => (int) ($entry['character_count'] ?? 0),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $previous
+     * @param array<string, mixed> $current
+     *
+     * @return array<string, mixed>
+     */
+    private function summariseChanges(array $previous, array $current): array
+    {
+        $previousKeywords = $this->indexKeywords($previous['keywords'] ?? []);
+        $currentKeywords = $this->indexKeywords($current['keywords'] ?? []);
+        $previousEntities = $this->indexEntities($previous['entities'] ?? []);
+        $currentEntities = $this->indexEntities($current['entities'] ?? []);
+
+        $addedKeywordKeys = array_values(array_diff(array_keys($currentKeywords), array_keys($previousKeywords)));
+        $removedKeywordKeys = array_values(array_diff(array_keys($previousKeywords), array_keys($currentKeywords)));
+        $keywordsAdded = array_map(static fn(string $key) => $currentKeywords[$key], $addedKeywordKeys);
+        $keywordsRemoved = array_map(static fn(string $key) => $previousKeywords[$key], $removedKeywordKeys);
+
+        $addedEntityKeys = array_values(array_diff(array_keys($currentEntities), array_keys($previousEntities)));
+        $removedEntityKeys = array_values(array_diff(array_keys($previousEntities), array_keys($currentEntities)));
+        $entitiesAdded = array_map(static fn(string $key) => $currentEntities[$key], $addedEntityKeys);
+        $entitiesRemoved = array_map(static fn(string $key) => $previousEntities[$key], $removedEntityKeys);
+
+        $lengthDelta = (int) ($current['character_count'] ?? 0) - (int) ($previous['character_count'] ?? 0);
+
+        $parts = [];
+
+        if (trim((string) ($previous['title'] ?? '')) !== trim((string) ($current['title'] ?? ''))) {
+            $parts[] = 'title updated';
+        }
+
+        if (trim((string) ($previous['summary'] ?? '')) !== trim((string) ($current['summary'] ?? ''))) {
+            $parts[] = 'summary refreshed';
+        }
+
+        if ($lengthDelta !== 0) {
+            $parts[] = sprintf(
+                'length %s by %d characters',
+                $lengthDelta > 0 ? 'increased' : 'decreased',
+                abs($lengthDelta)
+            );
+        }
+
+        if ($keywordsAdded !== [] || $keywordsRemoved !== []) {
+            $parts[] = 'keywords updated';
+        }
+
+        if ($entitiesAdded !== [] || $entitiesRemoved !== []) {
+            $parts[] = 'entities updated';
+        }
+
+        if (($previous['content_type'] ?? '') !== ($current['content_type'] ?? '')) {
+            $parts[] = sprintf('reclassified as %s', (string) ($current['content_type'] ?? 'page'));
+        }
+
+        $summary = $parts === [] ? 'Content refreshed.' : ucfirst(implode('; ', $parts)) . '.';
+
+        return [
+            'summary' => $summary,
+            'keywords_added' => $keywordsAdded,
+            'keywords_removed' => $keywordsRemoved,
+            'entities_added' => $entitiesAdded,
+            'entities_removed' => $entitiesRemoved,
+            'length_delta' => $lengthDelta,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $existing
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function prependVersion(array $existing): array
+    {
+        $versions = $this->normaliseVersions($existing['versions'] ?? []);
+        $archive = $this->prepareArchivedVersion($existing);
+        array_unshift($versions, $archive);
+
+        return array_slice($versions, 0, self::MAX_VERSION_HISTORY);
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     *
+     * @return array<string, mixed>
+     */
+    private function prepareArchivedVersion(array $entry): array
+    {
+        $version = $entry;
+        unset($version['versions'], $version['normalized_url'], $version['fingerprint']);
+        $version['unchanged'] = false;
+        $version['changes'] = $this->normaliseChanges($version['changes'] ?? null);
+
+        if (!isset($version['last_checked_at']) && isset($version['fetched_at'])) {
+            $version['last_checked_at'] = (string) $version['fetched_at'];
+        }
+
+        return $version;
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     *
+     * @return array<string, mixed>
+     */
+    private function sanitiseEntryForStorage(array $entry): array
+    {
+        $entry['versions'] = $this->normaliseVersions($entry['versions'] ?? []);
+        $entry['changes'] = $this->normaliseChanges($entry['changes'] ?? null);
+        unset($entry['unchanged']);
+
+        return $entry;
+    }
+
+    /**
+     * @param array<int, mixed> $versions
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function normaliseVersions(array $versions): array
+    {
+        $normalised = [];
+
+        foreach ($versions as $version) {
+            if (!is_array($version)) {
+                continue;
+            }
+
+            $item = $version;
+            unset($item['versions']);
+            if (isset($item['normalized_url'])) {
+                unset($item['normalized_url']);
+            }
+            $item['changes'] = $this->normaliseChanges($item['changes'] ?? null);
+            $item['unchanged'] = false;
+
+            $normalised[] = $item;
+        }
+
+        return array_slice($normalised, 0, self::MAX_VERSION_HISTORY);
+    }
+
+    /**
+     * @param mixed $changes
+     *
+     * @return array<string, mixed>
+     */
+    private function normaliseChanges($changes): array
+    {
+        $default = [
+            'summary' => '',
+            'keywords_added' => [],
+            'keywords_removed' => [],
+            'entities_added' => [],
+            'entities_removed' => [],
+            'length_delta' => 0,
+        ];
+
+        if (is_array($changes)) {
+            return [
+                'summary' => (string) ($changes['summary'] ?? ''),
+                'keywords_added' => $this->normaliseStrings($changes['keywords_added'] ?? []),
+                'keywords_removed' => $this->normaliseStrings($changes['keywords_removed'] ?? []),
+                'entities_added' => $this->normaliseStrings($changes['entities_added'] ?? []),
+                'entities_removed' => $this->normaliseStrings($changes['entities_removed'] ?? []),
+                'length_delta' => (int) ($changes['length_delta'] ?? 0),
+            ];
+        }
+
+        if (is_string($changes) && $changes !== '') {
+            $default['summary'] = $changes;
+        }
+
+        return $default;
+    }
+
+    /**
+     * @param array<int, mixed> $values
+     *
+     * @return array<int, string>
+     */
+    private function normaliseStrings(array $values): array
+    {
+        $normalised = [];
+
+        foreach ($values as $value) {
+            if (!is_string($value)) {
+                continue;
+            }
+
+            $value = trim($value);
+            if ($value === '') {
+                continue;
+            }
+
+            $normalised[] = $value;
+        }
+
+        return array_values(array_unique($normalised));
+    }
+
+    /**
+     * @param array<int, mixed> $keywords
+     *
+     * @return array<string, string>
+     */
+    private function indexKeywords(array $keywords): array
+    {
+        $indexed = [];
+
+        foreach ($keywords as $keyword) {
+            if (!is_array($keyword)) {
+                continue;
+            }
+
+            $token = trim((string) ($keyword['token'] ?? ''));
+            if ($token === '') {
+                continue;
+            }
+
+            $indexed[mb_strtolower($token)] = $token;
+        }
+
+        return $indexed;
+    }
+
+    /**
+     * @param array<int, mixed> $entities
+     *
+     * @return array<string, string>
+     */
+    private function indexEntities(array $entities): array
+    {
+        $indexed = [];
+
+        foreach ($entities as $entity) {
+            if (!is_array($entity)) {
+                continue;
+            }
+
+            $label = trim((string) ($entity['label'] ?? ''));
+            if ($label === '') {
+                continue;
+            }
+
+            $indexed[mb_strtolower($label)] = $label;
+        }
+
+        return $indexed;
+    }
+
+    private function normalisePageUrl(string $url, string $canonical): string
+    {
+        $candidate = trim($canonical) !== '' ? $canonical : $url;
+        $candidate = trim($candidate);
+        if ($candidate === '') {
+            return $url;
+        }
+
+        $parts = parse_url($candidate);
+        if ($parts === false || !isset($parts['scheme'], $parts['host'])) {
+            return $candidate;
+        }
+
+        $scheme = strtolower((string) $parts['scheme']);
+        $host = strtolower((string) $parts['host']);
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+        $path = (string) ($parts['path'] ?? '/');
+        if ($path === '') {
+            $path = '/';
+        }
+        if ($path !== '/' && str_ends_with($path, '/')) {
+            $path = rtrim($path, '/');
+        }
+
+        $query = '';
+        if (isset($parts['query']) && $parts['query'] !== '') {
+            $params = [];
+            parse_str((string) $parts['query'], $params);
+            if (is_array($params)) {
+                foreach ($params as $key => $value) {
+                    if (!is_string($key)) {
+                        unset($params[$key]);
+                        continue;
+                    }
+
+                    $keyLower = strtolower($key);
+                    if (in_array($keyLower, self::TRACKING_QUERY_PARAMETERS, true)) {
+                        unset($params[$key]);
+                        continue;
+                    }
+
+                    if (is_array($value) && $value === []) {
+                        unset($params[$key]);
+                    }
+                }
+
+                if ($params !== []) {
+                    ksort($params);
+                    $query = http_build_query($params);
+                }
+            }
+        }
+
+        $normalized = $scheme . '://' . $host . $port . $path;
+        if ($query !== '') {
+            $normalized .= '?' . $query;
+        }
+
+        return $normalized;
+    }
+
+    private function normaliseStoredUrl(string $url): string
+    {
+        return $this->normalisePageUrl($url, '');
+    }
+
+    private function fingerprint(ScrapeResult $scraped): string
+    {
+        $text = mb_strtolower(trim($scraped->text()));
+        $title = mb_strtolower(trim($scraped->title()));
+
+        return hash('sha256', $title . '|' . $text);
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     */
+    private function detectContentType(ScrapeResult $scraped, array $entry): string
+    {
+        $characterCount = (int) ($entry['character_count'] ?? $scraped->characterCount());
+        $paragraphCount = (int) ($entry['paragraph_count'] ?? $scraped->paragraphCount());
+        $publishedAt = trim((string) ($entry['published_at'] ?? ''));
+        $textLower = mb_strtolower($scraped->text());
+        $titleLower = mb_strtolower($scraped->title());
+
+        $nonArticleIndicators = [
+            '404',
+            'page not found',
+            'sign in',
+            'login',
+            'cookies',
+            'javascript required',
+        ];
+
+        foreach ($nonArticleIndicators as $indicator) {
+            if ($indicator !== '' && str_contains($textLower, $indicator)) {
+                return 'non_article';
+            }
+        }
+
+        if ($publishedAt !== '' || $characterCount >= 1200 || $paragraphCount >= 5) {
+            return 'article';
+        }
+
+        if ($characterCount < 320 || $paragraphCount <= 2) {
+            return 'non_article';
+        }
+
+        if (str_contains($titleLower, 'blog') || str_contains($titleLower, 'news')) {
+            return 'article';
+        }
+
+        return 'page';
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     *
+     * @return array<string, mixed>
+     */
+    private function upgradeLegacyEntry(array $entry): array
+    {
+        $entry['versions'] = $this->normaliseVersions($entry['versions'] ?? []);
+        $entry['changes'] = $this->normaliseChanges($entry['changes'] ?? null);
+        $entry['revision'] = (int) ($entry['revision'] ?? 1);
+        $entry['normalized_url'] = (string) ($entry['normalized_url'] ?? $this->normaliseStoredUrl((string) ($entry['canonical_url'] ?? $entry['url'] ?? '')));
+        if (!isset($entry['last_checked_at'])) {
+            $entry['last_checked_at'] = (string) ($entry['fetched_at'] ?? '');
+        }
+        if (!isset($entry['content_type'])) {
+            $entry['content_type'] = $this->inferLegacyContentType($entry);
+        }
+        if (!isset($entry['fingerprint'])) {
+            $entry['fingerprint'] = hash(
+                'sha256',
+                mb_strtolower((string) ($entry['summary'] ?? '')) . '|' . mb_strtolower((string) ($entry['title'] ?? ''))
+            );
+        }
+
+        return $entry;
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     */
+    private function inferLegacyContentType(array $entry): string
+    {
+        $characterCount = (int) ($entry['character_count'] ?? 0);
+        $paragraphCount = (int) ($entry['paragraph_count'] ?? 0);
+        $publishedAt = trim((string) ($entry['published_at'] ?? ''));
+
+        if ($publishedAt !== '' || $characterCount >= 1200 || $paragraphCount >= 5) {
+            return 'article';
+        }
+
+        if ($characterCount < 320 || $paragraphCount <= 2) {
+            return 'non_article';
+        }
+
+        return 'page';
     }
 
     /**

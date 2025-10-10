@@ -115,6 +115,11 @@ final class MarketIntelligenceBuilder
                 continue;
             }
 
+            $contentType = isset($entry['content_type']) ? (string) $entry['content_type'] : 'article';
+            if ($contentType !== 'article') {
+                continue;
+            }
+
             $matches = $this->matchSymbols($entry, $symbols, $companyNames);
             if ($matches === []) {
                 continue;
@@ -340,6 +345,10 @@ final class MarketIntelligenceBuilder
             'topics' => $topics,
             'fetched_at' => (string) ($entry['fetched_at'] ?? ''),
             'quality_label' => (string) ($entry['quality_label'] ?? ''),
+            'content_type' => (string) ($entry['content_type'] ?? 'article'),
+            'revision' => (int) ($entry['revision'] ?? 1),
+            'last_checked_at' => (string) ($entry['last_checked_at'] ?? $entry['fetched_at'] ?? ''),
+            'changes' => is_array($entry['changes'] ?? null) ? $entry['changes'] : [],
         ];
     }
 

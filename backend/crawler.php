@@ -191,6 +191,21 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
         .recommended a:hover { text-decoration: underline; }
         .history-thumb { margin: 0.5rem 0; max-width: 220px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(148, 163, 184, 0.2); }
         .history-thumb img { display: block; width: 100%; height: auto; object-fit: cover; background: rgba(148, 163, 184, 0.1); }
+        .history-flags { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.25rem 0 0.5rem; }
+        .type-pill { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid rgba(148, 163, 184, 0.35); background: rgba(148, 163, 184, 0.15); font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(226, 232, 240, 0.9); }
+        .type-pill--article { background: rgba(34, 197, 94, 0.18); border-color: rgba(34, 197, 94, 0.45); color: #bbf7d0; }
+        .type-pill--page { background: rgba(96, 165, 250, 0.18); border-color: rgba(96, 165, 250, 0.4); color: #bfdbfe; }
+        .type-pill--non_article { background: rgba(248, 113, 113, 0.18); border-color: rgba(248, 113, 113, 0.4); color: #fecaca; }
+        .type-pill--error { background: rgba(244, 114, 182, 0.2); border-color: rgba(244, 114, 182, 0.45); color: #fbcfe8; }
+        .type-pill--revision { background: rgba(129, 140, 248, 0.18); border-color: rgba(129, 140, 248, 0.4); color: #c7d2fe; }
+        .history-timing { margin: 0.5rem 0; font-size: 0.85rem; color: rgba(148, 163, 184, 0.9); }
+        .history-change { margin: 0.35rem 0; font-size: 0.85rem; color: rgba(248, 250, 252, 0.88); font-weight: 500; }
+        .history-versions { margin-top: 0.85rem; }
+        .history-versions summary { cursor: pointer; font-size: 0.85rem; color: rgba(148, 163, 184, 0.9); }
+        .history-versions ol { margin: 0.6rem 0 0; padding-left: 1.1rem; }
+        .history-versions li { margin-bottom: 0.55rem; }
+        .history-version-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem; }
+        .revision-badge { display: inline-flex; align-items: center; padding: 0.15rem 0.55rem; border-radius: 999px; background: rgba(129, 140, 248, 0.18); border: 1px solid rgba(129, 140, 248, 0.45); font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase; color: #c7d2fe; }
     </style>
 </head>
 <body>
@@ -363,6 +378,37 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
                                 $thumbnailUrl = $thumbnailCandidate;
                             }
                         }
+                        $contentTypeRaw = isset($item['content_type']) ? (string) $item['content_type'] : 'page';
+                        $contentTypeLabel = ucfirst(str_replace('_', ' ', $contentTypeRaw));
+                        $revision = isset($item['revision']) ? (int) $item['revision'] : 1;
+                        $lastChecked = isset($item['last_checked_at']) ? (string) $item['last_checked_at'] : '';
+                        $changeSummary = '';
+                        if (isset($item['changes'])) {
+                            if (is_array($item['changes'])) {
+                                $changeSummary = (string) ($item['changes']['summary'] ?? '');
+                            } elseif (is_string($item['changes'])) {
+                                $changeSummary = trim($item['changes']);
+                            }
+                        }
+                        $versionEntries = [];
+                        if (isset($item['versions']) && is_array($item['versions'])) {
+                            foreach ($item['versions'] as $versionRow) {
+                                if (!is_array($versionRow)) {
+                                    continue;
+                                }
+
+                                $versionEntries[] = [
+                                    'revision' => (int) ($versionRow['revision'] ?? 0),
+                                    'title' => (string) ($versionRow['title'] ?? ($versionRow['url'] ?? 'Untitled version')),
+                                    'fetched_at' => (string) ($versionRow['fetched_at'] ?? ''),
+                                    'summary' => (string) ($versionRow['summary'] ?? ($versionRow['preview'] ?? '')),
+                                    'changes' => is_array($versionRow['changes'] ?? null)
+                                        ? (string) ($versionRow['changes']['summary'] ?? '')
+                                        : (string) ($versionRow['changes'] ?? ''),
+                                ];
+                            }
+                        }
+                        $normalizedUrl = isset($item['normalized_url']) ? (string) $item['normalized_url'] : '';
                     ?>
                     <div class="history-item-meta">
                         <span class="category-label category-label--<?= esc($categoryNormalised); ?>"><?= esc(ucfirst($categoryNormalised)); ?></span>
@@ -372,6 +418,10 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
                                 <span class="topic-chip"><?= esc($topic); ?></span>
                             <?php endforeach; ?>
                         <?php endif; ?>
+                    </div>
+                    <div class="history-flags">
+                        <span class="type-pill type-pill--<?= esc($contentTypeRaw); ?>"><?= esc($contentTypeLabel); ?></span>
+                        <span class="type-pill type-pill--revision">Rev <?= esc((string) $revision); ?></span>
                     </div>
                     <div class="quality-row">
                         <span class="<?= esc($qualityBadgeClass); ?>">
@@ -391,7 +441,19 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
                     <?php if (isset($item['error'])): ?>
                         <p class="errors" style="margin-top: 0.5rem;"><?= esc((string) $item['error']); ?></p>
                     <?php else: ?>
+                        <p class="history-timing">
+                            Fetched <?= esc((string) ($item['fetched_at'] ?? 'unknown')); ?>
+                            <?php if ($lastChecked !== '' && $lastChecked !== ($item['fetched_at'] ?? '')): ?>
+                                · Last checked <?= esc($lastChecked); ?>
+                            <?php endif; ?>
+                            <?php if ($normalizedUrl !== '' && $normalizedUrl !== (string) ($item['url'] ?? '')): ?>
+                                · Canonical <?= esc($normalizedUrl); ?>
+                            <?php endif; ?>
+                        </p>
                         <p><?= esc((string) ($item['preview'] ?? '')); ?></p>
+                        <?php if ($changeSummary !== ''): ?>
+                            <p class="history-change"><?= esc($changeSummary); ?></p>
+                        <?php endif; ?>
                         <?php if (!empty($item['keywords'])): ?>
                             <div class="keywords">
                                 <?php foreach ($item['keywords'] as $keyword): ?>
@@ -422,6 +484,29 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
                                     </a>
                                 <?php endforeach; ?>
                             </div>
+                        <?php endif; ?>
+                        <?php if ($versionEntries !== []): ?>
+                            <details class="history-versions">
+                                <summary>Revision archive (<?= esc((string) count($versionEntries)); ?>)</summary>
+                                <ol>
+                                    <?php foreach ($versionEntries as $version): ?>
+                                        <li>
+                                            <div class="history-version-header">
+                                                <span class="revision-badge">Rev <?= esc((string) $version['revision']); ?></span>
+                                                <?php if ($version['fetched_at'] !== ''): ?>
+                                                    <span class="muted"><?= esc($version['fetched_at']); ?></span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <?php if ($version['summary'] !== ''): ?>
+                                                <p><?= esc($version['summary']); ?></p>
+                                            <?php endif; ?>
+                                            <?php if ($version['changes'] !== ''): ?>
+                                                <p class="history-change"><?= esc($version['changes']); ?></p>
+                                            <?php endif; ?>
+                                        </li>
+                                    <?php endforeach; ?>
+                                </ol>
+                            </details>
                         <?php endif; ?>
                     <?php endif; ?>
                 </article>

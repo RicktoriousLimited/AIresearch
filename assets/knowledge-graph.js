@@ -491,11 +491,32 @@
                 const url = item && item.url ? String(item.url) : '';
                 const title = item && item.title ? String(item.title) : url;
                 const characters = item && item.characters != null ? formatNumber(item.characters) : '';
+                const revision = item && item.revision != null ? Number(item.revision) : null;
+                const contentType = item && item.content_type ? String(item.content_type) : '';
+                const changeSummary = item && item.changes && item.changes.summary ? String(item.changes.summary) : '';
+                const unchanged = Boolean(item && item.unchanged);
+
+                const metaParts = [];
+                if (revision) {
+                    metaParts.push(`rev ${revision}`);
+                }
+                if (contentType) {
+                    metaParts.push(contentType.replace(/_/g, ' '));
+                }
+                if (unchanged) {
+                    metaParts.push('unchanged');
+                }
 
                 const listItem = document.createElement('li');
                 listItem.innerHTML = `
                     <span class="label">${escapeHtml(title || url)}</span>
                     ${characters ? `<span class="value">${escapeHtml(characters)} chars</span>` : ''}
+                    ${metaParts.length || changeSummary ? `
+                        <div class="crawler-meta-line">
+                            ${metaParts.length ? `<span class="crawler-meta">${escapeHtml(metaParts.join(' · '))}</span>` : ''}
+                            ${changeSummary ? `<span class="crawler-meta">${escapeHtml(changeSummary)}</span>` : ''}
+                        </div>
+                    ` : ''}
                 `;
                 crawlIngested.appendChild(listItem);
             });

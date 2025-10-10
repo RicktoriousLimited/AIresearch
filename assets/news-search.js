@@ -66,6 +66,48 @@
         }
     }
 
+    function createBadge(label, modifier) {
+        const badge = document.createElement('span');
+        badge.className = 'news-card__badge';
+        if (modifier) {
+            badge.classList.add(`news-card__badge--${modifier}`);
+        }
+        badge.textContent = label;
+
+        return badge;
+    }
+
+    function appendChangeChips(wrapper, label, values, modifier) {
+        if (!wrapper || !Array.isArray(values) || !values.length) {
+            return;
+        }
+
+        const row = document.createElement('div');
+        row.className = 'news-card__change-tags';
+        if (modifier) {
+            row.dataset.change = modifier;
+        }
+
+        const labelEl = document.createElement('span');
+        labelEl.className = 'news-card__change-label';
+        labelEl.textContent = label;
+        row.appendChild(labelEl);
+
+        values.forEach((value) => {
+            if (typeof value !== 'string' || !value.trim()) {
+                return;
+            }
+            const chip = document.createElement('span');
+            chip.className = 'news-card__change-chip';
+            chip.textContent = value;
+            row.appendChild(chip);
+        });
+
+        if (row.childNodes.length > 1) {
+            wrapper.appendChild(row);
+        }
+    }
+
     function renderStatus(meta) {
         if (!statusEl) {
             return;
@@ -201,7 +243,153 @@
                 time.textContent = relativeTime(result.fetched_at);
                 meta.appendChild(time);
             }
+            if (result.last_checked_at && result.last_checked_at !== result.fetched_at) {
+                const checkedRelative = relativeTime(result.last_checked_at);
+                if (checkedRelative) {
+                    const checked = document.createElement('span');
+                    checked.textContent = `checked ${checkedRelative}`;
+                    meta.appendChild(checked);
+                }
+            }
             body.appendChild(meta);
+
+            const flags = document.createElement('div');
+            flags.className = 'news-card__flags';
+            let hasFlags = false;
+
+            const revision = typeof result.revision === 'number' ? result.revision : Number(result.revision);
+            if (Number.isFinite(revision) && revision > 0) {
+                flags.appendChild(createBadge(`Revision ${revision}`, 'revision'));
+                hasFlags = true;
+            }
+
+            const contentType = typeof result.content_type === 'string' ? result.content_type : '';
+            if (contentType) {
+                const typeBadge = createBadge(contentType.replace(/_/g, ' '), `type-${contentType}`);
+                flags.appendChild(typeBadge);
+                hasFlags = true;
+            }
+
+            if (result.unchanged) {
+                flags.appendChild(createBadge('Unchanged', 'unchanged'));
+                hasFlags = true;
+            }
+
+            if (hasFlags) {
+                body.appendChild(flags);
+            }
+
+            const changes = result.changes || {};
+            const changeSummary = typeof changes.summary === 'string' ? changes.summary.trim() : '';
+            const keywordsAdded = Array.isArray(changes.keywords_added) ? changes.keywords_added : [];
+            const keywordsRemoved = Array.isArray(changes.keywords_removed) ? changes.keywords_removed : [];
+            const entitiesAdded = Array.isArray(changes.entities_added) ? changes.entities_added : [];
+            const entitiesRemoved = Array.isArray(changes.entities_removed) ? changes.entities_removed : [];
+            const lengthDelta = typeof changes.length_delta === 'number' ? changes.length_delta : 0;
+
+            if (
+                changeSummary ||
+                keywordsAdded.length ||
+                keywordsRemoved.length ||
+                entitiesAdded.length ||
+                entitiesRemoved.length ||
+                lengthDelta !== 0
+            ) {
+                const changesEl = document.createElement('div');
+                changesEl.className = 'news-card__changes';
+
+                if (changeSummary) {
+                    const summaryEl = document.createElement('p');
+                    summaryEl.className = 'news-card__changes-summary';
+                    summaryEl.textContent = changeSummary;
+                    changesEl.appendChild(summaryEl);
+                }
+
+                if (lengthDelta !== 0) {
+                    const delta = document.createElement('span');
+                    delta.className = 'news-card__changes-delta';
+                    const direction = lengthDelta > 0 ? '+' : '−';
+                    delta.textContent = `${direction}${Math.abs(lengthDelta)} characters`;
+                    changesEl.appendChild(delta);
+                }
+
+                const changeList = document.createElement('div');
+                changeList.className = 'news-card__change-list';
+                appendChangeChips(changeList, 'Keywords added', keywordsAdded, 'added');
+                appendChangeChips(changeList, 'Keywords removed', keywordsRemoved, 'removed');
+                appendChangeChips(changeList, 'Entities added', entitiesAdded, 'added');
+                appendChangeChips(changeList, 'Entities removed', entitiesRemoved, 'removed');
+
+                if (changeList.childNodes.length) {
+                    changesEl.appendChild(changeList);
+                }
+
+                body.appendChild(changesEl);
+            }
+
+            const versions = Array.isArray(result.versions) ? result.versions : [];
+            if (versions.length) {
+                const archive = document.createElement('details');
+                archive.className = 'news-card__archive';
+
+                const summary = document.createElement('summary');
+                summary.textContent = `History · ${versions.length} earlier revision${versions.length === 1 ? '' : 's'}`;
+                archive.appendChild(summary);
+
+                versions.forEach((version) => {
+                    if (!version) {
+                        return;
+                    }
+
+                    const item = document.createElement('div');
+                    item.className = 'news-card__archive-item';
+
+                    const header = document.createElement('div');
+                    header.className = 'news-card__archive-header';
+                    const versionRevision = typeof version.revision === 'number' ? version.revision : Number(version.revision);
+                    if (Number.isFinite(versionRevision) && versionRevision > 0) {
+                        header.appendChild(createBadge(`Rev ${versionRevision}`, 'revision'));
+                    }
+                    if (version.fetched_at) {
+                        const captured = document.createElement('span');
+                        captured.className = 'news-card__archive-time';
+                        const relative = relativeTime(version.fetched_at);
+                        captured.textContent = relative ? `Captured ${relative}` : version.fetched_at;
+                        header.appendChild(captured);
+                    }
+                    item.appendChild(header);
+
+                    const versionTitle = typeof version.title === 'string' ? version.title : '';
+                    if (versionTitle) {
+                        const titleEl = document.createElement('p');
+                        titleEl.className = 'news-card__archive-title';
+                        titleEl.textContent = versionTitle;
+                        item.appendChild(titleEl);
+                    }
+
+                    const versionSummary = typeof version.summary === 'string' ? version.summary : '';
+                    if (versionSummary) {
+                        const summaryEl = document.createElement('p');
+                        summaryEl.className = 'news-card__archive-summary';
+                        summaryEl.textContent = versionSummary;
+                        item.appendChild(summaryEl);
+                    }
+
+                    const versionChanges = version.changes && typeof version.changes.summary === 'string'
+                        ? version.changes.summary.trim()
+                        : '';
+                    if (versionChanges) {
+                        const changeNote = document.createElement('p');
+                        changeNote.className = 'news-card__archive-change';
+                        changeNote.textContent = versionChanges;
+                        item.appendChild(changeNote);
+                    }
+
+                    archive.appendChild(item);
+                });
+
+                body.appendChild(archive);
+            }
 
             if (Array.isArray(result.topics) && result.topics.length) {
                 const topicsWrapper = document.createElement('div');
