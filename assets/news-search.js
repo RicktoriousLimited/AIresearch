@@ -60,6 +60,26 @@
         return `${years}y ago`;
     }
 
+    function formatDateTime(iso) {
+        if (!iso) {
+            return '';
+        }
+
+        const date = new Date(iso);
+        if (Number.isNaN(date.getTime())) {
+            return '';
+        }
+
+        try {
+            return date.toLocaleString(undefined, {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+            });
+        } catch (error) {
+            return date.toISOString();
+        }
+    }
+
     function clearChildren(node) {
         while (node && node.firstChild) {
             node.removeChild(node.firstChild);
@@ -75,6 +95,184 @@
         badge.textContent = label;
 
         return badge;
+    }
+
+    function normaliseContentType(value) {
+        if (typeof value !== 'string' || !value.trim()) {
+            return { label: '', modifier: '' };
+        }
+
+        const normalised = value.toLowerCase().replace(/\s+/g, '_');
+        if (!normalised) {
+            return { label: '', modifier: '' };
+        }
+
+        if (normalised === 'non_article') {
+            return { label: 'Article', modifier: 'article' };
+        }
+
+        const label = normalised
+            .split('_')
+            .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+            .join(' ');
+
+        return { label, modifier: normalised.replace(/[^a-z0-9-]/g, '-') };
+    }
+
+    function looksLikeHeading(line) {
+        if (!line) {
+            return false;
+        }
+        if (line.length > 48) {
+            return false;
+        }
+        if (/[.!?]$/.test(line)) {
+            return false;
+        }
+        if (/^[a-z]/.test(line)) {
+            return false;
+        }
+        if (/^https?:/i.test(line)) {
+            return false;
+        }
+        const words = line.split(/\s+/);
+        if (words.length === 1) {
+            return /^[A-Za-z0-9'&()\-]+$/.test(line);
+        }
+        const capitalised = words.filter((word) => /^[A-Z][A-Za-z0-9'&()\-]*$/.test(word)).length;
+        return capitalised >= Math.ceil(words.length / 2);
+    }
+
+    function buildSummaryList(text) {
+        if (typeof text !== 'string') {
+            return null;
+        }
+
+        const normalised = text
+            .replace(/\r\n/g, '\n')
+            .replace(/\u2022/g, '\n• ');
+        const lines = normalised
+            .split(/\n+/)
+            .map((line) => line.trim())
+            .filter((line) => line);
+
+        if (lines.length < 2) {
+            return null;
+        }
+
+        const bulletLines = lines.filter((line) => /^[-*•]/.test(line));
+        const colonLines = lines.filter((line) => /^[^:]{1,80}:\s+.+$/.test(line));
+        const plusLines = lines.filter((line) => /^[+−-]\d/.test(line));
+        const shortLines = lines.filter((line) => line.length <= 80);
+        const metadataKeywords = [
+            'ago',
+            'updated',
+            'posted',
+            'published',
+            'characters',
+            'keywords',
+            'markets',
+            'technology',
+            'finance',
+            'climate',
+            'culture',
+            'sports',
+            'score',
+            'quality',
+            'revision',
+            'capture',
+            'source',
+            'domain',
+            'minutes',
+            'hours',
+            'seconds',
+            'price',
+            'cost',
+            'value',
+        ];
+        const metadataLines = lines.filter((line) => {
+            const lower = line.toLowerCase();
+            return metadataKeywords.some((keyword) => lower.includes(keyword));
+        });
+
+        const hasStructuredShape =
+            bulletLines.length >= 2 ||
+            colonLines.length >= 2 ||
+            plusLines.length >= 2 ||
+            (shortLines.length >= Math.max(3, Math.ceil(lines.length * 0.6)) &&
+                lines.filter((line) => !/[.!?]$/.test(line)).length >= shortLines.length - 1) ||
+            metadataLines.length >= 3;
+
+        if (!hasStructuredShape) {
+            return null;
+        }
+
+        const list = document.createElement('ul');
+        list.className = 'news-card__summary-list';
+
+        for (let index = 0; index < lines.length; index += 1) {
+            const raw = lines[index];
+            if (!raw) {
+                continue;
+            }
+
+            const match = raw.match(/^([^:]{1,80}):\s*(.+)$/);
+            if (match) {
+                const li = document.createElement('li');
+                const strong = document.createElement('strong');
+                strong.textContent = `${match[1].trim()}:`;
+                li.appendChild(strong);
+                li.appendChild(document.createTextNode(` ${match[2].trim()}`));
+                list.appendChild(li);
+                continue;
+            }
+
+            const headingCandidate = looksLikeHeading(raw);
+            if (headingCandidate) {
+                const values = [];
+                let cursor = index + 1;
+                while (cursor < lines.length) {
+                    const next = lines[cursor];
+                    if (!next) {
+                        cursor += 1;
+                        continue;
+                    }
+                    if (/^[-*•]/.test(next) || /^[^:]{1,80}:\s+.+$/.test(next) || looksLikeHeading(next)) {
+                        break;
+                    }
+                    values.push(next.replace(/^[-*•]\s*/, ''));
+                    cursor += 1;
+                }
+
+                if (values.length) {
+                    const li = document.createElement('li');
+                    const strong = document.createElement('strong');
+                    strong.textContent = `${raw.replace(/[:\s]+$/, '')}:`;
+                    li.appendChild(strong);
+                    li.appendChild(document.createTextNode(` ${values.join(' · ')}`));
+                    list.appendChild(li);
+                    index = cursor - 1;
+                    continue;
+                }
+            }
+
+            const li = document.createElement('li');
+            li.textContent = raw.replace(/^[-*•]\s*/, '');
+            list.appendChild(li);
+        }
+
+        if (list.children.length === 0) {
+            return null;
+        }
+
+        if (list.children.length === 1) {
+            const onlyItem = list.children[0];
+            if (!onlyItem.querySelector('strong')) {
+                return null;
+            }
+        }
+
+        return list;
     }
 
     function appendChangeChips(wrapper, label, values, modifier) {
@@ -223,20 +421,35 @@
 
             const summaryText = result.summary || result.preview || '';
             if (summaryText) {
-                const summary = document.createElement('p');
+                const summary = document.createElement('div');
                 summary.className = 'news-card__summary';
-                summary.textContent = summaryText;
+                const summaryList = buildSummaryList(summaryText);
+                if (summaryList) {
+                    summary.appendChild(summaryList);
+                } else {
+                    summary.textContent = summaryText;
+                }
                 body.appendChild(summary);
             }
 
             const meta = document.createElement('div');
             meta.className = 'news-card__meta';
             const sourceDomain = result.source_domain || '';
-            if (sourceDomain) {
+            const siteName = result.source_site_name || '';
+            if (sourceDomain || siteName) {
                 const source = document.createElement('span');
                 source.className = 'news-card__source';
-                source.textContent = sourceDomain;
+                const label = siteName && siteName !== sourceDomain
+                    ? `${siteName} · ${sourceDomain}`.trim().replace(/\s+·\s+$/, '')
+                    : (siteName || sourceDomain);
+                source.textContent = label;
                 meta.appendChild(source);
+            }
+            const publishedLabel = formatDateTime(result.source_published_at);
+            if (publishedLabel) {
+                const published = document.createElement('span');
+                published.textContent = `published ${publishedLabel}`;
+                meta.appendChild(published);
             }
             if (result.fetched_at) {
                 const time = document.createElement('span');
@@ -263,9 +476,9 @@
                 hasFlags = true;
             }
 
-            const contentType = typeof result.content_type === 'string' ? result.content_type : '';
-            if (contentType) {
-                const typeBadge = createBadge(contentType.replace(/_/g, ' '), `type-${contentType}`);
+            const contentType = normaliseContentType(result.content_type);
+            if (contentType.label) {
+                const typeBadge = createBadge(contentType.label, `type-${contentType.modifier}`);
                 flags.appendChild(typeBadge);
                 hasFlags = true;
             }
