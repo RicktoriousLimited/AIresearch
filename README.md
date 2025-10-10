@@ -12,6 +12,9 @@ built on top of the same semantic core:
    extraction data for automation and integrations.
 3. **Command Line Interface** – The original `php index.php` utility remains for
    batch processing, scripting, and CSV/JSON exports.
+4. **Markets Intelligence** – `web/markets.php` autonomously discovers capital
+   markets coverage for any company, analyses sentiment across investor
+   personas, and renders highlights suitable for trading desks.
 
 Under the hood every surface uses the same `SemanticEngine`, making it easy to
 swap between manual exploration, automated pipelines, and command-line
@@ -57,6 +60,22 @@ Open `http://localhost:8000/search.php` to:
   mention your query in real time.
 - Drill into an entity to see its supporting facts and relation highlights,
   with direct links back to the original sources.
+
+- **Markets intelligence dashboard**
+
+`php -S 0.0.0.0:8000 -t web`
+
+Open `http://localhost:8000/markets.php` to generate an autonomous investor
+sentiment report for any company or ticker. The dashboard:
+
+- Crawls trusted financial news sources and falls back to curated samples when
+  offline.
+- Segments tone across retail, institutional, analyst, and insider personas
+  using the semantic engine.
+- Generates shareable highlights, per-segment metrics, and a timeline dataset
+  that can be plotted to reveal sentiment drift.
+- Lists the underlying articles so researchers can drill into the supporting
+  evidence without leaving the workspace.
 
 ### Scrape public URLs into the shared knowledge graph
 
@@ -231,8 +250,9 @@ automation.
   `SemanticEngine` for stable results across every interface.
 - Frontend assets for the workbench are in `web/assets/workbench.*`.
 - The ecommerce prototype that previously shipped with the project now lives at
-  `web/ricktorious.php` for archival purposes but is no longer part of the
-  primary product experience.
+  `web/ricktorious.php` for archival purposes, while the new markets module
+  powering `web/markets.php` focuses the semantic stack on autonomous news and
+  sentiment analytics.
 
 Contributions and feature ideas are welcome—open an issue or submit a pull
 request if you build additional relation detectors, data exporters, or UI

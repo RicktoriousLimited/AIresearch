@@ -1,0 +1,37 @@
+[
+  {
+    "title": "Acme Corp shares rally as analysts lift price targets",
+    "url": "https://example.com/news/acme-rally",
+    "source": "MarketWatch",
+    "summary": "Several analyst research notes cite strong growth and an upgrade to outperform as Acme Corp beats expectations.",
+    "published_at": "2024-06-01T09:30:00Z"
+  },
+  {
+    "title": "Pension funds add Acme Corp to long-term portfolios",
+    "url": "https://example.com/news/acme-pension",
+    "source": "Institutional Investor",
+    "summary": "Large pension funds signal confidence in Acme's leadership as they expand holdings despite short-term volatility concerns.",
+    "published_at": "2024-05-28T12:10:00Z"
+  },
+  {
+    "title": "Retail investors eye Acme's new customer loyalty app",
+    "url": "https://example.com/news/acme-app",
+    "source": "Retail Investor Daily",
+    "summary": "Community forums highlight optimism around Acme's loyalty program and forecast strong subscriber growth.",
+    "published_at": "2024-05-26T15:45:00Z"
+  },
+  {
+    "title": "Acme Corp faces lawsuit amid product concerns",
+    "url": "https://example.com/news/acme-lawsuit",
+    "source": "Financial Times",
+    "summary": "A class-action lawsuit raises risk concerns for Acme Corp even as hedge fund managers maintain neutral outlooks.",
+    "published_at": "2024-05-24T08:00:00Z"
+  },
+  {
+    "title": "Wall Street analysts warn of potential downgrade for Acme",
+    "url": "https://example.com/news/acme-warning",
+    "source": "Bloomberg",
+    "summary": "Analyst coverage notes possible rating downgrade due to volatility after recent surge.",
+    "published_at": "2024-05-22T07:00:00Z"
+  }
+]
