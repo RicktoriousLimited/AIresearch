@@ -561,7 +561,8 @@
     });
   }
 
-  async function performSearch(query) {
+  async function performSearch(query, options = {}) {
+    const { syncAutopilot = true } = options;
     if (!searchEndpoint) {
       return;
     }
@@ -592,12 +593,14 @@
 
       renderSearch(search);
 
-      const autopilot = window.AIAutopilot || null;
-      if (autopilot) {
-        if (typeof autopilot.generate === 'function') {
-          autopilot.generate(trimmed);
-        } else if (typeof autopilot.setQuery === 'function') {
-          autopilot.setQuery(trimmed);
+      if (syncAutopilot) {
+        const autopilot = window.AIAutopilot || null;
+        if (autopilot) {
+          if (typeof autopilot.generate === 'function') {
+            autopilot.generate(trimmed);
+          } else if (typeof autopilot.setQuery === 'function') {
+            autopilot.setQuery(trimmed);
+          }
         }
       }
 
@@ -618,7 +621,9 @@
     if (form) {
       form.addEventListener('submit', (event) => {
         event.preventDefault();
-        performSearch(input ? input.value : '');
+        const value = input ? input.value : '';
+        const syncAutopilot = !form.hasAttribute('data-report-form');
+        performSearch(value, { syncAutopilot });
       });
     }
   }
