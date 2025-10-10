@@ -2437,7 +2437,7 @@ final class HiddenCrawler
         } elseif ($characters >= 800) {
             $score += 7.0;
         } else {
-            $score -= 10.0;
+            $score -= 4.0;
             $reasons[] = 'Very short copy detected (' . $words . ' words).';
         }
 
@@ -2445,7 +2445,7 @@ final class HiddenCrawler
         if ($paragraphs >= 8) {
             $score += 6.0;
         } elseif ($paragraphs <= 2) {
-            $score -= 6.0;
+            $score -= 3.0;
         }
 
         $entityCount = count(is_array($entry['entities'] ?? null) ? $entry['entities'] : []);
@@ -2455,7 +2455,7 @@ final class HiddenCrawler
         } elseif ($entityCount >= 4) {
             $score += 8.0;
         } elseif ($entityCount === 0) {
-            $score -= 5.0;
+            $score -= 2.0;
             $reasons[] = 'No entities identified.';
         }
 
@@ -2465,7 +2465,7 @@ final class HiddenCrawler
         } elseif ($keywordCount >= 4) {
             $score += 5.0;
         } elseif ($keywordCount === 0) {
-            $score -= 3.0;
+            $score -= 1.0;
         }
 
         $topics = is_array($entry['topics'] ?? null) ? $entry['topics'] : [];
@@ -2473,7 +2473,7 @@ final class HiddenCrawler
         if ($topicCount >= 3) {
             $score += 4.0;
         } elseif ($topicCount === 0) {
-            $score -= 4.0;
+            $score -= 2.0;
             $reasons[] = 'No thematic topics extracted.';
         }
 
@@ -2483,12 +2483,12 @@ final class HiddenCrawler
         }
 
         if (empty($entry['meaningful'])) {
-            $score -= 32.0;
+            $score -= 18.0;
             $reasons[] = 'Discarded meaningless text – no coherent sentences detected.';
         }
 
         if ($this->isLowConfidenceDomain($domain)) {
-            $score -= 12.0;
+            $score -= 6.0;
             $reasons[] = 'Domain flagged for manual review.';
         }
 
