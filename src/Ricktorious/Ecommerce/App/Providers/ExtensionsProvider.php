@@ -21,6 +21,7 @@ use Ricktorious\Ecommerce\Orders\OrderProcessor;
 use Ricktorious\Ecommerce\Orders\OrderRepository;
 use Ricktorious\Ecommerce\POS\PointOfSaleService;
 use Ricktorious\Ecommerce\Shipping\ShippingService;
+use Ricktorious\Ecommerce\User\OneTimePasswordManager;
 use Ricktorious\Ecommerce\User\UserService;
 
 final class ExtensionsProvider implements ServiceProviderInterface
@@ -53,6 +54,7 @@ final class ExtensionsProvider implements ServiceProviderInterface
                 ),
                 new UserManagementExtension(
                     $container->get(UserService::class),
+                    $container->get(OneTimePasswordManager::class),
                 ),
             ];
         });

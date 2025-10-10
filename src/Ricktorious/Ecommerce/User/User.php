@@ -104,6 +104,15 @@ final class User
         return $clone;
     }
 
+    public function withPasswordHash(string $hash): self
+    {
+        $clone = clone $this;
+        $clone->passwordHash = $hash;
+        $clone->touch();
+
+        return $clone;
+    }
+
     /**
      * @return array<string, mixed>
      */
