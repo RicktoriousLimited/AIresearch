@@ -1,55 +1,42 @@
-# AIresearch Data Preparation Studio
+# AIresearch Research Intelligence Workspace
 
-An end-to-end environment for transforming unstructured bios, research notes,
-transcripts, and customer updates into structured analytics and AI-ready
-training rows. The project now ships with three fully-supported experiences
-built on top of the same semantic core:
+AIresearch centralises research-grade ingestion, enrichment, and delivery inside a single
+knowledge graph so analysts can move from signal capture to shareable insight without juggling
+tools. The project now focuses on a set of tightly-integrated research experiences:
 
-1. **Data Preparation Studio UI** – A guided web workflow for ingesting messy
-   text, reviewing the cleaned output, exploring extracted entities, and
-   exporting ready-to-use prompt/response pairs in JSON or CSV. The homepage now
-   ships with an operations centre that surfaces live cache telemetry, manual
-   refresh controls, and real-time movers without touching third-party feeds.
-2. **JSON API** – `/api/analyse.php` accepts POST payloads and returns structured
-   extraction data for automation and integrations.
-3. **Command Line Interface** – The original `php cli.php` utility remains for
-   batch processing, scripting, and CSV/JSON exports.
-4. **Markets Intelligence** – `markets.php` autonomously discovers capital
-   markets coverage for any company, analyses sentiment across investor
-   personas, and renders highlights suitable for trading desks.
-5. **Live market pulse API** – `/api/market-pulse.php` streams the offline
-   market snapshot so other dashboards can poll for updates without reloading
-   the entire interface.
+1. **Research home (`index.php`)** – Explore curated queries, track live ingestion metrics, and jump
+   straight into the graph-powered search workflow from a redesigned landing experience.
+2. **Graph search (`search.php`)** – Query the collective research graph, inspect entities and
+   relationships, and follow citations back to their source passages.
+3. **Knowledge graph explorer (`knowledge-graph.php`)** – Browse the underlying triples, relation
+   histograms, and source list that power every briefing.
+4. **Research API (`/api`)** – Submit documents for extraction, scrape URLs into the shared graph, or
+   orchestrate updates from automation.
+5. **Command line tooling (`cli.php`, `research.php`)** – Automate ingestion, run quality checks, and
+   export structured facts for downstream systems.
 
-Under the hood every surface uses the same `SemanticEngine`, making it easy to
-swap between manual exploration, automated pipelines, and command-line
-experiments without sacrificing consistency.
+Legacy market and commerce experiments have been archived; see [`archive/README.md`](archive/README.md)
+for the status of retired surfaces.
 
 ## Quick start
 
-### Web studio
+### Web workspace
 
 ```bash
 php -S 0.0.0.0:8000
 ```
 
-Open `http://localhost:8000/index.php` and paste a few biographies or company
-summaries into the textarea. Click **Run extraction** to see:
+Open `http://localhost:8000/index.php` to launch the new research home. From here you can:
 
-- A summary of processed documents, triple count, and unique entities.
-- Relation and entity frequency breakdowns for rapid insight discovery.
-- Detailed triples and synonym groups with export controls.
-- A training dataset preview with prompt/response pairs, task hints, and
-  one-click JSON/CSV export buttons.
-
-Use the **Download extraction JSON** action to save the raw result, the
-dedicated dataset download buttons for structured AI training rows, or
-**Copy summary** to move quick stats into other tools.
+- Run graph search directly from the hero form and reuse trending analyst prompts with one click.
+- Monitor live coverage metrics pulled from the shared ingestion pipeline.
+- Explore curated evidence libraries grouped by strategic themes, ready to seed your next briefing.
+- Review the end-to-end workflow for framing a question, interrogating the graph, and exporting
+  deliverables with citations.
 
 ### Discovery search
 
-The new discovery interface exposes the shared knowledge graph as a public
-search engine.
+The discovery interface exposes the shared knowledge graph as a public search engine.
 
 ```bash
 php -S 0.0.0.0:8000
@@ -57,41 +44,20 @@ php -S 0.0.0.0:8000
 
 Open `http://localhost:8000/search.php` to:
 
-- Query people, organisations, technologies, or relations across every
-  extracted triple.
-- Browse entity matches with confidence scores, synonym clusters, and fact
-  counts.
-- Inspect relation histograms, synonym groups, and knowledge triples that
-  mention your query in real time.
-- Drill into an entity to see its supporting facts and relation highlights,
-  with direct links back to the original sources.
-
-- **Markets intelligence dashboard**
-
-`php -S 0.0.0.0:8000`
-
-Open `http://localhost:8000/markets.php` to generate an autonomous investor
-sentiment report for any company or ticker. The dashboard:
-
-- Crawls trusted financial news sources and falls back to curated samples when
-  offline.
-- Segments tone across retail, institutional, analyst, and insider personas
-  using the semantic engine.
-- Generates shareable highlights, per-segment metrics, and a timeline dataset
-  that can be plotted to reveal sentiment drift.
-- Lists the underlying articles so researchers can drill into the supporting
-  evidence without leaving the workspace.
+- Query people, organisations, technologies, or relations across every extracted triple.
+- Browse entity matches with confidence scores, synonym clusters, and fact counts.
+- Inspect relation histograms, synonym groups, and knowledge triples that mention your query in real
+  time.
+- Drill into an entity to see supporting facts, relation highlights, and linked sources.
 
 ### Scrape public URLs into the shared knowledge graph
 
-- From the studio, paste a URL into the new **Scrape from URL** field and
-  click **Fetch & analyse**. The app downloads the page, extracts clean text,
-  and enriches the persistent graph stored in `storage/graphs/`.
-- Visit `http://localhost:8000/knowledge-graph.php` to browse the combined
-  triples, relations, and source list that everyone can see.
-- Automate ingestion by POSTing `{ "url": "https://example.com/article" }` to
-  `/api/scrape.php`; the endpoint merges new entities into the existing graph
-  snapshot and returns the updated state.
+- From the workspace, paste a URL into **Scrape from URL** and click **Fetch & analyse** to ingest the
+  page into the shared graph stored in `storage/graphs/`.
+- Visit `http://localhost:8000/knowledge-graph.php` to browse the combined triples, relations, and
+  source list.
+- Automate ingestion by POSTing `{ "url": "https://example.com/article" }` to `/api/scrape.php`; the
+  endpoint merges new entities into the existing graph snapshot and returns the updated state.
 
 ### API
 
@@ -139,32 +105,22 @@ Response (truncated):
 }
 ```
 
-#### Live market pulse
-
-`GET /api/market-pulse.php` returns the cached market overview, watchlist,
-sector leaders, and headline summaries as JSON. Poll the endpoint from
-dashboards or cron jobs to mirror the offline market state without reloading the
-full UI.
-
-Supply an array via `documents` to analyse multiple snippets at once. Use the
-optional `include` field with any of `triples`, `synonyms`, `relations`,
-`entities`, `summary`, or `state` to limit the response payload. Provide the
-`state` field from a previous response to incrementally extend the same
+Supply an array via `documents` to analyse multiple snippets at once. Use the optional `include`
+field with any of `triples`, `synonyms`, `relations`, `entities`, `summary`, or `state` to limit the
+response payload. Provide the `state` field from a previous response to incrementally extend the same
 knowledge graph with new documents over time.
 
-Every response now also contains a `dataset` object with:
+Every response also contains a `dataset` object with:
 
-- `rows` – prompt/response pairs covering cleaning, summarisation, keyword
-  extraction, and entity graph reconstruction workflows.
-- `schema` – machine-readable field descriptions, now enriched with canonical
-  relation metadata (type, confidence, status, and provenance hints) to plug
-  directly into downstream tooling.
-- `statistics` – record counts, average length, task distribution, and
-  per-relation breakdowns to help size annotation or fine-tuning jobs while
-  spotting extraction skew early.
+- `rows` – prompt/response pairs covering cleaning, summarisation, keyword extraction, and entity graph
+  reconstruction workflows.
+- `schema` – machine-readable field descriptions enriched with canonical relation metadata (type,
+  confidence, status, and provenance hints) to plug directly into downstream tooling.
+- `statistics` – record counts, average length, task distribution, and per-relation breakdowns to help
+  size annotation or fine-tuning jobs while spotting extraction skew early.
 
-Download the rows directly from the studio UI (JSON or CSV) or consume them via
-the API for automated dataset generation.
+Download the rows directly from the workspace UI (JSON or CSV) or consume them via the API for
+automated dataset generation.
 
 ### CLI
 
@@ -172,8 +128,8 @@ the API for automated dataset generation.
 php cli.php sample.txt -f json -e triples -e synonyms
 ```
 
-The CLI continues to support JSON, CSV, and text exports, snapshot persistence,
-and STDIN piping. Run `php cli.php --help` for the full option list.
+The CLI supports JSON, CSV, and text exports, snapshot persistence, and STDIN piping. Run
+`php cli.php --help` for the full option list.
 
 ### Research CLI
 
@@ -184,88 +140,18 @@ php research.php --refresh --max-age=24
 ```
 
 The dedicated research helper reads the shared graph snapshot from
-`storage/graphs/scraped-graph.json` (or a custom path supplied via
-`--graph`). Use `--list` to surface the highest-ranked entities and
-`--entity` to inspect detailed facts, synonyms, relation histograms, and
-supporting signals for a specific person, organisation, or concept. Combine
-flags to list the graph and immediately drill into an entity, and adjust
-`--facts` or `--limit` to control the breadth of the output. Run with
-`--refresh` to re-verify every stored source, rebuild the knowledge base, and
-automatically prune pages that have disappeared or no longer resolve. Pair it
-with `--max-age` to only re-scrape sources older than a set number of hours.
-Supply `--crawl` alongside comma or newline separated seed URLs to auto-scrape
-new pages, follow discovered links, and stream them straight into the shared
-graph. Combine with `--crawl-limit`, `--crawl-depth`, and
-`--crawl-cross-domain` to fine-tune how aggressively the crawler expands across
-each site.
+`storage/graphs/scraped-graph.json` (or a custom path supplied via `--graph`). Use `--list` to surface
+the highest-ranked entities and `--entity` to inspect detailed facts, synonyms, relation histograms,
+and supporting signals for a specific person, organisation, or concept. Combine flags to list the graph
+and immediately drill into an entity, and adjust `--facts` or `--limit` to control the breadth of the
+output. Run with `--refresh` to re-verify every stored source, rebuild the knowledge base, and
+automatically prune pages that have disappeared or no longer resolve. Supply `--crawl` alongside comma
+or newline separated seed URLs to auto-scrape new pages, follow discovered links, and stream them
+straight into the shared graph. Combine with `--crawl-limit`, `--crawl-depth`, and
+`--crawl-cross-domain` to fine-tune how aggressively the crawler expands across each site.
 
-### Research service API
+## Archived experiences
 
-The `/api/research.php` endpoint exposes the most common research
-workflows:
-
-- `GET /api/research.php?action=list&limit=20` – top ranked entities plus the
-  current source list.
-- `GET /api/research.php?action=summary&entity=alice%20smith` – full entity
-  summary including relation histograms and sample facts.
-- `POST /api/research.php` with `{ "action": "refresh", "max_age_hours": 72 }`
-  – re-scrape stored sources, drop unreachable pages, and rebuild the graph
-  from the surviving content in a single request.
-- `POST /api/research.php` with
-  `{ "action": "crawl", "seeds": ["https://example.com"], "limit": 6 }` –
-  orchestrate an automated crawl from the supplied seed URLs, capture outbound
-  links, and merge every scraped page into the shared knowledge graph.
-
-Responses always include timing metadata and omit raw page content, keeping the
-API lightweight while guaranteeing the on-disk snapshot stays in sync with the
-live sources.
-
-## Data model
-
-The unified extraction result returned by the UI, API, and CLI consists of:
-
-- `triples` – array of `{subject, relation, object}`.
-- `synonyms` – array of `{entity, synonyms[]}`.
-- `relations` – relation frequency histogram.
-- `entities` – entity frequency histogram.
-- `summary` – metadata about the run including timestamps and document counts.
-- `state` – serialised `SemanticEngine` snapshot for continuing ingestion.
-
-All entity names are normalised and lowercased to ensure consistent matching.
-
-## English lexicon support
-
-The semantic engine now ships with a comprehensive English lexicon sourced from
-the `resources/lexicon/english_words.txt` dataset. The lexicon is consulted when
-evaluating candidate subject and object spans to ensure they include meaningful
-language rather than navigation chrome or random character sequences. The
-dictionary also powers new heuristics for rejecting gibberish sentences while
-preserving capitalised proper nouns and acronyms.
-
-## Document refinement toolkit
-
-Every extraction run now bundles a per-document cleanup report alongside the
-knowledge graph payload. The new toolkit:
-
-- Normalises whitespace and bullet lists to make messy notes readable.
-- Produces a plain-language rewrite with consistent casing and sentence breaks.
-- Surfaces top keywords for quick data mining and topic clustering.
-- Flags misspellings with dictionary-backed suggestions for rapid editing.
-
-The workbench UI exposes these insights in the **Document cleanup** panel, and
-the JSON API includes them under the `documents` field for downstream
-automation.
-
-## Development
-
-- The shared service layer lives under `src/App/Extraction` and wraps the core
-  `SemanticEngine` for stable results across every interface.
-- Frontend assets for the workbench are in `assets/workbench.*`.
-- The ecommerce prototype that previously shipped with the project now lives at
-  `ricktorious.php` for archival purposes, while the new markets module
-  powering `markets.php` focuses the semantic stack on autonomous news and
-  sentiment analytics.
-
-Contributions and feature ideas are welcome—open an issue or submit a pull
-request if you build additional relation detectors, data exporters, or UI
-modules.
+Legacy dashboards such as the markets intelligence pulse and the Ricktorious commerce demo have been
+retired from the default navigation. Refer to [`archive/README.md`](archive/README.md) for guidance on
+accessing historical assets or replaying those experiments locally.
