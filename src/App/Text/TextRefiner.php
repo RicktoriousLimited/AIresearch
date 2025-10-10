@@ -3061,6 +3061,10 @@ final class TextRefiner
         $text = preg_replace('/<\s*\/(?:ul|ol)\s*>/iu', "\n", $text);
         $text = preg_replace('/<\s*\/?(?:span|strong|em|b|i|u|small|sup|sub)\b[^>]*>/iu', ' ', $text);
 
+        // Ensure inline tags that are stripped later do not glue neighbouring words together.
+        $text = preg_replace('/>(?=\S)/u', '> ', is_string($text) ? $text : '');
+        $text = preg_replace('/(?<=\S)</u', ' <', is_string($text) ? $text : '');
+
         $text = strip_tags(is_string($text) ? $text : '');
         $text = is_string($text) ? $text : '';
 
