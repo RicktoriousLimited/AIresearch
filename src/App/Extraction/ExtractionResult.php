@@ -30,7 +30,14 @@ final class ExtractionResult implements JsonSerializable
     private array $state;
 
     /**
-     * @var array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>}>
+     * @var array<int, array{
+     *     original: string,
+     *     cleaned: string,
+     *     rewritten: string,
+     *     keywords: array<int, array{token: string, count: int}>,
+     *     spelling: array<int, array{token: string, count: int, suggestions: array<int, string}>>,
+     *     analytics?: array<string, mixed>
+     * }>
      */
     private array $documents;
 

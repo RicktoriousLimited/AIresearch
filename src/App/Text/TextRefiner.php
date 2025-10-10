@@ -579,6 +579,51 @@ final class TextRefiner
         return $results;
     }
 
+    /** @var array<int, string> */
+    private static array $transitionSignals = [
+        'however',
+        'therefore',
+        'moreover',
+        'furthermore',
+        'additionally',
+        'in addition',
+        'meanwhile',
+        'consequently',
+        'as a result',
+        'on the other hand',
+        'first,',
+        'second,',
+        'third,',
+        'next,',
+        'finally,',
+        'in contrast',
+        'similarly',
+        'overall,',
+    ];
+
+    /** @var array<int, string> */
+    private static array $conclusionSignals = [
+        'in conclusion',
+        'in summary',
+        'overall',
+        'to conclude',
+        'ultimately',
+        'finally',
+        'in closing',
+    ];
+
+    /** @var array<int, string> */
+    private static array $introductionSignals = [
+        'in this',
+        'this report',
+        'this article',
+        'this analysis',
+        'the following',
+        'we explore',
+        'we examine',
+        'we discuss',
+    ];
+
     /**
      * @return array{
      *     original: string,
@@ -586,7 +631,8 @@ final class TextRefiner
      *     rewritten: string,
      *     keywords: array<int, array{token: string, count: int}>,
      *     spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>,
-     *     qa: array<int, array{question: string, answer: string, response: string}>
+     *     qa: array<int, array{question: string, answer: string, response: string}>,
+     *     analytics: array<string, mixed>
      * }
      */
     public function analyseDocument(string $text): array
@@ -616,13 +662,19 @@ final class TextRefiner
         $source = $cleaned !== '' ? $cleaned : $original;
 
         if ($source === '') {
+            $sentiment = $this->analyseSentiment('');
+            $factuality = $this->assessFactuality('');
+            $conversation = $this->detectConversationSignals($original);
+            $intent = $this->classifyIntent('', $conversation, $sentiment, $factuality);
+
             return [
-                'sentiment' => $this->analyseSentiment(''),
-                'intent' => $this->classifyIntent('', [], $this->analyseSentiment(''), $this->assessFactuality('')),
-                'factuality' => $this->assessFactuality(''),
-                'conversation' => $this->detectConversationSignals($original),
+                'sentiment' => $sentiment,
+                'intent' => $intent,
+                'factuality' => $factuality,
+                'conversation' => $conversation,
                 'topics' => $this->buildTopicHighlights('', []),
                 'narrative' => $this->evaluateNarrativeSignals(''),
+                'writing_quality' => $this->evaluateWritingQuality($original, '', [], $intent, $factuality),
             ];
         }
 
@@ -632,6 +684,7 @@ final class TextRefiner
         $intent = $this->classifyIntent($source, $conversation, $sentiment, $factuality);
         $topics = $this->buildTopicHighlights($source, $keywords);
         $narrative = $this->evaluateNarrativeSignals($source);
+        $writingQuality = $this->evaluateWritingQuality($original !== '' ? $original : $source, $source, $keywords, $intent, $factuality);
 
         return [
             'sentiment' => $sentiment,
@@ -640,6 +693,7 @@ final class TextRefiner
             'conversation' => $conversation,
             'topics' => $topics,
             'narrative' => $narrative,
+            'writing_quality' => $writingQuality,
         ];
     }
 
@@ -1338,6 +1392,522 @@ final class TextRefiner
             ],
             'emotive_language' => $this->mapToList($emotive),
         ];
+    }
+
+    /**
+     * @param array<int, array{token: string, count: int}> $keywords
+     * @param array<string, mixed> $intent
+     * @param array<string, mixed> $factuality
+     * @return array{
+     *     readability: array{score: float, grade_level: float, reading_ease: float, label: string, reasons: array<int, string>},
+     *     structure: array{score: float, paragraphs: int, transitions: int, reasons: array<int, string>},
+     *     cohesion: array{score: float, overlap: float, keyword_coverage: float, reasons: array<int, string>},
+     *     overall: array{score: float, label: string, reasons: array<int, string>}
+     * }
+     */
+    private function evaluateWritingQuality(
+        string $original,
+        string $cleaned,
+        array $keywords,
+        array $intent,
+        array $factuality
+    ): array {
+        $reference = $cleaned !== '' ? $cleaned : $original;
+        if ($reference === '') {
+            $defaultReasons = ['Insufficient text to evaluate writing quality.'];
+
+            return [
+                'readability' => [
+                    'score' => 0.4,
+                    'grade_level' => 12.0,
+                    'reading_ease' => 50.0,
+                    'label' => 'unclear',
+                    'reasons' => $defaultReasons,
+                ],
+                'structure' => [
+                    'score' => 0.4,
+                    'paragraphs' => 0,
+                    'transitions' => 0,
+                    'reasons' => $defaultReasons,
+                ],
+                'cohesion' => [
+                    'score' => 0.4,
+                    'overlap' => 0.0,
+                    'keyword_coverage' => 0.0,
+                    'reasons' => $defaultReasons,
+                ],
+                'overall' => [
+                    'score' => 0.4,
+                    'label' => 'needs work',
+                    'reasons' => $defaultReasons,
+                ],
+            ];
+        }
+
+        $readability = $this->profileReadability($reference);
+        $structure = $this->assessStructure($reference);
+        $cohesion = $this->assessCohesion($reference, $keywords);
+
+        $factualityScore = isset($factuality['score']) && is_numeric($factuality['score'])
+            ? $this->clamp((float) $factuality['score'])
+            : 0.5;
+
+        $intentPrimary = isset($intent['primary']) && is_string($intent['primary'])
+            ? strtolower($intent['primary'])
+            : 'informative';
+        $intentConfidence = isset($intent['confidence']) && is_numeric($intent['confidence'])
+            ? $this->clamp((float) $intent['confidence'])
+            : 0.0;
+
+        $overallReasons = array_merge($readability['reasons'], $structure['reasons'], $cohesion['reasons']);
+        $misinformationPenalty = 0.0;
+
+        if ($factualityScore < 0.45) {
+            $misinformationPenalty += (0.45 - $factualityScore) * 0.6;
+            $overallReasons[] = 'Claims feel speculative or weakly sourced, which harms credibility.';
+        } elseif ($factualityScore >= 0.7) {
+            $overallReasons[] = 'Evidence-backed statements support the overall argument.';
+        }
+
+        if ($intentPrimary === 'persuasive' && $factualityScore < 0.55) {
+            $misinformationPenalty += 0.1;
+            $overallReasons[] = 'Persuasive language lacks supporting evidence, reducing trust.';
+        }
+
+        if ($intentPrimary === 'informative' && $intentConfidence >= 0.5) {
+            $overallReasons[] = 'Clear informative intent keeps the piece focused.';
+        } elseif ($intentConfidence < 0.25) {
+            $overallReasons[] = 'Intent is ambiguous, so the through-line is harder to follow.';
+        }
+
+        $baseScore = ($readability['score'] * 0.35) + ($structure['score'] * 0.35) + ($cohesion['score'] * 0.3);
+        $overallScore = $this->clamp($baseScore - $misinformationPenalty);
+
+        if ($factualityScore >= 0.8) {
+            $overallScore = $this->clamp($overallScore + 0.05);
+        }
+
+        $label = 'needs work';
+        if ($overallScore >= 0.75) {
+            $label = 'polished';
+        } elseif ($overallScore >= 0.6) {
+            $label = 'strong';
+        } elseif ($overallScore >= 0.45) {
+            $label = 'developing';
+        }
+
+        return [
+            'readability' => $readability,
+            'structure' => $structure,
+            'cohesion' => $cohesion,
+            'overall' => [
+                'score' => round($overallScore, 4),
+                'label' => $label,
+                'reasons' => $this->uniqueStrings($overallReasons),
+            ],
+        ];
+    }
+
+    /**
+     * @return array{score: float, grade_level: float, reading_ease: float, label: string, reasons: array<int, string>}
+     */
+    private function profileReadability(string $text): array
+    {
+        $wordCount = max(1, $this->countWordsForQuality($text));
+        $sentenceCount = max(1, $this->countSentencesForQuality($text));
+        $syllableCount = max(1, $this->countSyllablesInText($text));
+
+        $averageSentenceLength = $wordCount / $sentenceCount;
+        $averageSyllables = $syllableCount / $wordCount;
+
+        $readingEase = 206.835 - (1.015 * $averageSentenceLength) - (84.6 * $averageSyllables);
+        $gradeLevel = (0.39 * $averageSentenceLength) + (11.8 * $averageSyllables) - 15.59;
+
+        $normalisedScore = $this->clamp(($readingEase + 20) / 140);
+
+        $label = 'challenging';
+        if ($readingEase >= 70) {
+            $label = 'clear';
+        } elseif ($readingEase >= 60) {
+            $label = 'accessible';
+        } elseif ($readingEase >= 50) {
+            $label = 'moderate';
+        } elseif ($readingEase < 40) {
+            $label = 'dense';
+        }
+
+        $reasons = [];
+        if ($averageSentenceLength > 24) {
+            $reasons[] = 'Sentences run long, which can burden readability.';
+        } elseif ($averageSentenceLength < 10) {
+            $reasons[] = 'Short sentences make the cadence choppy.';
+        } else {
+            $reasons[] = 'Sentence lengths feel balanced.';
+        }
+
+        if ($gradeLevel > 12) {
+            $reasons[] = 'Vocabulary skews toward an advanced reading level.';
+        } elseif ($gradeLevel <= 8) {
+            $reasons[] = 'Approachable vocabulary keeps the text accessible.';
+        }
+
+        return [
+            'score' => round($normalisedScore, 4),
+            'grade_level' => round($gradeLevel, 1),
+            'reading_ease' => round($readingEase, 1),
+            'label' => $label,
+            'reasons' => $this->uniqueStrings($reasons),
+        ];
+    }
+
+    /**
+     * @return array{score: float, paragraphs: int, transitions: int, reasons: array<int, string>}
+     */
+    private function assessStructure(string $text): array
+    {
+        $paragraphs = $this->splitParagraphs($text);
+        $paragraphCount = count($paragraphs);
+        $transitionCount = $this->countTransitionPhrases($text);
+
+        $score = 0.3;
+        $reasons = [];
+
+        if ($paragraphCount >= 2) {
+            $score += 0.3;
+            $reasons[] = 'Multiple paragraphs provide breathing room for the reader.';
+        } else {
+            $reasons[] = 'Single-paragraph structure makes the piece feel compressed.';
+        }
+
+        if ($paragraphCount >= 3) {
+            $score += 0.05;
+        }
+
+        if ($transitionCount >= 3) {
+            $score += 0.2;
+            $reasons[] = 'Frequent transition phrases guide the narrative.';
+        } elseif ($transitionCount >= 1) {
+            $score += 0.12;
+            $reasons[] = 'Some transitions help signal shifts in topic.';
+        } else {
+            $reasons[] = 'Few transition phrases make idea shifts abrupt.';
+        }
+
+        if ($this->hasIntroductoryStatement($paragraphs)) {
+            $score += 0.05;
+            $reasons[] = 'Opening sentences frame the context clearly.';
+        } else {
+            $reasons[] = 'Introduction could better establish the context.';
+        }
+
+        if ($this->hasConcludingStatement($paragraphs)) {
+            $score += 0.1;
+            $reasons[] = 'Conclusion circles back to the core message.';
+        } else {
+            $reasons[] = 'Ending feels abrupt or disconnected from the opening.';
+        }
+
+        return [
+            'score' => round($this->clamp($score), 4),
+            'paragraphs' => $paragraphCount,
+            'transitions' => $transitionCount,
+            'reasons' => $this->uniqueStrings($reasons),
+        ];
+    }
+
+    /**
+     * @param array<int, array{token: string, count: int}> $keywords
+     * @return array{score: float, overlap: float, keyword_coverage: float, reasons: array<int, string>}
+     */
+    private function assessCohesion(string $text, array $keywords): array
+    {
+        $paragraphs = $this->splitParagraphs($text);
+        $firstParagraph = $paragraphs[0] ?? '';
+        $lastParagraph = $paragraphs[count($paragraphs) - 1] ?? '';
+
+        $firstTokens = $this->collectContentTokens($firstParagraph);
+        $lastTokens = $this->collectContentTokens($lastParagraph);
+
+        $combinedTokens = array_unique(array_merge($firstTokens, $lastTokens));
+        $overlapTokens = array_intersect($firstTokens, $lastTokens);
+        $overlapRatio = $combinedTokens === [] ? 0.5 : count($overlapTokens) / max(1, count($combinedTokens));
+
+        $keywordTokens = [];
+        foreach ($keywords as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $token = isset($entry['token']) ? strtolower((string) $entry['token']) : '';
+            if ($token === '') {
+                continue;
+            }
+            $keywordTokens[$token] = true;
+        }
+
+        $keywordMatches = 0;
+        foreach (array_keys($keywordTokens) as $token) {
+            if (stripos($text, $token) !== false) {
+                $keywordMatches++;
+            }
+        }
+        $keywordCoverage = $keywordTokens === []
+            ? 0.6
+            : $keywordMatches / max(1, count($keywordTokens));
+
+        $progressionScore = $this->measureProgression($text);
+
+        $score = $this->clamp((0.45 * $overlapRatio) + (0.35 * $keywordCoverage) + (0.2 * $progressionScore));
+
+        $reasons = [];
+        if ($overlapRatio >= 0.5) {
+            $reasons[] = 'Key themes introduced early are revisited later.';
+        } else {
+            $reasons[] = 'Ending paragraphs introduce new ideas rather than resolving earlier ones.';
+        }
+
+        if ($keywordCoverage >= 0.6) {
+            $reasons[] = 'Important keywords are woven throughout the piece.';
+        } else {
+            $reasons[] = 'Some focus topics appear only briefly, hurting follow-through.';
+        }
+
+        if ($progressionScore >= 0.6) {
+            $reasons[] = 'Logical sequencing keeps the narrative on track.';
+        } else {
+            $reasons[] = 'Transitions between ideas could be smoother.';
+        }
+
+        return [
+            'score' => round($score, 4),
+            'overlap' => round($overlapRatio, 3),
+            'keyword_coverage' => round($keywordCoverage, 3),
+            'reasons' => $this->uniqueStrings($reasons),
+        ];
+    }
+
+    /**
+     * @param array<int, string> $paragraphs
+     */
+    private function hasIntroductoryStatement(array $paragraphs): bool
+    {
+        if ($paragraphs === []) {
+            return false;
+        }
+
+        $first = strtolower($paragraphs[0]);
+        foreach (self::$introductionSignals as $phrase) {
+            if (strpos($first, $phrase) !== false) {
+                return true;
+            }
+        }
+
+        $firstSentenceWords = $this->countWordsForQuality($this->firstSentence($paragraphs[0]));
+
+        return $firstSentenceWords >= 12;
+    }
+
+    /**
+     * @param array<int, string> $paragraphs
+     */
+    private function hasConcludingStatement(array $paragraphs): bool
+    {
+        if ($paragraphs === []) {
+            return false;
+        }
+
+        $lastParagraph = $paragraphs[count($paragraphs) - 1] ?? '';
+        $last = strtolower($lastParagraph);
+        foreach (self::$conclusionSignals as $phrase) {
+            if (strpos($last, $phrase) !== false) {
+                return true;
+            }
+        }
+
+        $lastSentence = strtolower($this->lastSentence($lastParagraph));
+        foreach (self::$conclusionSignals as $phrase) {
+            if (strpos($lastSentence, $phrase) !== false) {
+                return true;
+            }
+        }
+
+        $lastTokens = $this->collectContentTokens($lastParagraph);
+
+        return count($lastTokens) >= 4;
+    }
+
+    private function measureProgression(string $text): float
+    {
+        $lower = strtolower($text);
+        $sequenceSignals = ['first', 'second', 'third', 'next', 'then', 'finally'];
+        $hits = 0;
+        foreach ($sequenceSignals as $signal) {
+            if (strpos($lower, $signal) !== false) {
+                $hits++;
+            }
+        }
+
+        if ($hits >= 3) {
+            return 0.85;
+        }
+
+        if ($hits === 2) {
+            return 0.7;
+        }
+
+        if ($hits === 1) {
+            return 0.55;
+        }
+
+        return 0.45;
+    }
+
+    private function splitParagraphs(string $text): array
+    {
+        $normalized = preg_replace('/\r\n|\r/', "\n", trim($text));
+        if ($normalized === null || $normalized === '') {
+            return [];
+        }
+
+        $parts = preg_split('/\n{2,}/', $normalized);
+        if ($parts === false) {
+            return [$normalized];
+        }
+
+        $paragraphs = [];
+        foreach ($parts as $part) {
+            $trimmed = trim($part);
+            if ($trimmed === '') {
+                continue;
+            }
+            $paragraphs[] = $trimmed;
+        }
+
+        return $paragraphs;
+    }
+
+    private function countTransitionPhrases(string $text): int
+    {
+        $lower = strtolower($text);
+        $count = 0;
+        foreach (self::$transitionSignals as $phrase) {
+            $occurrences = substr_count($lower, $phrase);
+            if ($occurrences > 0) {
+                $count += $occurrences;
+            }
+        }
+
+        return $count;
+    }
+
+    private function collectContentTokens(string $text, int $limit = 12): array
+    {
+        $tokens = $this->tokenise($text);
+        if ($tokens === []) {
+            return [];
+        }
+
+        $counts = [];
+        foreach ($tokens as $token) {
+            if (isset(self::$stopwords[$token])) {
+                continue;
+            }
+            $counts[$token] = ($counts[$token] ?? 0) + 1;
+        }
+
+        arsort($counts);
+
+        return array_slice(array_keys($counts), 0, $limit);
+    }
+
+    private function firstSentence(string $text): string
+    {
+        $sentences = preg_split('/(?<=[.!?])\s+/u', trim($text));
+        if ($sentences === false || $sentences === []) {
+            return trim($text);
+        }
+
+        return (string) $sentences[0];
+    }
+
+    private function lastSentence(string $text): string
+    {
+        $sentences = preg_split('/(?<=[.!?])\s+/u', trim($text));
+        if ($sentences === false || $sentences === []) {
+            return trim($text);
+        }
+
+        return (string) $sentences[count($sentences) - 1];
+    }
+
+    private function countWordsForQuality(string $text): int
+    {
+        $parts = preg_split('/\s+/u', trim($text));
+        if ($parts === false) {
+            return 0;
+        }
+
+        $count = 0;
+        foreach ($parts as $part) {
+            if ($part === '') {
+                continue;
+            }
+            $count++;
+        }
+
+        return $count;
+    }
+
+    private function countSentencesForQuality(string $text): int
+    {
+        $sentences = preg_split('/(?<=[.!?])\s+/u', trim($text));
+        if ($sentences === false) {
+            return 0;
+        }
+
+        $count = 0;
+        foreach ($sentences as $sentence) {
+            if (trim($sentence) === '') {
+                continue;
+            }
+            $count++;
+        }
+
+        return $count;
+    }
+
+    private function countSyllablesInText(string $text): int
+    {
+        $tokens = $this->tokenise($text);
+        if ($tokens === []) {
+            return 0;
+        }
+
+        $count = 0;
+        foreach ($tokens as $token) {
+            $count += $this->countSyllablesInWord($token);
+        }
+
+        return $count;
+    }
+
+    private function countSyllablesInWord(string $word): int
+    {
+        $clean = strtolower(preg_replace('/[^a-z]/u', '', $word) ?? '');
+        if ($clean === '') {
+            return 1;
+        }
+
+        $clean = preg_replace('/e$/', '', $clean);
+        if ($clean === null || $clean === '') {
+            $clean = strtolower($word);
+        }
+
+        $matches = preg_match_all('/[aeiouy]+/', $clean);
+        if ($matches === false) {
+            return 1;
+        }
+
+        return max(1, $matches);
     }
 
     /**
