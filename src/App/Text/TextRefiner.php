@@ -3051,14 +3051,31 @@ final class TextRefiner
 
         $text = preg_replace('/<\s*br\s*\/?>/iu', "\n", $text);
         $text = preg_replace('/<\s*\/p\s*>/iu', "\n\n", $text);
-        $text = preg_replace('/<\s*(?:div|section|article|header|footer|nav)\b[^>]*>/iu', "\n", $text);
+        $text = preg_replace('/<\s*(?:div|section|article|header|footer|nav|main|aside)\b[^>]*>/iu', "\n", $text);
+        $text = preg_replace('/<\s*\/\s*(?:div|section|article|header|footer|nav|main|aside)\s*>/iu', "\n", $text);
+        $text = preg_replace('/<\s*h[1-6]\b[^>]*>/iu', "\n", $text);
+        $text = preg_replace('/<\s*\/h[1-6]\s*>/iu', "\n", $text);
         $text = preg_replace('/<\s*li\b[^>]*>/iu', "\n- ", $text);
-        $text = preg_replace('/<\s*\/li\s*>/iu', '', $text);
-        $text = preg_replace('/<\/?(?:span|strong|em|b|i|u|small|sup|sub)\b[^>]*>/iu', '', $text);
+        $text = preg_replace('/<\s*\/li\s*>/iu', "\n", $text);
+        $text = preg_replace('/<\s*(?:ul|ol)\b[^>]*>/iu', "\n", $text);
+        $text = preg_replace('/<\s*\/(?:ul|ol)\s*>/iu', "\n", $text);
+        $text = preg_replace('/<\s*\/?(?:span|strong|em|b|i|u|small|sup|sub)\b[^>]*>/iu', ' ', $text);
 
         $text = strip_tags(is_string($text) ? $text : '');
-        $text = preg_replace('/\r\n?/', "\n", $text);
+        $text = is_string($text) ? $text : '';
 
-        return is_string($text) ? $text : '';
+        $text = preg_replace('/\r\n?/', "\n", $text);
+        $text = is_string($text) ? $text : '';
+
+        $text = preg_replace('/[^\S\n]+/u', ' ', $text);
+        $text = is_string($text) ? $text : '';
+
+        $text = preg_replace('/\s*\n\s*/u', "\n", $text);
+        $text = is_string($text) ? $text : '';
+
+        $text = preg_replace('/\n{3,}/u', "\n\n", $text);
+        $text = is_string($text) ? $text : '';
+
+        return trim($text);
     }
 }
