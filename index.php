@@ -111,12 +111,6 @@ if (!is_string($placeholderJson)) {
     $placeholderJson = '[]';
 }
 
-$heroPillars = [
-    'Continuously monitors filings, transcripts, technical blogs, and academic papers related to your mandate.',
-    'Normalises entities, relationships, and metrics into a transparent graph with citations you can audit.',
-    'Packages evidence into analyst-ready briefs, exports, and slides without leaving the workspace.',
-];
-
 $statGroups = [
     [
         'label' => 'Documents analysed',
@@ -149,115 +143,31 @@ if ($updatedLabel !== null) {
 
 $featureHighlights = [
     [
-        'title' => 'Entity intelligence without manual stitching',
-        'description' => 'Resolve aliases, join biographies, and surface network relationships across every import, crawl, or analyst upload.',
+        'title' => 'Briefs grounded in citations',
+        'description' => 'Autopilot produces executive-ready narratives with inline citations and linked evidence for every claim.',
     ],
     [
-        'title' => 'Context-aware retrieval for specialists',
-        'description' => 'Hybrid ranking blends semantic expansion with precision filters so niche questions return defensible evidence first.',
+        'title' => 'Graph-native search',
+        'description' => 'Blend entity awareness, relation scoring, and semantic retrieval to answer complex research prompts quickly.',
     ],
     [
-        'title' => 'Transparent provenance on every insight',
-        'description' => 'Trace each metric to the exact passage, document, and ingestion time to accelerate approvals and peer review.',
-    ],
-];
-
-$insightStages = [
-    [
-        'step' => '01',
-        'title' => 'Capture every signal',
-        'description' => 'Ingest regulatory filings, product updates, community posts, and internal notes into a single research memory.',
-    ],
-    [
-        'step' => '02',
-        'title' => 'Model the landscape',
-        'description' => 'Map entities, relationships, and velocity metrics to reveal emerging movements across your coverage area.',
-    ],
-    [
-        'step' => '03',
-        'title' => 'Deliver the briefing',
-        'description' => 'Compose narratives, exports, and dashboards that stay linked to citations so stakeholders trust every recommendation.',
+        'title' => 'Continuous signal tracking',
+        'description' => 'Monitor filings, posts, and analyst notes so your coverage area stays fresh without manual stitching.',
     ],
 ];
 
-$useCases = [
+$quickLinks = [
     [
-        'title' => 'Market landscaping dossiers',
-        'description' => 'Build defensible market maps with transparent sourcing for executives and go-to-market leaders.',
-        'items' => [
-            'Funding rounds and partnership velocity',
-            'Executive moves and hiring signals',
-            'Product positioning and roadmap mentions',
-        ],
+        'label' => 'Run an Autopilot brief',
+        'href' => $assetBase . '/search.php',
     ],
     [
-        'title' => 'Technical horizon scanning',
-        'description' => 'Track the pace of innovation across labs, vendors, and standards bodies in one living brief.',
-        'items' => [
-            'Patent, paper, and benchmark coverage',
-            'Competitor release cadence',
-            'Risk and compliance commentary',
-        ],
+        'label' => 'Explore the knowledge graph',
+        'href' => $assetBase . '/knowledge-graph.php',
     ],
     [
-        'title' => 'Executive decision memos',
-        'description' => 'Answer urgent leadership questions with citations, comparable data, and a clear audit trail.',
-        'items' => [
-            'Auto-generated evidence packets',
-            'Cross-team collaboration notes',
-            'Export-ready appendices',
-        ],
-    ],
-];
-
-$spotlightCollections = [
-    [
-        'title' => 'AI safety & policy observatory',
-        'description' => 'Comparative tracker for national frameworks, regulator briefings, and governance pledges as they happen.',
-        'tags' => ['Governance', 'Risk'],
-    ],
-    [
-        'title' => 'Sustainable industry transitions',
-        'description' => 'Monitor climate tech investments, industrial pilots, and supply chain collaborations with weekly deltas.',
-        'tags' => ['Climate', 'Operations'],
-    ],
-    [
-        'title' => 'Automation adoption watchlist',
-        'description' => 'Surface which platforms are actually deployed, adjacent vendors shortlisted, and the use cases they solve.',
-        'tags' => ['Automation', 'Productivity'],
-    ],
-];
-
-$workflowSteps = [
-    [
-        'step' => '01',
-        'title' => 'Frame the research objective',
-        'description' => 'Capture the strategic context, define evidence needs, and spin up the shared workspace for collaborators.',
-    ],
-    [
-        'step' => '02',
-        'title' => 'Interrogate the graph',
-        'description' => 'Iterate on search prompts, pivot across entities, and bookmark passages that answer the core question.',
-    ],
-    [
-        'step' => '03',
-        'title' => 'Ship the deliverable',
-        'description' => 'Turn curated findings into narratives, CSV extracts, or decks with confidence scoring and traceability intact.',
-    ],
-];
-
-$researchPrinciples = [
-    [
-        'title' => 'Evidence-forward culture',
-        'description' => 'Every insight is anchored to verifiable passages and document metadata so reviewers can double-click instantly.',
-    ],
-    [
-        'title' => 'Collaboration without chaos',
-        'description' => 'Shared annotations, saved queries, and change history keep research teams aligned across geographies.',
-    ],
-    [
-        'title' => 'Secure by design',
-        'description' => 'Granular access controls and air-gapped storage options ensure sensitive investigations stay private.',
+        'label' => 'Read the documentation',
+        'href' => $assetBase . '/docs',
     ],
 ];
 ?>
@@ -285,180 +195,61 @@ $researchPrinciples = [
     </div>
 </header>
 
-<main class="home-main">
-    <section class="search-hero" id="search">
-        <div class="shell">
-            <div class="search-hero__layout">
-                <div class="search-hero__intro">
-                    <p class="eyebrow">Focused research workspace</p>
-                    <h1>Focus your analysis on evidence, not tab juggling</h1>
-                    <p class="lead">AIresearch transforms continuous monitoring into shareable intelligence by unifying entities, relationships, and citations in a single research graph.</p>
-                    <ul class="hero-pillars">
-                        <?php foreach ($heroPillars as $pillar): ?>
-                            <li><?= esc($pillar); ?></li>
-                        <?php endforeach; ?>
-                    </ul>
-                    <form class="search-form" method="get" action="<?= esc($assetBase . '/search.php'); ?>" role="search" data-home-search>
-                        <label class="visually-hidden" for="home-search-input">Search the AIresearch graph</label>
-                        <div class="search-form__field">
-                            <input id="home-search-input" name="q" type="search" placeholder="Try &ldquo;<?= esc($placeholderPhrases[0] ?? 'emerging AI research hubs'); ?>&rdquo;" autocomplete="off" spellcheck="false" data-home-search-input data-home-phrases='<?= esc($placeholderJson); ?>'>
-                            <button type="submit" class="button primary">Search graph</button>
-                        </div>
-                    </form>
-                    <?php if ($trendingQueries !== []): ?>
-                    <div class="search-trending" data-home-trending>
-                        <span class="search-trending__label">Trending research prompts</span>
-                        <div class="search-trending__chips">
-                            <?php foreach ($trendingQueries as $query): ?>
-                                <button type="button" class="chip" data-home-chip="<?= esc($query); ?>"><?= esc($query); ?></button>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                    <?php endif; ?>
+<main class="home-main home-main--search">
+    <section class="home-search" id="search">
+        <div class="shell home-search__shell">
+            <div class="home-search__brand">
+                <span class="home-search__logo">AIresearch</span>
+                <p class="home-search__tagline">Autopilot search that generates research briefs in seconds.</p>
+            </div>
+            <form class="search-form home-search__form" method="get" action="<?= esc($assetBase . '/search.php'); ?>" role="search" data-home-search>
+                <label class="visually-hidden" for="home-search-input">Search the AIresearch graph</label>
+                <div class="search-form__field">
+                    <input id="home-search-input" name="q" type="search" placeholder="Try &ldquo;<?= esc($placeholderPhrases[0] ?? 'emerging AI research hubs'); ?>&rdquo;" autocomplete="off" spellcheck="false" data-home-search-input data-home-phrases='<?= esc($placeholderJson); ?>'>
+                    <button type="submit" class="button primary">Autopilot brief</button>
                 </div>
-                <aside class="search-hero__panel">
-                    <div class="panel-card" aria-live="polite">
-                        <h2>Knowledge graph at a glance</h2>
-                        <p class="panel-card__lead">Live coverage from crawls, analyst uploads, and trusted research partners.</p>
-                        <dl class="panel-card__metrics">
-                            <?php foreach ($statGroups as $stat): ?>
-                                <div class="panel-card__metric">
-                                    <dt><?= esc($stat['label']); ?></dt>
-                                    <dd><?= esc($stat['value']); ?></dd>
-                                </div>
-                            <?php endforeach; ?>
-                        </dl>
-                        <p class="panel-card__note">Need deeper context? <a href="<?= esc($assetBase . '/knowledge-graph.php'); ?>">Browse the live graph</a> or <a href="<?= esc($assetBase . '/docs'); ?>">review the ingestion playbook</a>.</p>
-                    </div>
-                </aside>
+            </form>
+            <?php if ($trendingQueries !== []): ?>
+            <div class="home-search__chips" data-home-trending>
+                <span class="home-search__label">Popular queries</span>
+                <div class="home-search__list">
+                    <?php foreach ($trendingQueries as $query): ?>
+                        <button type="button" class="chip" data-home-chip="<?= esc($query); ?>"><?= esc($query); ?></button>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+            <div class="home-search__links">
+                <?php foreach ($quickLinks as $link): ?>
+                    <a class="home-search__link" href="<?= esc($link['href']); ?>"><?= esc($link['label']); ?></a>
+                <?php endforeach; ?>
             </div>
         </div>
     </section>
 
-    <section class="section section--features" id="features">
-        <div class="shell">
-            <div class="section-header">
-                <h2>Built for focused research teams</h2>
-                <p class="muted">Synthesise complex domains with tooling that keeps citations and context together.</p>
+    <section class="home-metrics">
+        <div class="shell home-metrics__shell">
+            <div class="home-metrics__grid" aria-live="polite">
+                <?php foreach ($statGroups as $stat): ?>
+                    <article class="home-metric">
+                        <span class="home-metric__label"><?= esc($stat['label']); ?></span>
+                        <span class="home-metric__value"><?= esc((string) $stat['value']); ?></span>
+                    </article>
+                <?php endforeach; ?>
             </div>
-            <div class="feature-grid">
+        </div>
+    </section>
+
+    <section class="home-highlights">
+        <div class="shell home-highlights__shell">
+            <h2>Why teams choose Autopilot</h2>
+            <div class="home-highlights__grid">
                 <?php foreach ($featureHighlights as $feature): ?>
-                    <article class="feature-card">
+                    <article class="home-highlight">
                         <h3><?= esc($feature['title']); ?></h3>
                         <p><?= esc($feature['description']); ?></p>
                     </article>
                 <?php endforeach; ?>
-            </div>
-        </div>
-    </section>
-
-    <section class="section section--insights" id="pipeline">
-        <div class="shell">
-            <div class="section-header">
-                <h2>From signal intake to shareable intelligence</h2>
-                <p class="muted">Follow a consistent pipeline to capture, enrich, and distribute research.</p>
-            </div>
-            <div class="insight-pipeline">
-                <?php foreach ($insightStages as $stage): ?>
-                    <article class="insight-card">
-                        <span class="insight-card__index"><?= esc($stage['step']); ?></span>
-                        <h3><?= esc($stage['title']); ?></h3>
-                        <p><?= esc($stage['description']); ?></p>
-                    </article>
-                <?php endforeach; ?>
-            </div>
-        </div>
-    </section>
-
-    <section class="section section--usecases" id="use-cases">
-        <div class="shell">
-            <div class="section-header">
-                <h2>Where teams rely on AIresearch</h2>
-                <p class="muted">Each workspace packages the same knowledge graph around a specific decision.</p>
-            </div>
-            <div class="use-case-grid">
-                <?php foreach ($useCases as $useCase): ?>
-                    <article class="use-case-card">
-                        <h3><?= esc($useCase['title']); ?></h3>
-                        <p><?= esc($useCase['description']); ?></p>
-                        <?php if (!empty($useCase['items'])): ?>
-                            <ul>
-                                <?php foreach ($useCase['items'] as $item): ?>
-                                    <li><?= esc($item); ?></li>
-                                <?php endforeach; ?>
-                            </ul>
-                        <?php endif; ?>
-                    </article>
-                <?php endforeach; ?>
-            </div>
-        </div>
-    </section>
-
-    <section class="section section--collections" id="collections">
-        <div class="shell">
-            <div class="section-header">
-                <h2>Curated evidence libraries</h2>
-                <p class="muted">Jump-start your next briefing with collections maintained by the research team.</p>
-            </div>
-            <div class="collection-grid">
-                <?php foreach ($spotlightCollections as $collection): ?>
-                    <article class="collection-card">
-                        <h3><?= esc($collection['title']); ?></h3>
-                        <p><?= esc($collection['description']); ?></p>
-                        <?php if (!empty($collection['tags'])): ?>
-                            <div class="collection-card__tags">
-                                <?php foreach ($collection['tags'] as $tag): ?>
-                                    <span class="tag" data-home-suggestion="<?= esc($tag); ?>"><?= esc($tag); ?></span>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-                    </article>
-                <?php endforeach; ?>
-            </div>
-        </div>
-    </section>
-
-    <section class="section section--workflow" id="workflow">
-        <div class="shell">
-            <div class="section-header">
-                <h2>Deliver research with confidence</h2>
-                <p class="muted">From discovery to deliverable, every step stays linked to provenance.</p>
-            </div>
-            <div class="workflow-grid">
-                <?php foreach ($workflowSteps as $step): ?>
-                    <article class="workflow-step">
-                        <span class="workflow-step__number"><?= esc($step['step']); ?></span>
-                        <h3><?= esc($step['title']); ?></h3>
-                        <p><?= esc($step['description']); ?></p>
-                    </article>
-                <?php endforeach; ?>
-            </div>
-        </div>
-    </section>
-
-    <section class="section section--principles" id="principles">
-        <div class="shell">
-            <div class="section-header">
-                <h2>Designed for research operations</h2>
-                <p class="muted">Governance, collaboration, and auditability are built into the workflow.</p>
-            </div>
-            <div class="principle-grid">
-                <?php foreach ($researchPrinciples as $principle): ?>
-                    <article class="principle-card">
-                        <h3><?= esc($principle['title']); ?></h3>
-                        <p><?= esc($principle['description']); ?></p>
-                    </article>
-                <?php endforeach; ?>
-            </div>
-            <div class="cta-panel">
-                <div>
-                    <h3>Ready to explore the research graph?</h3>
-                    <p class="muted">Launch the graph explorer or follow the onboarding checklist to seed your workspace.</p>
-                </div>
-                <div class="cta-panel__actions">
-                    <a class="button primary" href="<?= esc($assetBase . '/search.php'); ?>">Launch search</a>
-                    <a class="button ghost" href="<?= esc($assetBase . '/docs/guides/getting-started.md'); ?>">Onboarding guide</a>
-                </div>
             </div>
         </div>
     </section>

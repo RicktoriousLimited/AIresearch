@@ -592,6 +592,15 @@
 
       renderSearch(search);
 
+      const autopilot = window.AIAutopilot || null;
+      if (autopilot) {
+        if (typeof autopilot.generate === 'function') {
+          autopilot.generate(trimmed);
+        } else if (typeof autopilot.setQuery === 'function') {
+          autopilot.setQuery(trimmed);
+        }
+      }
+
       const matches = Array.isArray(search.entities) ? search.entities.length : 0;
       if (matches > 0) {
         updateStatus(`Found ${matches} ${matches === 1 ? 'match' : 'matches'} for “${trimmed}”.`);
