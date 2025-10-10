@@ -5,15 +5,18 @@ declare(strict_types=1);
 namespace Ricktorious\Ecommerce\Extensions;
 
 use InvalidArgumentException;
+use RuntimeException;
+use Throwable;
 use Ricktorious\Ecommerce\Core\AdhocApiRouter;
 use Ricktorious\Ecommerce\Core\BlockRegistry;
 use Ricktorious\Ecommerce\Core\ContentManager;
 use Ricktorious\Ecommerce\Core\ExtensionInterface;
+use Ricktorious\Ecommerce\User\OneTimePasswordManager;
 use Ricktorious\Ecommerce\User\UserService;
 
 final class UserManagementExtension implements ExtensionInterface
 {
-    public function __construct(private UserService $users)
+    public function __construct(private UserService $users, private OneTimePasswordManager $otp)
     {
     }
 
@@ -78,6 +81,82 @@ final class UserManagementExtension implements ExtensionInterface
                 'status' => 200,
                 'headers' => ['Content-Type' => 'application/json'],
                 'body' => ['user' => $user],
+            ];
+        });
+
+        $router->addRoute('POST', '/api/users/request-otp', function (array $query, array $payload): array {
+            $email = (string) ($payload['email'] ?? '');
+
+            if ($email === '') {
+                return [
+                    'status' => 422,
+                    'headers' => ['Content-Type' => 'application/json'],
+                    'body' => ['error' => 'email is required.'],
+                ];
+            }
+
+            if ($this->users->findByEmail($email) === null) {
+                return [
+                    'status' => 404,
+                    'headers' => ['Content-Type' => 'application/json'],
+                    'body' => ['error' => 'No account found for this email address.'],
+                ];
+            }
+
+            try {
+                $otp = $this->otp->issue($email);
+            } catch (RuntimeException $exception) {
+                return [
+                    'status' => 500,
+                    'headers' => ['Content-Type' => 'application/json'],
+                    'body' => ['error' => $exception->getMessage()],
+                ];
+            }
+
+            return [
+                'status' => 200,
+                'headers' => ['Content-Type' => 'application/json'],
+                'body' => ['message' => 'A one-time password has been generated.', 'otp' => $otp],
+            ];
+        });
+
+        $router->addRoute('POST', '/api/users/reset-password', function (array $query, array $payload): array {
+            $email = (string) ($payload['email'] ?? '');
+            $otp = (string) ($payload['otp'] ?? '');
+            $password = (string) ($payload['password'] ?? '');
+
+            if ($email === '' || $otp === '' || $password === '') {
+                return [
+                    'status' => 422,
+                    'headers' => ['Content-Type' => 'application/json'],
+                    'body' => ['error' => 'email, otp and password are required.'],
+                ];
+            }
+
+            if (!$this->otp->verify($email, $otp)) {
+                return [
+                    'status' => 401,
+                    'headers' => ['Content-Type' => 'application/json'],
+                    'body' => ['error' => 'Invalid or expired one-time password.'],
+                ];
+            }
+
+            try {
+                $user = $this->users->resetPassword($email, $password);
+            } catch (InvalidArgumentException $exception) {
+                return [
+                    'status' => 404,
+                    'headers' => ['Content-Type' => 'application/json'],
+                    'body' => ['error' => $exception->getMessage()],
+                ];
+            }
+
+            $this->otp->consume($email);
+
+            return [
+                'status' => 200,
+                'headers' => ['Content-Type' => 'application/json'],
+                'body' => ['message' => 'Password updated successfully.', 'user' => $user],
             ];
         });
 

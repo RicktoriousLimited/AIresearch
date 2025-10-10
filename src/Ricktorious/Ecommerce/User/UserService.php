@@ -144,6 +144,51 @@ final class UserService
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    public function findByEmail(string $email): ?array
+    {
+        $email = strtolower(trim($email));
+        if ($email === '') {
+            return null;
+        }
+
+        $user = $this->repository->findByEmail($email);
+        if ($user === null) {
+            return null;
+        }
+
+        return $user->toArray();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function resetPassword(string $email, string $password): array
+    {
+        $email = strtolower(trim($email));
+        $password = trim($password);
+
+        if ($email === '' || $password === '') {
+            throw new InvalidArgumentException('Email and password are required.');
+        }
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new InvalidArgumentException('A valid email address is required.');
+        }
+
+        $user = $this->repository->findByEmail($email);
+        if ($user === null) {
+            throw new InvalidArgumentException('User account not found for password reset.');
+        }
+
+        $updated = $user->withPasswordHash(password_hash($password, PASSWORD_DEFAULT));
+        $this->repository->save($updated);
+
+        return $updated->toArray();
+    }
+
+    /**
      * @param mixed $rawRoles
      *
      * @return array<int, string>

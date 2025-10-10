@@ -125,6 +125,7 @@ final class Kernel
                 'pos_ledger' => $storage . '/pos/transactions.json',
                 'shipping_ledger' => $storage . '/shipping/shipments.json',
                 'users' => $storage . '/users/users.json',
+                'otp_tokens' => $storage . '/users/otp_tokens.json',
             ],
             'session' => [
                 'user_id' => 'guest',
