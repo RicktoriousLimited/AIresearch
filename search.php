@@ -106,13 +106,14 @@ $updatedLabel = $formatDate($updatedAt) ?? $updatedAt;
     <header class="site-header">
         <div class="container">
             <nav class="site-nav" aria-label="Primary">
-                <a class="site-nav__link" href="<?= $escape($homePath) ?>">Data Studio</a>
+                <a class="site-nav__link" href="<?= $escape($homePath) ?>">Home</a>
+                <a class="site-nav__link site-nav__link--active" href="<?= $escape($assetBase . '/search.php') ?>">Graph Search</a>
                 <a class="site-nav__link" href="<?= $escape($graphPath) ?>">Knowledge Graph</a>
-                <a class="site-nav__link site-nav__link--active" href="<?= $escape($assetBase . '/search.php') ?>">Discovery Search</a>
+                <a class="site-nav__link" href="<?= $escape($assetBase . '/docs') ?>">Documentation</a>
             </nav>
             <div class="search-hero">
                 <div>
-                    <h1>AIresearch Discovery Search</h1>
+                    <h1>AIresearch Graph Search</h1>
                     <p class="tagline">Query the shared knowledge graph, surface relationship triples, and trace every fact back to the original sources.</p>
                 </div>
                 <form class="search-form" data-search-form role="search">
