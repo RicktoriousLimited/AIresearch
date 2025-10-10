@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
-require __DIR__ . '/../src/App/bootstrap.php';
+require __DIR__ . '/../src/Ricktorious/Markets/bootstrap.php';
+
+use Ricktorious\Markets\Insights\Report;
 
 $scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '/index.php');
 $scriptDir = str_replace('\\', '/', dirname($scriptName));
@@ -15,212 +17,329 @@ if ($basePath !== '') {
 }
 
 $assetBase = $basePath === '' ? '' : $basePath;
+$stylesPath = $assetBase . '/assets/styles.css';
+$stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
+$company = trim((string) ($_GET['company'] ?? 'Acme Corp'));
 
-$stylesPath = $assetBase . '/assets/workbench.css';
-$scriptPath = $assetBase . '/assets/workbench.js';
-$searchPath = $assetBase . '/search.php';
-$graphPath = $assetBase . '/knowledge-graph.php';
-$homePath = $assetBase . '/index.php';
-$stylesVersion = file_exists(__DIR__ . '/assets/workbench.css') ? (string) filemtime(__DIR__ . '/assets/workbench.css') : (string) time();
-$scriptVersion = file_exists(__DIR__ . '/assets/workbench.js') ? (string) filemtime(__DIR__ . '/assets/workbench.js') : (string) time();
-$apiEndpoint = $assetBase . '/api/analyse.php';
-$scrapeEndpoint = $assetBase . '/api/scrape.php';
+$report = null;
+$error = null;
+
+try {
+    $kernel = ricktorious_markets_kernel();
+    $builder = $kernel->reportBuilder();
+
+    if ($company !== '') {
+        $report = $builder->build($company, ['limit' => 40]);
+    }
+} catch (\Throwable $exception) {
+    $error = $exception->getMessage();
+}
+
+/**
+ * @param array<int, array<string, mixed>> $timeline
+ * @return array<int, array<string, mixed>>
+ */
+function slice_latest_entries(array $timeline, int $limit): array
+{
+    if ($timeline === []) {
+        return [];
+    }
+
+    return array_slice($timeline, 0, $limit);
+}
+
+function esc(string $value): string
+{
+    return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+}
+
+function sentiment_class(string $label): string
+{
+    return match ($label) {
+        'positive' => 'sentiment-positive',
+        'negative' => 'sentiment-negative',
+        default => 'sentiment-neutral',
+    };
+}
+
+function score_label(float $score): string
+{
+    if ($score > 0.2) {
+        return 'positive';
+    }
+
+    if ($score < -0.2) {
+        return 'negative';
+    }
+
+    return 'neutral';
+}
+
+$sentimentSegments = $report instanceof Report ? $report->sentimentBySegment() : [];
+$timeline = $report instanceof Report ? $report->timeline() : [];
+$articles = $report instanceof Report ? $report->articles() : [];
+$highlights = $report instanceof Report ? $report->highlights() : [];
+
+$latestTimeline = slice_latest_entries($timeline, 5);
+$latestArticles = array_slice($articles, 0, 6);
+
+$signalsTracked = 0;
+$currentAverage = null;
+
+if ($sentimentSegments !== []) {
+    $scores = [];
+    foreach ($sentimentSegments as $data) {
+        $signalsTracked += (int) ($data['article_count'] ?? 0);
+        if (isset($data['current_score'])) {
+            $scores[] = (float) $data['current_score'];
+        }
+    }
+
+    if ($scores !== []) {
+        $currentAverage = array_sum($scores) / count($scores);
+    }
+}
+
+$latestSignal = $latestTimeline[0] ?? null;
+$latestArticle = $latestArticles[0] ?? null;
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AIresearch Data Preparation Studio</title>
-    <link rel="stylesheet" href="<?= htmlspecialchars($stylesPath . '?v=' . $stylesVersion, ENT_QUOTES) ?>">
+    <title>Ricktorious Markets Intelligence</title>
+    <link rel="stylesheet" href="<?= esc($stylesPath . '?v=' . $stylesVersion); ?>">
 </head>
-<body data-api="<?= htmlspecialchars($apiEndpoint, ENT_QUOTES) ?>" data-scrape="<?= htmlspecialchars($scrapeEndpoint, ENT_QUOTES) ?>">
+<body>
     <header class="site-header">
-        <div class="container">
-            <nav class="site-nav" aria-label="Primary">
-                <a class="site-nav__link site-nav__link--active" href="<?= htmlspecialchars($homePath, ENT_QUOTES) ?>">Data Studio</a>
-                <a class="site-nav__link" href="<?= htmlspecialchars($graphPath, ENT_QUOTES) ?>">Knowledge Graph</a>
-                <a class="site-nav__link" href="<?= htmlspecialchars($searchPath, ENT_QUOTES) ?>">Discovery Search</a>
+        <div class="shell header-shell">
+            <div class="brand">Ricktorious Markets</div>
+            <nav class="primary-nav" aria-label="Primary">
+                <a href="#overview">Overview</a>
+                <a href="#sentiment">Sentiment</a>
+                <a href="#signals">Signals</a>
+                <a href="#updates">Latest updates</a>
             </nav>
-            <h1>AIresearch Data Preparation Studio</h1>
-            <p class="tagline">Transform messy notes, articles, and transcripts into structured analytics and AI-ready training data.</p>
+            <div class="header-actions">
+                <a class="button ghost" href="#signals">Jump to news</a>
+                <a class="button primary" href="#report">Generate report</a>
+            </div>
         </div>
     </header>
-    <main class="container">
-        <section class="panel">
-            <form id="workbench-form" class="workbench-form" novalidate>
-                <div class="form-row form-intro">
-                    <p>Bring any unstructured content and we will clean it, extract knowledge, and package everything as fine-tuning ready records in a single run.</p>
-                </div>
-                <div class="workflow-steps" aria-label="Training data workflow">
-                    <div class="workflow-step">
-                        <span class="workflow-number">1</span>
-                        <div>
-                            <h3>Ingest anything</h3>
-                            <p>Paste raw text, upload exports, or pull from a public URL.</p>
-                        </div>
-                    </div>
-                    <div class="workflow-step">
-                        <span class="workflow-number">2</span>
-                        <div>
-                            <h3>Refine &amp; analyse</h3>
-                            <p>We normalise the language, detect entities, and map relationships.</p>
-                        </div>
-                    </div>
-                    <div class="workflow-step">
-                        <span class="workflow-number">3</span>
-                        <div>
-                            <h3>Export training rows</h3>
-                            <p>Review prompt/response pairs, download JSON or CSV, and plug them into your pipelines.</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <label for="input-text" class="form-label">Source text</label>
-                    <textarea id="input-text" name="text" placeholder="Paste one or more research bios, project updates, or company summaries..." required></textarea>
-                    <p class="help">We normalise entities, extract lightweight relations, cluster synonyms, and build structured datasets.</p>
-                </div>
-                <div class="form-row">
-                    <label for="input-url" class="form-label">Scrape from URL</label>
-                    <div class="url-input">
-                        <input type="url" id="input-url" name="url" placeholder="https://example.com/article" autocomplete="off">
-                        <button type="button" class="button secondary" id="fetch-url">Fetch &amp; analyse</button>
-                    </div>
-                    <p class="help">We fetch the page content, enrich the shared knowledge graph, and surface the updated triples instantly.</p>
-                </div>
-                <div class="form-row input-meta" id="input-meta" aria-live="polite"></div>
-                <div class="form-row quick-actions">
-                    <label for="file-upload" class="file-picker">
-                        <span class="file-icon" aria-hidden="true">📄</span>
-                        <span class="file-label">Import text file</span>
-                        <input type="file" id="file-upload" accept=".txt,.md,.markdown,.csv,.json">
-                    </label>
-                    <div class="sample-pills" aria-label="Sample snippets" role="group">
-                        <button type="button" class="chip" data-sample="bios">Load sample bios</button>
-                        <button type="button" class="chip" data-sample="updates">Load research update</button>
-                        <button type="button" class="chip" data-sample="company">Load company summary</button>
-                    </div>
-                </div>
-                <div class="form-row options-row">
-                    <label class="toggle">
-                        <input type="checkbox" id="continue-state" checked>
-                        <span>Continue enriching the same knowledge graph across submissions</span>
-                    </label>
-                    <button type="button" class="button tertiary small" id="clear-session" aria-label="Reset knowledge graph state">Reset session</button>
-                </div>
-                <div class="form-actions">
-                    <button type="submit" class="button primary">Run extraction</button>
-                    <button type="reset" class="button secondary" id="reset-button">Clear</button>
-                </div>
-            </form>
-            <div class="status" id="status" role="status" aria-live="polite"></div>
-        </section>
 
-        <section class="panel results" id="results" hidden>
-            <header class="panel-header">
-                <h2>Results</h2>
-                <div class="panel-actions">
-                    <button type="button" class="button tertiary" id="download-json">Download extraction JSON</button>
-                    <button type="button" class="button tertiary" id="copy-summary">Copy summary</button>
+    <main>
+        <section class="hero" id="report">
+            <div class="shell hero-shell">
+                <div class="hero-copy">
+                    <p class="eyebrow">Autonomous capital markets intelligence</p>
+                    <h1>Live market coverage for fast trading decisions.</h1>
+                    <p class="lead">Track sentiment, breaking headlines, and persona-specific signals for any ticker without leaving the dashboard.</p>
+                    <form method="get" class="query-form" autocomplete="off">
+                        <label>
+                            <span>Company or ticker</span>
+                            <input type="text" name="company" value="<?= esc($company); ?>" placeholder="Acme Corp or ACME">
+                        </label>
+                        <button type="submit" class="button primary">Analyse coverage</button>
+                    </form>
+                    <?php if ($report instanceof Report): ?>
+                        <dl class="metrics">
+                            <div>
+                                <dt>Average sentiment</dt>
+                                <dd><?= $currentAverage === null ? '–' : esc(sprintf('%.2f', $currentAverage)); ?></dd>
+                            </div>
+                            <div>
+                                <dt>Signals tracked</dt>
+                                <dd><?= esc((string) $signalsTracked); ?></dd>
+                            </div>
+                            <div>
+                                <dt>Latest refresh</dt>
+                                <dd><?= esc($report->generatedAt()); ?></dd>
+                            </div>
+                        </dl>
+                    <?php endif; ?>
                 </div>
-            </header>
-            <div class="results-overview" id="results-overview" hidden>
-                <article class="metric-card">
-                    <span class="metric-label">Documents processed</span>
-                    <span class="metric-value" data-metric-value="documents_processed">0</span>
-                    <span class="metric-sub" data-metric-sub="documents_received">Submitted: 0</span>
-                </article>
-                <article class="metric-card">
-                    <span class="metric-label">Triples extracted</span>
-                    <span class="metric-value" data-metric-value="triples">0</span>
-                    <span class="metric-sub" data-metric-sub="triples-density">– per document</span>
-                </article>
-                <article class="metric-card">
-                    <span class="metric-label">Unique entities</span>
-                    <span class="metric-value" data-metric-value="unique_entities">0</span>
-                    <span class="metric-sub" data-metric-sub="synonym_groups">Synonym groups: 0</span>
-                </article>
-            </div>
-            <div class="grid">
-                <article class="card span-3" id="insights-card" hidden>
-                    <h3>Highlights</h3>
-                    <ul class="insights-list" id="insights-list"></ul>
-                </article>
-                <article class="card span-2">
-                    <h3>Summary</h3>
-                    <dl id="summary-list" class="summary-list"></dl>
-                </article>
-                <article class="card span-2">
-                    <h3>Relation frequency</h3>
-                    <div id="relations-chart" class="list-block"></div>
-                </article>
-                <article class="card span-2">
-                    <h3>Entities encountered</h3>
-                    <div id="entities-chart" class="list-block"></div>
-                </article>
-                <article class="card span-3">
-                    <h3>Triples</h3>
-                    <div id="triples-table" class="table-wrapper"></div>
-                </article>
-                <article class="card span-3">
-                    <h3>Synonym groups</h3>
-                    <div id="synonyms-list" class="list-block"></div>
-                </article>
-                <article class="card span-3" id="dataset-card" hidden>
-                    <h3>AI-ready dataset</h3>
-                    <p class="card-sub" id="dataset-subtitle"></p>
-                    <dl id="dataset-summary" class="dataset-summary"></dl>
-                    <div id="dataset-preview" class="dataset-preview"></div>
-                    <div class="dataset-actions">
-                        <button type="button" class="button secondary" id="download-dataset-json">Download dataset JSON</button>
-                        <button type="button" class="button secondary" id="download-dataset-csv">Download dataset CSV</button>
-                    </div>
-                </article>
-                <article class="card span-3" id="document-insights-card" hidden>
-                    <h3>Document cleanup</h3>
-                    <div class="document-cleanup" id="document-cleaned" hidden>
-                        <h4>Cleaned text</h4>
-                        <pre id="document-cleaned-text"></pre>
-                    </div>
-                    <div class="document-cleanup" id="document-rewrite" hidden>
-                        <h4>Readable rewrite</h4>
-                        <pre id="document-rewrite-text"></pre>
-                    </div>
-                    <div class="document-cleanup" id="document-keywords" hidden>
-                        <h4>Key phrases</h4>
-                        <ul id="document-keywords-list" class="pill-list"></ul>
-                    </div>
-                    <div class="document-cleanup" id="document-spelling" hidden>
-                        <h4>Spelling suggestions</h4>
-                        <ul id="document-spelling-list" class="pill-list"></ul>
-                    </div>
-                    <div class="document-cleanup" id="document-analytics" hidden>
-                        <h4>Deeper analytics</h4>
-                        <div id="document-analytics-content" class="analytics-grid"></div>
-                    </div>
-                </article>
+                <div class="hero-card">
+                    <h2>What you get</h2>
+                    <ul class="feature-list">
+                        <li>Persona-level sentiment with intraday shifts.</li>
+                        <li>Ranked highlights and narrative drivers.</li>
+                        <li>Instant access to the underlying headlines.</li>
+                    </ul>
+                    <?php if ($latestArticle !== null): ?>
+                        <div class="hero-highlight">
+                            <p class="hero-highlight__label">Most recent headline</p>
+                            <p class="hero-highlight__title"><?= esc((string) ($latestArticle['title'] ?? '')); ?></p>
+                            <p class="hero-highlight__meta"><?= esc((string) ($latestArticle['source'] ?? '')); ?> · <?= esc((string) ($latestArticle['published_at'] ?? '')); ?></p>
+                        </div>
+                    <?php endif; ?>
+                </div>
             </div>
         </section>
 
-        <section class="panel guidance">
-            <header class="panel-header">
-                <h2>Tips for richer extractions</h2>
-            </header>
-            <ul class="guidance-list">
-                <li>Feed multiple bios or updates at once. The studio automatically separates documents by blank lines.</li>
-                <li>Use the <strong>Reset session</strong> button when you want to start a brand new graph without previous context.</li>
-                <li>Export the dataset in CSV or JSON to plug the prompt/response pairs into your fine-tuning pipeline.</li>
-                <li>Keep relations short and meaningful. The English lexicon filters noisy spans while preserving proper nouns.</li>
-            </ul>
-        </section>
+        <div class="shell">
+            <?php if ($error !== null): ?>
+                <div class="messages">
+                    <div class="message error"><?= esc($error); ?></div>
+                </div>
+            <?php elseif ($report === null): ?>
+                <div class="empty-state">
+                    <h2>Enter a company to begin</h2>
+                    <p>We will trawl analyst notes, institutional briefings, and retail chatter automatically.</p>
+                </div>
+            <?php else: ?>
+                <section class="dashboard" id="overview">
+                    <div class="section-header">
+                        <div>
+                            <h2>Market pulse overview</h2>
+                            <p class="muted"><?= esc($report->overview()); ?></p>
+                        </div>
+                        <div class="overview-meta">
+                            <span class="badge"><?= esc($report->company()); ?></span>
+                            <span class="muted">Generated <?= esc($report->generatedAt()); ?></span>
+                        </div>
+                    </div>
+
+                    <?php if ($highlights !== []): ?>
+                        <ul class="tag-list highlights">
+                            <?php foreach ($highlights as $highlight): ?>
+                                <li>• <?= esc($highlight); ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    <?php endif; ?>
+
+                    <div class="scoreboard">
+                        <article class="score-card">
+                            <h3>Live sentiment</h3>
+                            <p class="score-value <?= sentiment_class(score_label((float) ($currentAverage ?? 0.0))); ?>">
+                                <?= $currentAverage === null ? 'No data' : esc(sprintf('%.2f', $currentAverage)); ?>
+                            </p>
+                            <p class="muted">Across <?= esc((string) count($sentimentSegments)); ?> investor segments.</p>
+                        </article>
+                        <article class="score-card">
+                            <h3>Signals processed</h3>
+                            <p class="score-value"><?= esc((string) $signalsTracked); ?></p>
+                            <p class="muted">Latest run captured from curated news and notes.</p>
+                        </article>
+                        <article class="score-card">
+                            <h3>Freshest signal</h3>
+                            <?php if ($latestSignal !== null): ?>
+                                <p class="score-value"><?= esc((string) ($latestSignal['date'] ?? '')); ?></p>
+                                <p class="muted">Focus: <?= esc(ucfirst((string) ($latestSignal['segment'] ?? ''))); ?></p>
+                            <?php else: ?>
+                                <p class="score-value">No feed</p>
+                                <p class="muted">Waiting for the first sentiment entry.</p>
+                            <?php endif; ?>
+                        </article>
+                    </div>
+                </section>
+
+                <section class="insights" id="sentiment">
+                    <div class="section-header">
+                        <div>
+                            <h2>Investor sentiment</h2>
+                            <p class="muted">Compare how each desk feels about <?= esc($report->company()); ?>.</p>
+                        </div>
+                    </div>
+
+                    <?php if ($sentimentSegments === []): ?>
+                        <div class="empty-state">
+                            <p>No sentiment records yet.</p>
+                        </div>
+                    <?php else: ?>
+                        <div class="insight-grid sentiment-grid">
+                            <?php foreach ($sentimentSegments as $segment => $data): ?>
+                                <article class="insight-card">
+                                    <h3><?= esc(ucfirst((string) $segment)); ?> investors</h3>
+                                    <p class="metric <?= sentiment_class((string) ($data['current_label'] ?? 'neutral')); ?>">
+                                        <?= esc(sprintf('%.2f', (float) ($data['current_score'] ?? 0.0))); ?>
+                                    </p>
+                                    <p class="muted">Current tone: <?= esc((string) ($data['current_label'] ?? 'neutral')); ?></p>
+                                    <p>Average: <strong><?= esc(sprintf('%.2f', (float) ($data['average_score'] ?? 0.0))); ?></strong> (<?= esc((string) ($data['average_label'] ?? 'neutral')); ?>)</p>
+                                    <?php if (($data['latest_headline'] ?? '') !== ''): ?>
+                                        <p class="muted">Latest signal: “<?= esc((string) $data['latest_headline']); ?>”</p>
+                                    <?php endif; ?>
+                                    <p class="muted">Signals tracked: <?= esc((string) ($data['article_count'] ?? 0)); ?></p>
+                                </article>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </section>
+
+                <section class="timeline" id="updates">
+                    <div class="section-header">
+                        <div>
+                            <h2>Latest updates</h2>
+                            <p class="muted">Spot how sentiment evolved in the most recent coverage.</p>
+                        </div>
+                    </div>
+
+                    <?php if ($latestTimeline === []): ?>
+                        <div class="empty-state">
+                            <p>Not enough coverage yet to chart a trajectory.</p>
+                        </div>
+                    <?php else: ?>
+                        <div class="updates-grid">
+                            <?php foreach ($latestTimeline as $entry): ?>
+                                <?php $score = (float) ($entry['score'] ?? 0.0); $label = score_label($score); ?>
+                                <article class="update-card">
+                                    <header>
+                                        <p class="update-date"><?= esc((string) ($entry['date'] ?? '')); ?></p>
+                                        <span class="badge <?= sentiment_class($label); ?>"><?= esc($label); ?></span>
+                                    </header>
+                                    <h3><?= esc(ucfirst((string) ($entry['segment'] ?? ''))); ?> desk</h3>
+                                    <p class="update-score">Score <?= esc(sprintf('%.2f', $score)); ?></p>
+                                    <?php $signals = (array) ($entry['articles'] ?? []); ?>
+                                    <?php if ($signals !== []): ?>
+                                        <ul class="update-signals">
+                                            <?php foreach ($signals as $signal): ?>
+                                                <li><?= esc($signal); ?></li>
+                                            <?php endforeach; ?>
+                                        </ul>
+                                    <?php endif; ?>
+                                </article>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </section>
+
+                <section class="articles" id="signals">
+                    <div class="section-header">
+                        <div>
+                            <h2>Signals analysed</h2>
+                            <p class="muted">Dive into the underlying headlines powering the sentiment scores.</p>
+                        </div>
+                    </div>
+
+                    <?php if ($latestArticles === []): ?>
+                        <div class="empty-state">
+                            <p>No individual news items were retrieved.</p>
+                        </div>
+                    <?php else: ?>
+                        <div class="article-grid">
+                            <?php foreach ($latestArticles as $article): ?>
+                                <article class="article-card">
+                                    <header>
+                                        <h3><a href="<?= esc((string) ($article['url'] ?? '#')); ?>" target="_blank" rel="noopener"><?= esc((string) ($article['title'] ?? '')); ?></a></h3>
+                                        <p class="muted"><?= esc((string) ($article['source'] ?? '')); ?> · <?= esc((string) ($article['published_at'] ?? '')); ?></p>
+                                    </header>
+                                    <p><?= esc((string) ($article['summary'] ?? '')); ?></p>
+                                    <?php $sentiment = $article['sentiment'] ?? []; ?>
+                                    <p class="muted">Sentiment: <span class="badge <?= sentiment_class((string) ($sentiment['label'] ?? 'neutral')); ?>"><?= esc((string) ($sentiment['label'] ?? 'neutral')); ?></span> (<?= esc(sprintf('%.2f', (float) ($sentiment['score'] ?? 0.0))); ?>)</p>
+                                </article>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                </section>
+            <?php endif; ?>
+        </div>
     </main>
 
     <footer class="site-footer">
-        <div class="container">
-            <p>Powered by the open SemanticEngine. View the <a href="../docs">documentation</a> to extend the pipeline or explore the <a href="<?= htmlspecialchars($assetBase . '/knowledge-graph.php', ENT_QUOTES) ?>">global knowledge graph</a>.</p>
+        <div class="shell">
+            <p>Built for analysts who need conviction in seconds.</p>
         </div>
     </footer>
-
-    <script src="<?= htmlspecialchars($scriptPath . '?v=' . $scriptVersion, ENT_QUOTES) ?>" defer></script>
 </body>
 </html>

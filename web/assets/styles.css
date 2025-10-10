@@ -138,6 +138,18 @@ a:focus {
     font-weight: 700;
 }
 
+.badge.sentiment-positive {
+    background: rgba(74, 222, 128, 0.85);
+}
+
+.badge.sentiment-negative {
+    background: rgba(248, 113, 113, 0.85);
+}
+
+.badge.sentiment-neutral {
+    background: rgba(129, 140, 248, 0.85);
+}
+
 .hero {
     padding: 4rem 0 3rem;
 }
@@ -207,6 +219,34 @@ a:focus {
     font-weight: 600;
 }
 
+.hero-highlight {
+    margin-top: 2rem;
+    padding: 1.25rem;
+    border-radius: var(--radius-md);
+    background: rgba(56, 189, 248, 0.12);
+    text-align: left;
+}
+
+.hero-highlight__label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    margin: 0 0 0.35rem;
+    color: var(--text-muted);
+}
+
+.hero-highlight__title {
+    margin: 0 0 0.25rem;
+    font-size: 1rem;
+    line-height: 1.5;
+}
+
+.hero-highlight__meta {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
 .section-header {
     display: flex;
     flex-wrap: wrap;
@@ -227,7 +267,47 @@ a:focus {
     max-width: 520px;
 }
 
+.overview-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-weight: 600;
+}
+
+.tag-list.highlights {
+    margin-top: 1.5rem;
+}
+
+.scoreboard {
+    margin-top: 2rem;
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.score-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 1.75rem;
+    box-shadow: var(--shadow);
+}
+
+.score-card h3 {
+    margin: 0 0 0.75rem;
+}
+
+.score-value {
+    font-size: 2.25rem;
+    font-weight: 700;
+    margin: 0 0 0.75rem;
+}
+
 .catalog {
+    padding: 3rem 0;
+}
+
+.dashboard {
     padding: 3rem 0;
 }
 
@@ -500,6 +580,49 @@ a:focus {
 
 .timeline {
     padding: 3rem 0;
+}
+
+.updates-grid {
+    display: grid;
+    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.update-card {
+    background: var(--surface);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border);
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+    display: grid;
+    gap: 0.75rem;
+}
+
+.update-card header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.75rem;
+}
+
+.update-date {
+    margin: 0;
+    font-size: 0.95rem;
+    color: var(--text-muted);
+}
+
+.update-score {
+    margin: 0;
+    font-weight: 600;
+}
+
+.update-signals {
+    margin: 0;
+    padding-left: 1.1rem;
+    color: var(--text-muted);
+    display: grid;
+    gap: 0.35rem;
+    list-style: disc;
 }
 
 .timeline-table-wrapper {
