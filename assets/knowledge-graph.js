@@ -102,6 +102,58 @@
         return date.toLocaleString();
     }
 
+    function capitalize(value) {
+        if (typeof value !== 'string' || value.length === 0) {
+            return '';
+        }
+        return value.charAt(0).toUpperCase() + value.slice(1);
+    }
+
+    function summariseAnalytics(analytics) {
+        if (!analytics || typeof analytics !== 'object') {
+            return '';
+        }
+
+        const parts = [];
+        const sentiment = analytics.sentiment;
+        if (sentiment && typeof sentiment === 'object') {
+            const label = typeof sentiment.label === 'string' ? sentiment.label : 'neutral';
+            const score = Number(sentiment.score ?? NaN);
+            const scoreText = Number.isFinite(score) ? `${score >= 0 ? '+' : ''}${score.toFixed(2)}` : '';
+            parts.push(`Sentiment: ${capitalize(label)}${scoreText ? ` (${scoreText})` : ''}`);
+        }
+
+        const intent = analytics.intent;
+        if (intent && typeof intent === 'object' && typeof intent.primary === 'string') {
+            const confidence = Number(intent.confidence ?? NaN);
+            const confidenceText = Number.isFinite(confidence) ? `${(confidence * 100).toFixed(0)}%` : '';
+            parts.push(`Intent: ${capitalize(intent.primary)}${confidenceText ? ` (${confidenceText})` : ''}`);
+        }
+
+        const factuality = analytics.factuality;
+        if (factuality && typeof factuality === 'object' && typeof factuality.classification === 'string') {
+            const factScore = Number(factuality.score ?? NaN);
+            const factText = Number.isFinite(factScore) ? `${(factScore * 100).toFixed(0)}%` : '';
+            parts.push(`Factuality: ${capitalize(factuality.classification)}${factText ? ` (${factText})` : ''}`);
+        }
+
+        if (analytics.conversation && analytics.conversation.is_conversational) {
+            parts.push('Conversation detected');
+        }
+
+        const narrative = analytics.narrative;
+        if (narrative && typeof narrative === 'object' && narrative.certainty && typeof narrative.certainty === 'object') {
+            const tone = typeof narrative.certainty.tone === 'string' ? narrative.certainty.tone : '';
+            const certaintyScore = Number(narrative.certainty.score ?? NaN);
+            const certaintyText = Number.isFinite(certaintyScore) ? `${(certaintyScore * 100).toFixed(0)}%` : '';
+            if (tone || certaintyText) {
+                parts.push(`Certainty: ${tone ? capitalize(tone) : 'Balanced'}${certaintyText ? ` (${certaintyText})` : ''}`);
+            }
+        }
+
+        return parts.join(' · ');
+    }
+
     function toggleLoading(isLoading) {
         if (!form) {
             return;
