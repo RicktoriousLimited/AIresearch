@@ -1541,8 +1541,11 @@ final class HiddenCrawler
         $quality = $this->evaluateQuality($entry, $scraped);
         $recommendations = $this->recommendSources($filteredLinks, (string) ($quality['source_domain'] ?? ''));
 
-        $graphContext = ['ingested' => false];
-        if ($this->graphService !== null && ($quality['ingest'] ?? false)) {
+        $graphContext = [
+            'ingested' => false,
+            'quality_gate_passed' => !empty($quality['ingest']),
+        ];
+        if ($this->graphService !== null) {
             try {
                 $graphResult = $this->graphService->ingestScrapeResult($scraped);
                 $graphContext['ingested'] = true;
@@ -2484,7 +2487,7 @@ final class HiddenCrawler
 
         if (empty($entry['meaningful'])) {
             $score -= 18.0;
-            $reasons[] = 'Discarded meaningless text – no coherent sentences detected.';
+            $reasons[] = 'Flagged meaningless text – no coherent sentences detected.';
         }
 
         if ($this->isLowConfidenceDomain($domain)) {
@@ -2502,13 +2505,19 @@ final class HiddenCrawler
 
         $score = max(0.0, min(100.0, $score));
         $label = $this->labelForScore($score);
+        $meetsQualityGate = $score >= 60.0;
+
+        if (!$meetsQualityGate) {
+            $reasons[] = 'Quality below recommended threshold – included for comprehensive coverage.';
+        }
+
         $reasons = array_values(array_unique($reasons));
 
         return [
             'quality_score' => round($score, 1),
             'quality_label' => $label,
             'quality_reasons' => $reasons,
-            'ingest' => $score >= 60.0,
+            'ingest' => $meetsQualityGate,
             'source_domain' => $domain,
             'source_site_name' => is_array($meta) ? (string) ($meta['site_name'] ?? '') : '',
             'source_language' => is_array($meta) ? (string) ($meta['language'] ?? '') : '',
