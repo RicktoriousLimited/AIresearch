@@ -38,6 +38,19 @@ assertTrue(strpos($rewrite, '- Builds pipeline') !== false, 'Rewrite should capi
 assertTrue(strpos($rewrite, '- Cleans datasets') !== false, 'Rewrite should capitalise each bullet item.');
 assertTrue(strpos($rewrite, 'Alice smyth wrks on data minng.') === false, 'Rewrite should not resurrect filtered sentences.');
 
+$numberedList = "1. first milestone\n2) second milestone\nIII. third stage\n4 - final step";
+$numberedCleaned = $refiner->cleanDocument($numberedList);
+assertTrue(strpos($numberedCleaned, '- first milestone') !== false, 'Expected numbered list to be normalised to bullets.');
+assertTrue(strpos($numberedCleaned, '- second milestone') !== false, 'Expected parenthesised numbering to be normalised to bullets.');
+assertTrue(strpos($numberedCleaned, '- third stage') !== false, 'Expected roman numerals to be normalised to bullets.');
+assertTrue(strpos($numberedCleaned, '- final step') !== false, 'Expected hyphenated numbering to be normalised to bullets.');
+
+$numberedRewrite = $refiner->rewriteDocument($numberedList);
+assertTrue(strpos($numberedRewrite, '- First milestone') !== false, 'Rewrite should capitalise normalised bullet entries.');
+assertTrue(strpos($numberedRewrite, '- Second milestone') !== false, 'Rewrite should capitalise numbered list entries.');
+assertTrue(strpos($numberedRewrite, '- Third stage') !== false, 'Rewrite should capitalise roman numeral list entries.');
+assertTrue(strpos($numberedRewrite, '- Final step') !== false, 'Rewrite should capitalise hyphenated numbering entries.');
+
 $keywords = $refiner->extractKeywords($raw, 5);
 assertNotEmpty($keywords, 'Expected keywords to be detected.');
 $keywordTokens = array_map(static fn(array $entry): string => $entry['token'], $keywords);

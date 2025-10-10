@@ -728,12 +728,14 @@ final class TextRefiner
                 $normalized = $trimmed;
             }
 
-            $normalized = preg_replace('/^[\-*•·]+\s*/u', '- ', $normalized);
+            $normalized = preg_replace('/^[\-*•·‣‒–—]+\s*/u', '- ', $normalized);
             if (!is_string($normalized)) {
                 $normalized = $trimmed;
             }
 
             $normalized = $this->normalizeInlineSpacing($normalized);
+
+            $normalized = $this->normaliseListIndicators($normalized);
 
             $cleanedLines[] = $normalized;
         }
@@ -750,6 +752,39 @@ final class TextRefiner
         return trim($result);
     }
 
+    private function normaliseListIndicators(string $line): string
+    {
+        $trimmedLeft = ltrim($line);
+        if ($trimmedLeft === '') {
+            return $line;
+        }
+
+        $indentLength = strlen($line) - strlen($trimmedLeft);
+        $indent = $indentLength > 0 ? substr($line, 0, $indentLength) : '';
+
+        $patterns = [
+            '/^(?:\(?\d{1,3}\)?)[\.)]\s+(.+)$/u',
+            '/^(?:\(?[a-z]{1,3}\)?)[\.)]\s+(.+)$/iu',
+            '/^(?:[ivxlcdm]{1,5})[\.)]\s+(.+)$/iu',
+            '/^\d+\s*[-–—]\s+(.+)$/u',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (!preg_match($pattern, $trimmedLeft, $matches)) {
+                continue;
+            }
+
+            $content = isset($matches[1]) ? trim($matches[1]) : '';
+            if ($content === '') {
+                continue;
+            }
+
+            return $indent . '- ' . $content;
+        }
+
+        return $line;
+    }
+
     private function normalizeInlineSpacing(string $line): string
     {
         $result = $line;
@@ -757,13 +792,23 @@ final class TextRefiner
         $patterns = [
             '/:(?=\S)/u' => ': ',
             '/,(?=\S)/u' => ', ',
-            '/(?<=\p{L})(?=\d)/u' => ' ',
-            '/(?<=\d)(?=\p{L})/u' => ' ',
-            '/(?<=[a-z])(?=[A-Z])/u' => ' ',
-            '/(?<=[A-Z]{2,})(?=[A-Z][a-z])/u' => ' ',
         ];
 
         foreach ($patterns as $pattern => $replacement) {
+            $updated = preg_replace($pattern, $replacement, $result);
+            if (is_string($updated)) {
+                $result = $updated;
+            }
+        }
+
+        $replacements = [
+            '/(\p{L})(\d)/u' => '$1 $2',
+            '/(\d)(\p{L})/u' => '$1 $2',
+            '/([a-z])([A-Z])/u' => '$1 $2',
+            '/([A-Z]{2,})([A-Z][a-z])/u' => '$1 $2',
+        ];
+
+        foreach ($replacements as $pattern => $replacement) {
             $updated = preg_replace($pattern, $replacement, $result);
             if (is_string($updated)) {
                 $result = $updated;
@@ -2865,6 +2910,7 @@ final class TextRefiner
         $allCapitalized = true;
         $stopwordCount = 0;
         $navigationMatches = 0;
+        $categoryMatches = 0;
         $lowerTokens = [];
 
         foreach ($tokens as $token) {
