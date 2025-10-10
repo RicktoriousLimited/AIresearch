@@ -27,6 +27,15 @@ if (count($result) !== 1) {
     throw new RuntimeException('Expected a single crawl result.');
 }
 
+$first = $result[0];
+if (!isset($first['category']) || !in_array($first['category'], ['financial', 'global'], true)) {
+    throw new RuntimeException('Crawler results should include a valid category label.');
+}
+
+if (!isset($first['topics']) || !is_array($first['topics']) || $first['topics'] === []) {
+    throw new RuntimeException('Crawler results should include at least one topic.');
+}
+
 $history = $crawler->history();
 if ($history === []) {
     throw new RuntimeException('Crawler history should persist results.');
