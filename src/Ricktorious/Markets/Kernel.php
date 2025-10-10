@@ -4,20 +4,23 @@ declare(strict_types=1);
 
 namespace Ricktorious\Markets;
 
-use Ricktorious\Markets\Insights\MarketIntelligenceReportBuilder;
-use Ricktorious\Markets\Insights\SentimentAnalyzer;
-use Ricktorious\Markets\Insights\TimelineBuilder;
-use Ricktorious\Markets\News\NewsCrawler;
-use Ricktorious\Markets\News\Sources\GoogleNewsSource;
-use Ricktorious\Markets\News\Sources\StaticNewsSource;
+use Ricktorious\Markets\Data\LocalMarketDataRepository;
+use Ricktorious\Markets\Services\CompanyNewsService;
+use Ricktorious\Markets\Services\MarketOverviewService;
+use Ricktorious\Markets\Services\SearchService;
+use RuntimeException;
 
 final class Kernel
 {
     private bool $booted = false;
 
-    private NewsCrawler $crawler;
+    private LocalMarketDataRepository $repository;
 
-    private MarketIntelligenceReportBuilder $reportBuilder;
+    private MarketOverviewService $overviewService;
+
+    private CompanyNewsService $companyNewsService;
+
+    private SearchService $searchService;
 
     /**
      * @param array<string, mixed> $config
@@ -33,31 +36,46 @@ final class Kernel
         }
 
         $config = $this->buildConfig($this->config);
+        $datasetPath = (string) ($config['data']['path'] ?? '');
 
-        $sources = [
-            new GoogleNewsSource($config['sources']['google_news']['endpoint']),
-            new StaticNewsSource($config['sources']['static']['path']),
-        ];
+        if ($datasetPath === '') {
+            throw new RuntimeException('Market dataset path is not configured.');
+        }
 
-        $this->crawler = new NewsCrawler($sources);
-        $sentimentAnalyzer = new SentimentAnalyzer();
-        $timelineBuilder = new TimelineBuilder();
-
-        $this->reportBuilder = new MarketIntelligenceReportBuilder(
-            $this->crawler,
-            $sentimentAnalyzer,
-            $timelineBuilder,
-            (int) ($config['limits']['articles'] ?? 30)
-        );
+        $this->repository = new LocalMarketDataRepository($datasetPath);
+        $this->overviewService = new MarketOverviewService($this->repository);
+        $this->companyNewsService = new CompanyNewsService($this->repository);
+        $this->searchService = new SearchService($this->repository);
 
         $this->booted = true;
     }
 
-    public function reportBuilder(): MarketIntelligenceReportBuilder
+    public function overviewService(): MarketOverviewService
     {
         $this->boot();
 
-        return $this->reportBuilder;
+        return $this->overviewService;
+    }
+
+    public function companyNewsService(): CompanyNewsService
+    {
+        $this->boot();
+
+        return $this->companyNewsService;
+    }
+
+    public function searchService(): SearchService
+    {
+        $this->boot();
+
+        return $this->searchService;
+    }
+
+    public function repository(): LocalMarketDataRepository
+    {
+        $this->boot();
+
+        return $this->repository;
     }
 
     /**
@@ -81,16 +99,8 @@ final class Kernel
         $resources = $root . '/resources/markets';
 
         $defaults = [
-            'sources' => [
-                'google_news' => [
-                    'endpoint' => 'https://news.google.com/rss/search',
-                ],
-                'static' => [
-                    'path' => $resources . '/sample-news.json',
-                ],
-            ],
-            'limits' => [
-                'articles' => 30,
+            'data' => [
+                'path' => $resources . '/market-data.json',
             ],
         ];
 
