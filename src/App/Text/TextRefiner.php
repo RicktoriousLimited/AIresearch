@@ -547,6 +547,22 @@ final class TextRefiner
     ];
 
     /** @var array<string, bool> */
+    private static array $categoryVocabulary = [
+        'climate' => true,
+        'consumer' => true,
+        'culture' => true,
+        'energy' => true,
+        'finance' => true,
+        'geopolitics' => true,
+        'healthcare' => true,
+        'markets' => true,
+        'science' => true,
+        'sports' => true,
+        'technology' => true,
+        'transportation' => true,
+    ];
+
+    /** @var array<string, bool> */
     private static array $positiveSentimentWords = [
         'advance' => true,
         'amazing' => true,
@@ -717,6 +733,8 @@ final class TextRefiner
                 $normalized = $trimmed;
             }
 
+            $normalized = $this->normalizeInlineSpacing($normalized);
+
             $cleanedLines[] = $normalized;
         }
 
@@ -727,6 +745,44 @@ final class TextRefiner
         $result = preg_replace("/\n{3,}/", "\n\n", $result);
         if (!is_string($result)) {
             $result = implode("\n", $filtered);
+        }
+
+        return trim($result);
+    }
+
+    private function normalizeInlineSpacing(string $line): string
+    {
+        $result = $line;
+
+        $patterns = [
+            '/:(?=\S)/u' => ': ',
+            '/,(?=\S)/u' => ', ',
+            '/(?<=\p{L})(?=\d)/u' => ' ',
+            '/(?<=\d)(?=\p{L})/u' => ' ',
+            '/(?<=[a-z])(?=[A-Z])/u' => ' ',
+            '/(?<=[A-Z]{2,})(?=[A-Z][a-z])/u' => ' ',
+        ];
+
+        foreach ($patterns as $pattern => $replacement) {
+            $updated = preg_replace($pattern, $replacement, $result);
+            if (is_string($updated)) {
+                $result = $updated;
+            }
+        }
+
+        $updated = preg_replace('/\b(\d{1,2}:\d{2})\s*([A-Z]{2,5})\b/u', '$1 $2', $result);
+        if (is_string($updated)) {
+            $result = $updated;
+        }
+
+        $updated = preg_replace('/\b([A-Z]{2,5})\s*(\d{1,2}:\d{2})\b/u', '$1 $2', $result);
+        if (is_string($updated)) {
+            $result = $updated;
+        }
+
+        $updated = preg_replace('/\s{2,}/u', ' ', $result);
+        if (is_string($updated)) {
+            $result = $updated;
         }
 
         return trim($result);
@@ -2675,6 +2731,7 @@ final class TextRefiner
         $tokenCount = 0;
         $boilerplateMatches = 0;
         $navigationMatches = 0;
+        $categoryMatches = 0;
         $stopwordMatches = 0;
         $uniqueTokens = [];
         foreach ($tokens as $token) {
@@ -2753,11 +2810,35 @@ final class TextRefiner
             return true;
         }
 
+        if (preg_match('/^\d+s\s+ago$/i', $normalized) === 1) {
+            return true;
+        }
+
         if (preg_match('/^\d{1,3}(?:,\d{3})*\s+(?:viewing|views)\b/i', $normalized) === 1) {
             return true;
         }
 
         if (preg_match('/^\d{1,2}:\d{2}$/', $normalized) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^revision\s+\d+/i', $normalized) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^keywords?\s+added/i', $normalized) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^[+-]?\d+(?:,\d{3})*(?:\.\d+)?\s+(?:characters|words)$/i', $normalized) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^[a-z0-9.-]+\s+·\s*\d+(?:\.\d+)?$/i', $normalized) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^(?:high|medium|low)\s*·\s*\d+(?:\.\d+)?$/i', $normalized) === 1) {
             return true;
         }
 
@@ -2797,6 +2878,10 @@ final class TextRefiner
             if (isset(self::$stopwords[$lower])) {
                 $stopwordCount++;
             }
+
+            if (isset(self::$categoryVocabulary[$lower])) {
+                $categoryMatches++;
+            }
             if ($this->lexicon->contains($lower)) {
                 $recognized++;
                 continue;
@@ -2828,6 +2913,14 @@ final class TextRefiner
         }
 
         if ($navigationMatches >= 2 && $navigationMatches >= ($candidateCount / 2)) {
+            return true;
+        }
+
+        if (
+            $categoryMatches >= 2
+            && $candidateCount > 0
+            && ($categoryMatches / $candidateCount) >= 0.6
+        ) {
             return true;
         }
 
