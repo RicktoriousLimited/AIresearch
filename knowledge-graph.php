@@ -259,6 +259,62 @@ if (!is_string($initialJson)) {
             <?php endif; ?>
         </section>
 
+        <section class="panel autopilot-panel">
+            <header class="panel-header">
+                <div>
+                    <h2>Autopilot research brief</h2>
+                    <p class="panel-subtitle">Blend every stored analysis into a single knowledge graph brief with citations, supporting media, and uniqueness scoring.</p>
+                </div>
+                <div class="panel-actions">
+                    <button type="button" class="button tertiary" data-report-refresh>Refresh insights</button>
+                </div>
+            </header>
+            <div class="grid autopilot-grid">
+                <article class="card span-2">
+                    <h3>Compose a prompt</h3>
+                    <form class="report-form" data-report-form>
+                        <div class="form-group">
+                            <label for="report-query">Focus area</label>
+                            <textarea id="report-query" data-report-query placeholder="e.g. Cross-industry AI investments in 2024" spellcheck="false"></textarea>
+                            <p class="help-text">The brief builder compares all crawled sources, scores uniqueness, and fuses overlapping narratives into a single report.</p>
+                        </div>
+                        <div class="report-actions">
+                            <button type="submit" class="button primary">Generate brief</button>
+                        </div>
+                        <p class="status" data-report-status hidden></p>
+                    </form>
+                </article>
+                <article class="card span-3">
+                    <h3>Instant brief</h3>
+                    <div class="report-output" data-report-output>
+                        <p class="card-subtle" data-report-empty>Run a brief to cross-reference the latest sources, citations, and imagery.</p>
+                        <div class="report-results" data-report-results hidden>
+                            <div class="report-summary" data-report-summary></div>
+                            <div class="report-topics" data-report-topics-wrapper>
+                                <h4>Key themes</h4>
+                                <ul data-report-topics></ul>
+                            </div>
+                            <div class="report-highlights" data-report-highlights></div>
+                            <div class="report-combined" data-report-combined-wrapper>
+                                <h4>Cross-referenced insights</h4>
+                                <ol data-report-combined></ol>
+                            </div>
+                            <div class="report-citations" data-report-citations-wrapper>
+                                <h4>Citations &amp; assets</h4>
+                                <ol data-report-citations></ol>
+                                <div class="report-images" data-report-images></div>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+                <article class="card span-3">
+                    <h3>Document comparison</h3>
+                    <p class="card-subtle" data-comparison-empty>Once sources are ingested their uniqueness scores and overlaps will appear here.</p>
+                    <div class="document-comparison" data-report-comparison hidden></div>
+                </article>
+            </div>
+        </section>
+
         <section class="panel research-console">
             <header class="panel-header">
                 <div>
