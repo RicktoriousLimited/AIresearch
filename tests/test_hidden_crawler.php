@@ -139,5 +139,12 @@ if ((int) ($archived[0]['revision'] ?? 0) !== 1) {
 }
 
 unlink($storage);
+$progressFile = preg_replace('/\.json$/', '.progress.json', $storage);
+if (!is_string($progressFile)) {
+    $progressFile = $storage . '.progress.json';
+}
+if (file_exists($progressFile)) {
+    unlink($progressFile);
+}
 
 echo "HiddenCrawler tests passed\n";
