@@ -23,6 +23,7 @@ final class TextRefiner
         'are' => true,
         'as' => true,
         'at' => true,
+        'away' => true,
         'be' => true,
         'but' => true,
         'by' => true,
@@ -30,12 +31,15 @@ final class TextRefiner
         'from' => true,
         'has' => true,
         'have' => true,
+        'into' => true,
         'in' => true,
         'is' => true,
         'it' => true,
         'its' => true,
+        'off' => true,
         'of' => true,
         'on' => true,
+        'onto' => true,
         'or' => true,
         'that' => true,
         'the' => true,
@@ -46,6 +50,342 @@ final class TextRefiner
         'were' => true,
         'with' => true,
         'your' => true,
+    ];
+
+    /** @var array<string, bool> */
+    private static array $pronouns = [
+        'i' => true,
+        'you' => true,
+        'he' => true,
+        'she' => true,
+        'it' => true,
+        'we' => true,
+        'they' => true,
+        'me' => true,
+        'him' => true,
+        'her' => true,
+        'us' => true,
+        'them' => true,
+        'this' => true,
+        'that' => true,
+        'these' => true,
+        'those' => true,
+        'someone' => true,
+        'somebody' => true,
+        'anyone' => true,
+        'anybody' => true,
+        'everyone' => true,
+        'everybody' => true,
+        'who' => true,
+        'which' => true,
+        'there' => true,
+        'people' => true,
+        'person' => true,
+        'team' => true,
+        'company' => true,
+        'government' => true,
+        'market' => true,
+    ];
+
+    /** @var array<string, bool> */
+    private static array $clausePronouns = [
+        'i' => true,
+        'you' => true,
+        'he' => true,
+        'she' => true,
+        'it' => true,
+        'we' => true,
+        'they' => true,
+        'this' => true,
+        'these' => true,
+        'those' => true,
+        'there' => true,
+    ];
+
+    /** @var array<string, bool> */
+    private static array $nonSubjectVocabulary = [
+        'above' => true,
+        'across' => true,
+        'after' => true,
+        'along' => true,
+        'amid' => true,
+        'amidst' => true,
+        'among' => true,
+        'around' => true,
+        'behind' => true,
+        'below' => true,
+        'beneath' => true,
+        'beside' => true,
+        'besides' => true,
+        'between' => true,
+        'beyond' => true,
+        'down' => true,
+        'inside' => true,
+        'near' => true,
+        'outside' => true,
+        'over' => true,
+        'through' => true,
+        'throughout' => true,
+        'toward' => true,
+        'towards' => true,
+        'under' => true,
+        'underneath' => true,
+        'up' => true,
+        'upon' => true,
+        'within' => true,
+        'without' => true,
+    ];
+
+    /** @var array<string, bool> */
+    private static array $verbForms = [
+        'am' => true,
+        'are' => true,
+        'be' => true,
+        'been' => true,
+        'being' => true,
+        'is' => true,
+        'was' => true,
+        'were' => true,
+        'do' => true,
+        'does' => true,
+        'did' => true,
+        'done' => true,
+        'can' => true,
+        'could' => true,
+        'will' => true,
+        'would' => true,
+        'shall' => true,
+        'should' => true,
+        'may' => true,
+        'might' => true,
+        'must' => true,
+        'need' => true,
+        'needs' => true,
+        'needed' => true,
+        'seem' => true,
+        'seems' => true,
+        'seemed' => true,
+        'seeming' => true,
+        'go' => true,
+        'goes' => true,
+        'going' => true,
+        'went' => true,
+        'gone' => true,
+        'make' => true,
+        'makes' => true,
+        'made' => true,
+        'take' => true,
+        'takes' => true,
+        'taking' => true,
+        'took' => true,
+        'taken' => true,
+        'come' => true,
+        'comes' => true,
+        'coming' => true,
+        'came' => true,
+        'run' => true,
+        'runs' => true,
+        'running' => true,
+        'ran' => true,
+        'sang' => true,
+        'sing' => true,
+        'sings' => true,
+        'sung' => true,
+        'say' => true,
+        'says' => true,
+        'saying' => true,
+        'said' => true,
+        'see' => true,
+        'sees' => true,
+        'seeing' => true,
+        'saw' => true,
+        'seen' => true,
+        'know' => true,
+        'knows' => true,
+        'knowing' => true,
+        'knew' => true,
+        'known' => true,
+        'think' => true,
+        'thinks' => true,
+        'thinking' => true,
+        'thought' => true,
+        'get' => true,
+        'gets' => true,
+        'getting' => true,
+        'got' => true,
+        'give' => true,
+        'gives' => true,
+        'giving' => true,
+        'gave' => true,
+        'given' => true,
+        'work' => true,
+        'works' => true,
+        'working' => true,
+        'worked' => true,
+        'call' => true,
+        'calls' => true,
+        'calling' => true,
+        'called' => true,
+        'feel' => true,
+        'feels' => true,
+        'feeling' => true,
+        'felt' => true,
+        'try' => true,
+        'tries' => true,
+        'trying' => true,
+        'tried' => true,
+        'leave' => true,
+        'leaves' => true,
+        'leaving' => true,
+        'left' => true,
+        'bring' => true,
+        'brings' => true,
+        'bringing' => true,
+        'brought' => true,
+        'begin' => true,
+        'begins' => true,
+        'beginning' => true,
+        'began' => true,
+        'begun' => true,
+        'keep' => true,
+        'keeps' => true,
+        'keeping' => true,
+        'kept' => true,
+        'hold' => true,
+        'holds' => true,
+        'holding' => true,
+        'held' => true,
+        'hear' => true,
+        'hears' => true,
+        'hearing' => true,
+        'heard' => true,
+        'play' => true,
+        'plays' => true,
+        'playing' => true,
+        'played' => true,
+        'move' => true,
+        'moves' => true,
+        'moving' => true,
+        'moved' => true,
+        'live' => true,
+        'lives' => true,
+        'living' => true,
+        'lived' => true,
+        'believe' => true,
+        'believes' => true,
+        'believing' => true,
+        'believed' => true,
+        'happen' => true,
+        'happens' => true,
+        'happening' => true,
+        'happened' => true,
+        'provide' => true,
+        'provides' => true,
+        'providing' => true,
+        'provided' => true,
+        'create' => true,
+        'creates' => true,
+        'creating' => true,
+        'created' => true,
+        'support' => true,
+        'supports' => true,
+        'supporting' => true,
+        'supported' => true,
+        'drive' => true,
+        'drives' => true,
+        'driving' => true,
+        'drove' => true,
+        'driven' => true,
+        'lead' => true,
+        'leads' => true,
+        'leading' => true,
+        'led' => true,
+        'grow' => true,
+        'grows' => true,
+        'growing' => true,
+        'grew' => true,
+        'grown' => true,
+        'improve' => true,
+        'improves' => true,
+        'improving' => true,
+        'improved' => true,
+        'deliver' => true,
+        'delivers' => true,
+        'delivering' => true,
+        'delivered' => true,
+        'launch' => true,
+        'launches' => true,
+        'launching' => true,
+        'launched' => true,
+        'report' => true,
+        'reports' => true,
+        'reporting' => true,
+        'reported' => true,
+        'announce' => true,
+        'announces' => true,
+        'announcing' => true,
+        'announced' => true,
+        'plan' => true,
+        'plans' => true,
+        'planning' => true,
+        'planned' => true,
+        'love' => true,
+        'loves' => true,
+        'loving' => true,
+        'loved' => true,
+        'win' => true,
+        'wins' => true,
+        'winning' => true,
+        'won' => true,
+        'walk' => true,
+        'walks' => true,
+        'walking' => true,
+        'walked' => true,
+        'talk' => true,
+        'talks' => true,
+        'talking' => true,
+        'talked' => true,
+        'read' => true,
+        'reads' => true,
+        'reading' => true,
+        'wrote' => true,
+        'write' => true,
+        'writes' => true,
+        'writing' => true,
+        'eat' => true,
+        'eats' => true,
+        'eating' => true,
+        'ate' => true,
+        'eaten' => true,
+        'drink' => true,
+        'drinks' => true,
+        'drinking' => true,
+        'drank' => true,
+        'drunk' => true,
+        'build' => true,
+        'builds' => true,
+        'building' => true,
+        'built' => true,
+        'study' => true,
+        'studies' => true,
+        'studying' => true,
+        'studied' => true,
+        'learn' => true,
+        'learns' => true,
+        'learning' => true,
+        'learned' => true,
+        'learnt' => true,
+        'monitor' => true,
+        'monitors' => true,
+        'monitoring' => true,
+        'monitored' => true,
+        'analyze' => true,
+        'analyzes' => true,
+        'analyzing' => true,
+        'analysed' => true,
+        'analyse' => true,
+        'analyses' => true,
+        'analysing' => true,
     ];
 
     /** @var array<string, bool> */
@@ -381,6 +721,7 @@ final class TextRefiner
         }
 
         $filtered = $this->filterContextualLines($cleanedLines);
+        $filtered = $this->removeUngrammaticalSentences($filtered);
 
         $result = implode("\n", $filtered);
         $result = preg_replace("/\n{3,}/", "\n\n", $result);
@@ -2124,6 +2465,61 @@ final class TextRefiner
         return $filtered;
     }
 
+    /**
+     * @param array<int, string> $lines
+     * @return array<int, string>
+     */
+    private function removeUngrammaticalSentences(array $lines): array
+    {
+        $cleaned = [];
+
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+
+            if ($trimmed === '') {
+                $cleaned[] = '';
+                continue;
+            }
+
+            $leading = ltrim($line);
+            if (preg_match('/^[-•·]+\s+/u', $leading) === 1) {
+                $cleaned[] = $line;
+                continue;
+            }
+
+            if (preg_match('/[.!?]/u', $line) !== 1) {
+                $cleaned[] = $line;
+                continue;
+            }
+
+            $sentences = preg_split('/(?<=[.!?])\s+/u', $line);
+            if ($sentences === false) {
+                $cleaned[] = $line;
+                continue;
+            }
+
+            $validSentences = [];
+            foreach ($sentences as $sentence) {
+                $candidate = trim($sentence);
+                if ($candidate === '') {
+                    continue;
+                }
+
+                if ($this->isGrammaticallySoundSentence($candidate)) {
+                    $validSentences[] = $candidate;
+                }
+            }
+
+            if ($validSentences === []) {
+                continue;
+            }
+
+            $cleaned[] = implode(' ', $validSentences);
+        }
+
+        return $cleaned;
+    }
+
     private function looksLikeBoilerplate(string $line): bool
     {
         if ($line === '') {
@@ -2364,6 +2760,206 @@ final class TextRefiner
         return false;
     }
 
+    private function isGrammaticallySoundSentence(string $sentence): bool
+    {
+        $stripped = trim($sentence, " \t\n\r\0\x0B\"'“”‘’()[]{}<>");
+        if ($stripped === '') {
+            return false;
+        }
+
+        if (preg_match('/^\p{Lu}/u', $stripped) !== 1) {
+            return false;
+        }
+
+        if (preg_match("/[.!?][\"'\\)\\]\\}»“”]*$/u", $stripped) !== 1) {
+            return false;
+        }
+
+        if (preg_match_all('/\b[\p{L}\']+\b/u', $stripped, $wordMatches) < 2) {
+            return false;
+        }
+
+        $lower = mb_strtolower($stripped, 'UTF-8');
+
+        if (preg_match('/[^\x00-\x7F]/u', $stripped) === 1) {
+            return true;
+        }
+
+        $tokens = $wordMatches[0] ?? [];
+
+        if (!$this->containsVerbCandidate($lower, $tokens)) {
+            return false;
+        }
+
+        if ($this->startsWithDependentClause($lower) && strpos($stripped, ',') === false) {
+            return false;
+        }
+
+        if ($this->looksLikeRunOnSentence($stripped)) {
+            return false;
+        }
+
+        $firstVerbIndex = null;
+        foreach ($tokens as $index => $token) {
+            $lowerToken = mb_strtolower($token, 'UTF-8');
+            if ($firstVerbIndex === null && $this->isLikelyVerbToken($lowerToken)) {
+                $firstVerbIndex = $index;
+            }
+        }
+
+        if ($firstVerbIndex === null) {
+            return false;
+        }
+
+        $subjectFound = false;
+        foreach ($tokens as $index => $token) {
+            if ($index >= $firstVerbIndex) {
+                break;
+            }
+
+            $lowerToken = mb_strtolower($token, 'UTF-8');
+            if ($this->tokenIsSubjectCandidate($token, $lowerToken)) {
+                $subjectFound = true;
+                break;
+            }
+        }
+
+        if ($subjectFound) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function isLikelyVerbToken(string $token): bool
+    {
+        if ($token === '') {
+            return false;
+        }
+
+        if (isset(self::$verbForms[$token])) {
+            return true;
+        }
+
+        return preg_match('/^[a-z]{3,}(?:ed|ing|en|es)$/u', $token) === 1;
+    }
+
+    /**
+     * @param array<int, string> $tokens
+     */
+    private function containsVerbCandidate(string $lowerSentence, array $tokens): bool
+    {
+        if (
+            preg_match(
+                '/\b(?:am|is|are|was|were|be|been|being|has|have|had|do|does|did|can|could|will|would|shall|should|may|might|must|need|needs|needed|seem|seems|seemed|seeming)\b/u',
+                $lowerSentence
+            ) === 1
+        ) {
+            return true;
+        }
+
+        foreach ($tokens as $token) {
+            $lowerToken = mb_strtolower($token, 'UTF-8');
+            if ($this->isLikelyVerbToken($lowerToken)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function tokenIsSubjectCandidate(string $token, string $lowerToken): bool
+    {
+        if (isset(self::$pronouns[$lowerToken])) {
+            return true;
+        }
+
+        if (isset(self::$stopwords[$lowerToken]) || isset(self::$nonSubjectVocabulary[$lowerToken])) {
+            return false;
+        }
+
+        if ($this->isLikelyVerbToken($lowerToken)) {
+            return false;
+        }
+
+        if ($this->lexicon->contains($lowerToken)) {
+            return true;
+        }
+
+        return preg_match('/^[A-Z][\p{L}\']*/u', $token) === 1;
+    }
+
+    private function looksLikeClauseSubject(string $token, string $lowerToken): bool
+    {
+        if (isset(self::$clausePronouns[$lowerToken])) {
+            return true;
+        }
+
+        return preg_match('/^[A-Z][\p{L}\']*/u', $token) === 1;
+    }
+
+    private function startsWithDependentClause(string $lowerSentence): bool
+    {
+        foreach ([
+            'because',
+            'although',
+            'though',
+            'while',
+            'since',
+            'unless',
+            'until',
+            'if',
+            'when',
+            'whenever',
+            'whereas',
+            'wherever',
+            'after',
+            'before',
+        ] as $starter) {
+            if (str_starts_with($lowerSentence, $starter . ' ')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function looksLikeRunOnSentence(string $sentence): bool
+    {
+        if (strpos($sentence, ',') !== false || strpos($sentence, ';') !== false) {
+            return false;
+        }
+
+        $lower = mb_strtolower($sentence, 'UTF-8');
+        if (preg_match('/\b(?:and|but|or|so|yet|for|nor|because|although|while|since|after|before|though|however|therefore)\b/u', $lower) === 1) {
+            return false;
+        }
+
+        if (preg_match_all('/\b[\p{L}\']+\b/u', $sentence, $matches) < 2) {
+            return false;
+        }
+
+        $words = $matches[0];
+        $subjectVerbPairs = 0;
+        $hasSubject = false;
+
+        foreach ($words as $word) {
+            $lowerWord = mb_strtolower($word, 'UTF-8');
+
+            if (!$hasSubject && $this->looksLikeClauseSubject($word, $lowerWord)) {
+                $hasSubject = true;
+                continue;
+            }
+
+            if ($hasSubject && $this->isLikelyVerbToken($lowerWord)) {
+                $subjectVerbPairs++;
+                $hasSubject = false;
+            }
+        }
+
+        return $subjectVerbPairs >= 2;
+    }
+
     private function looksLikeNavigationCluster(string $line): bool
     {
         $normalized = strtolower(trim($line));
@@ -2419,7 +3015,7 @@ final class TextRefiner
             return '';
         }
 
-        $normalized = preg_replace('/[^a-z0-9]+/u', '', $normalized);
+        $normalized = preg_replace('/[^\p{L}\p{N}]+/u', '', $normalized);
         if (!is_string($normalized)) {
             return '';
         }
@@ -2437,23 +3033,28 @@ final class TextRefiner
         $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
         $text = preg_replace(
-            '/<\s*(?:script|style|noscript|template)\b[^>]*>.*?<\s*\/\s*(?:script|style|noscript|template)\s*>/is',
+            '/<\s*(?:script|style|noscript|template)\b[^>]*>.*?<\s*\/\s*(?:script|style|noscript|template)\s*>/isu',
             ' ',
             $text
         );
         $text = preg_replace(
-            '/<\s*(?:nav|aside|menu)\b[^>]*>.*?<\s*\/\s*(?:nav|aside|menu)\s*>/is',
+            '/<\s*(?:nav|aside|menu)\b[^>]*>.*?<\s*\/\s*(?:nav|aside|menu)\s*>/isu',
+            "\n",
+            is_string($text) ? $text : ''
+        );
+        $text = preg_replace(
+            '/<\s*(?:footer|header)\b[^>]*>.*?<\s*\/\s*(?:footer|header)\s*>/isu',
             "\n",
             is_string($text) ? $text : ''
         );
         $text = is_string($text) ? $text : '';
 
-        $text = preg_replace('/<\s*br\s*\/?>/i', "\n", $text);
-        $text = preg_replace('/<\s*\/p\s*>/i', "\n\n", $text);
-        $text = preg_replace('/<\s*(?:div|section|article|header|footer|nav)\b[^>]*>/i', "\n", $text);
-        $text = preg_replace('/<\s*li\b[^>]*>/i', "\n- ", $text);
-        $text = preg_replace('/<\s*\/li\s*>/i', '', $text);
-        $text = preg_replace('/<\/?(?:span|strong|em|b|i|u|small|sup|sub)\b[^>]*>/i', '', $text);
+        $text = preg_replace('/<\s*br\s*\/?>/iu', "\n", $text);
+        $text = preg_replace('/<\s*\/p\s*>/iu', "\n\n", $text);
+        $text = preg_replace('/<\s*(?:div|section|article|header|footer|nav)\b[^>]*>/iu', "\n", $text);
+        $text = preg_replace('/<\s*li\b[^>]*>/iu', "\n- ", $text);
+        $text = preg_replace('/<\s*\/li\s*>/iu', '', $text);
+        $text = preg_replace('/<\/?(?:span|strong|em|b|i|u|small|sup|sub)\b[^>]*>/iu', '', $text);
 
         $text = strip_tags(is_string($text) ? $text : '');
         $text = preg_replace('/\r\n?/', "\n", $text);
