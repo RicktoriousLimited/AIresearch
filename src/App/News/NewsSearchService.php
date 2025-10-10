@@ -14,6 +14,7 @@ use function array_map;
 use function array_slice;
 use function array_sum;
 use function array_values;
+use function array_unique;
 use function arsort;
 use function count;
 use function implode;
@@ -74,6 +75,17 @@ final class NewsSearchService
             }
 
             $weight = $quality + $matchScore + $this->recencyBoost((string) ($row['fetched_at'] ?? ''), $now);
+
+            $contentType = isset($row['content_type']) ? (string) $row['content_type'] : '';
+            if ($contentType === 'article') {
+                $weight += 12.0;
+            } elseif ($contentType === 'page') {
+                $weight += 4.0;
+            } elseif ($contentType === 'non_article') {
+                $weight -= 8.0;
+            } elseif ($contentType === 'error') {
+                $weight -= 12.0;
+            }
 
             $matches[] = [
                 'weight' => $weight,
@@ -272,6 +284,7 @@ final class NewsSearchService
             'topics' => $topics,
             'entities' => $entities,
             'fetched_at' => (string) ($entry['fetched_at'] ?? ''),
+            'last_checked_at' => (string) ($entry['last_checked_at'] ?? $entry['fetched_at'] ?? ''),
             'quality_score' => (float) ($entry['quality_score'] ?? 0.0),
             'quality_label' => (string) ($entry['quality_label'] ?? 'Low'),
             'quality_reasons' => $qualityReasons,
@@ -283,6 +296,12 @@ final class NewsSearchService
             'thumbnail' => (string) ($entry['thumbnail'] ?? ''),
             'meta_description' => (string) ($entry['meta_description'] ?? ''),
             'recommended_sources' => $recommended,
+            'content_type' => (string) ($entry['content_type'] ?? 'page'),
+            'revision' => (int) ($entry['revision'] ?? 1),
+            'normalized_url' => (string) ($entry['normalized_url'] ?? $entry['url'] ?? ''),
+            'unchanged' => (bool) ($entry['unchanged'] ?? false),
+            'changes' => $this->formatChangeSummary($entry['changes'] ?? null),
+            'versions' => $this->formatVersions($entry['versions'] ?? null),
         ];
     }
 
@@ -297,6 +316,7 @@ final class NewsSearchService
         $sourceCounts = [];
         $qualityScores = [];
         $ingested = 0;
+        $typeBreakdown = [];
 
         foreach ($items as $item) {
             $topics = is_array($item['topics'] ?? null) ? $item['topics'] : [];
@@ -317,6 +337,11 @@ final class NewsSearchService
             $qualityScores[] = (float) ($item['quality_score'] ?? 0.0);
             if (!empty($item['ingest'])) {
                 $ingested++;
+            }
+
+            $type = (string) ($item['content_type'] ?? '');
+            if ($type !== '') {
+                $typeBreakdown[$type] = ($typeBreakdown[$type] ?? 0) + 1;
             }
         }
 
@@ -363,6 +388,96 @@ final class NewsSearchService
             'high_quality' => count(array_filter($qualityScores, static fn(float $score): bool => $score >= 70.0)),
             'ingested' => $ingested,
             'suggested_queries' => array_map(static fn(array $row): string => (string) $row['topic'], array_slice($topics, 0, 5)),
+            'types' => $typeBreakdown,
         ];
+    }
+
+    /**
+     * @param mixed $changes
+     *
+     * @return array<string, mixed>
+     */
+    private function formatChangeSummary($changes): array
+    {
+        $default = [
+            'summary' => '',
+            'keywords_added' => [],
+            'keywords_removed' => [],
+            'entities_added' => [],
+            'entities_removed' => [],
+            'length_delta' => 0,
+        ];
+
+        if (is_array($changes)) {
+            return [
+                'summary' => (string) ($changes['summary'] ?? ''),
+                'keywords_added' => $this->normaliseStringList($changes['keywords_added'] ?? []),
+                'keywords_removed' => $this->normaliseStringList($changes['keywords_removed'] ?? []),
+                'entities_added' => $this->normaliseStringList($changes['entities_added'] ?? []),
+                'entities_removed' => $this->normaliseStringList($changes['entities_removed'] ?? []),
+                'length_delta' => (int) ($changes['length_delta'] ?? 0),
+            ];
+        }
+
+        if (is_string($changes) && $changes !== '') {
+            $default['summary'] = $changes;
+        }
+
+        return $default;
+    }
+
+    /**
+     * @param mixed $versions
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function formatVersions($versions): array
+    {
+        if (!is_array($versions)) {
+            return [];
+        }
+
+        $formatted = [];
+        foreach ($versions as $version) {
+            if (!is_array($version)) {
+                continue;
+            }
+
+            $formatted[] = [
+                'revision' => (int) ($version['revision'] ?? 0),
+                'title' => (string) ($version['title'] ?? ''),
+                'summary' => (string) ($version['summary'] ?? ''),
+                'fetched_at' => (string) ($version['fetched_at'] ?? ''),
+                'url' => (string) ($version['url'] ?? ''),
+                'changes' => $this->formatChangeSummary($version['changes'] ?? null),
+            ];
+        }
+
+        return array_slice($formatted, 0, 6);
+    }
+
+    /**
+     * @param array<int, mixed> $values
+     *
+     * @return array<int, string>
+     */
+    private function normaliseStringList(array $values): array
+    {
+        $clean = [];
+
+        foreach ($values as $value) {
+            if (!is_string($value)) {
+                continue;
+            }
+
+            $value = trim($value);
+            if ($value === '') {
+                continue;
+            }
+
+            $clean[] = $value;
+        }
+
+        return array_values(array_unique($clean));
     }
 }

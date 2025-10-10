@@ -12,9 +12,12 @@ use App\Text\TextRefiner;
 
 class StubScraper implements ScraperInterface
 {
+    public string $text = 'Signal Ledger automatically gathers intelligence across markets.';
+
     public function scrape(string $url): ScrapeResult
     {
-        $text = 'Signal Ledger automatically gathers intelligence across markets.';
+        $text = $this->text;
+
         return new ScrapeResult($url, 'Stub page', $text, [$text], []);
     }
 }
@@ -36,6 +39,21 @@ if (!isset($first['topics']) || !is_array($first['topics']) || $first['topics'] 
     throw new RuntimeException('Crawler results should include at least one topic.');
 }
 
+$contentType = isset($first['content_type']) ? (string) $first['content_type'] : '';
+if (!in_array($contentType, ['article', 'page', 'non_article', 'error'], true)) {
+    throw new RuntimeException('Crawler should classify entries by content type.');
+}
+
+$revision = isset($first['revision']) ? (int) $first['revision'] : 0;
+if ($revision !== 1) {
+    throw new RuntimeException('Initial crawl should start at revision 1.');
+}
+
+$versions = $first['versions'] ?? null;
+if (!is_array($versions) || $versions !== []) {
+    throw new RuntimeException('Initial crawl should not include archived versions.');
+}
+
 $narrative = $first['narrative'] ?? [];
 if (!is_array($narrative)) {
     throw new RuntimeException('Crawler results should expose narrative analytics.');
@@ -49,6 +67,75 @@ if (!is_array($graph) || !array_key_exists('ingested', $graph)) {
 $history = $crawler->history();
 if ($history === []) {
     throw new RuntimeException('Crawler history should persist results.');
+}
+
+$firstHistory = $history[0];
+if ((int) ($firstHistory['revision'] ?? 0) !== 1) {
+    throw new RuntimeException('History should reflect the latest revision.');
+}
+
+$secondResult = $crawler->crawl(['https://example.com?utm_source=twitter']);
+if (count($secondResult) !== 1) {
+    throw new RuntimeException('Expected a single crawl result on second run.');
+}
+
+$second = $secondResult[0];
+if (empty($second['unchanged'])) {
+    throw new RuntimeException('Second crawl should detect unchanged content.');
+}
+
+if (($second['revision'] ?? 0) !== 1) {
+    throw new RuntimeException('Revision should remain at 1 when no changes are detected.');
+}
+
+$changes = $second['changes']['summary'] ?? '';
+if (!is_string($changes) || stripos($changes, 'no content changes') === false) {
+    throw new RuntimeException('Unchanged entries should surface a descriptive change summary.');
+}
+
+$historyAfterSecond = $crawler->history();
+if (count($historyAfterSecond) !== 1) {
+    throw new RuntimeException('History should remain grouped by URL.');
+}
+
+$historyEntry = $historyAfterSecond[0];
+if (!empty($historyEntry['versions'])) {
+    throw new RuntimeException('No archived versions should be stored when nothing changed.');
+}
+
+$crawlerScraper = new StubScraper();
+$crawlerScraper->text = 'Signal Ledger now tracks AI and venture funding sentiment across markets.';
+$crawlerChanged = new HiddenCrawler($storage, $crawlerScraper, new TextRefiner());
+$thirdResult = $crawlerChanged->crawl(['https://example.com?utm_medium=email']);
+if (count($thirdResult) !== 1) {
+    throw new RuntimeException('Expected a single crawl result on third run.');
+}
+
+$third = $thirdResult[0];
+if (!empty($third['unchanged'])) {
+    throw new RuntimeException('Content updates should be detected.');
+}
+
+if ((int) ($third['revision'] ?? 0) !== 2) {
+    throw new RuntimeException('Revision should increment when content changes.');
+}
+
+if (empty($third['versions']) || !is_array($third['versions'])) {
+    throw new RuntimeException('Updated entries should retain prior versions.');
+}
+
+$latestHistory = $crawlerChanged->history();
+if ((int) ($latestHistory[0]['revision'] ?? 0) !== 2) {
+    throw new RuntimeException('History should reflect the newest revision.');
+}
+
+$archived = $latestHistory[0]['versions'] ?? [];
+if (count($archived) !== 1) {
+    throw new RuntimeException('History should archive the previous revision once.');
+}
+
+if ((int) ($archived[0]['revision'] ?? 0) !== 1) {
+    throw new RuntimeException('Archived revision should retain its original revision number.');
 }
 
 unlink($storage);
