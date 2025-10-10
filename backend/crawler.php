@@ -221,6 +221,11 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
         .ingest-flag { display: inline-flex; align-items: center; padding: 0.25rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid transparent; }
         .ingest-flag--yes { background: rgba(16, 185, 129, 0.18); border-color: rgba(16, 185, 129, 0.45); color: #6ee7b7; }
         .ingest-flag--no { background: rgba(244, 114, 182, 0.12); border-color: rgba(244, 114, 182, 0.4); color: #fbcfe8; }
+        .authority-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; margin: 0.45rem 0; font-size: 0.9rem; color: rgba(203, 213, 225, 0.92); }
+        .authority-row strong { color: #c7d2fe; }
+        .discovery-sources { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.35rem 0 0; }
+        .discovery-source { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.25rem 0.6rem; border-radius: 999px; background: rgba(96, 165, 250, 0.16); border: 1px solid rgba(96, 165, 250, 0.35); font-size: 0.75rem; color: #dbeafe; text-decoration: none; }
+        .discovery-source:hover { text-decoration: underline; }
         .quality-reasons { margin: 0.75rem 0 0; padding-left: 1.1rem; color: rgba(148, 163, 184, 0.9); font-size: 0.9rem; }
         .quality-reasons li { margin-bottom: 0.35rem; }
         .recommended { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.8rem; margin-top: 0.6rem; }
@@ -230,6 +235,8 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
         .history-thumb { margin: 0.5rem 0; max-width: 220px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(148, 163, 184, 0.2); }
         .history-thumb img { display: block; width: 100%; height: auto; object-fit: cover; background: rgba(148, 163, 184, 0.1); }
         .history-flags { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.25rem 0 0.5rem; }
+        .pill-link { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.4rem 0.85rem; border-radius: 999px; background: rgba(99, 102, 241, 0.18); border: 1px solid rgba(99, 102, 241, 0.4); color: #c7d2fe; font-weight: 600; text-decoration: none; }
+        .pill-link:hover { text-decoration: underline; }
         .type-pill { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid rgba(148, 163, 184, 0.35); background: rgba(148, 163, 184, 0.15); font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(226, 232, 240, 0.9); }
         .type-pill--article { background: rgba(34, 197, 94, 0.18); border-color: rgba(34, 197, 94, 0.45); color: #bbf7d0; }
         .type-pill--page { background: rgba(96, 165, 250, 0.18); border-color: rgba(96, 165, 250, 0.4); color: #bfdbfe; }
@@ -251,6 +258,9 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
     <header class="card">
         <h1>Hidden crawler control centre</h1>
         <p class="muted">Keep this tab open to let the crawler refresh insights in the background. Configure your targets, enable auto-refresh and monitor the extraction pipeline.</p>
+        <div style="margin-top: 0.75rem;">
+            <a class="pill-link" href="/backend/sources.php">View source intelligence</a>
+        </div>
     </header>
 
     <?php if ($messages !== []): ?>
@@ -391,6 +401,7 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
             <h3 id="progress-last-title"><?= esc((string) ($lastResult['title'] ?? ($lastResult['url'] ?? 'Recent page'))); ?></h3>
             <p id="progress-last-url"><?= $lastResult && isset($lastResult['url']) ? '<a href="' . esc((string) $lastResult['url']) . '" target="_blank" rel="noopener">' . esc((string) $lastResult['url']) . '</a>' : ''; ?></p>
             <p id="progress-last-quality">Quality score: <?= esc(number_format((float) ($lastResult['quality'] ?? 0), 1)); ?> · Revision <?= esc((string) ($lastResult['revision'] ?? 0)); ?></p>
+            <p id="progress-last-authority">Authority: <?= esc(number_format((float) ($lastResult['authority'] ?? 0) * 100, 1)); ?> · Domain <?= esc(number_format((float) ($lastResult['domain_authority'] ?? 0) * 100, 1)); ?> · Inbound <?= esc((string) ($lastResult['inbound_links'] ?? 0)); ?></p>
             <p id="progress-last-ingest"><?= !empty($lastResult['ingested']) ? 'Ingested into knowledge graph' : 'Held locally'; ?></p>
             <p id="progress-last-error" class="error-text"<?= $lastResult && !empty($lastResult['error']) ? '' : ' style="display:none;"'; ?>>
                 <?= $lastResult && !empty($lastResult['error']) ? esc((string) $lastResult['error']) : ''; ?>
@@ -520,6 +531,47 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
                             }
                         }
                         $normalizedUrl = isset($item['normalized_url']) ? (string) $item['normalized_url'] : '';
+                        $ranking = is_array($item['ranking'] ?? null) ? $item['ranking'] : [];
+                        $pageAuthorityScore = isset($ranking['page_authority']) ? (float) $ranking['page_authority'] : 0.0;
+                        $domainAuthorityScore = isset($ranking['domain_authority']) ? (float) $ranking['domain_authority'] : 0.0;
+                        $inboundLinkCount = isset($ranking['inbound_links']) ? (int) $ranking['inbound_links'] : 0;
+                        $uniqueSourceCount = isset($ranking['unique_sources']) ? (int) $ranking['unique_sources'] : 0;
+                        $discoveryMeta = is_array($item['discovery'] ?? null) ? $item['discovery'] : [];
+                        $firstDiscoveredAt = (string) ($discoveryMeta['first_seen_at'] ?? '');
+                        $lastDiscoveredAt = (string) ($discoveryMeta['last_seen_at'] ?? '');
+                        $discoverySeed = !empty($discoveryMeta['seed'] ?? false);
+                        $discoverySources = [];
+                        if (isset($discoveryMeta['sources']) && is_array($discoveryMeta['sources'])) {
+                            $limit = 4;
+                            foreach ($discoveryMeta['sources'] as $sourceRow) {
+                                if ($limit <= 0 || !is_array($sourceRow)) {
+                                    continue;
+                                }
+
+                                $sourceUrl = (string) ($sourceRow['url'] ?? '');
+                                $sourceDomain = (string) ($sourceRow['domain'] ?? '');
+                                $sourceCount = (int) ($sourceRow['count'] ?? 0);
+
+                                if ($sourceUrl === '' && $sourceDomain === '') {
+                                    continue;
+                                }
+
+                                if ($sourceDomain === '' && $sourceUrl !== '') {
+                                    $parsedDomain = parse_url($sourceUrl, PHP_URL_HOST);
+                                    if (is_string($parsedDomain)) {
+                                        $sourceDomain = $parsedDomain;
+                                    }
+                                }
+
+                                $discoverySources[] = [
+                                    'url' => $sourceUrl,
+                                    'domain' => $sourceDomain !== '' ? $sourceDomain : $sourceUrl,
+                                    'count' => $sourceCount,
+                                ];
+
+                                $limit--;
+                            }
+                        }
                     ?>
                     <div class="history-item-meta">
                         <span class="category-label category-label--<?= esc($categoryNormalised); ?>"><?= esc(ucfirst($categoryNormalised)); ?></span>
@@ -549,7 +601,7 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
                             <img src="<?= esc($thumbnailUrl); ?>" alt="" loading="lazy">
                         </div>
                     <?php endif; ?>
-                    <?php if (isset($item['error'])): ?>
+                        <?php if (isset($item['error'])): ?>
                         <p class="errors" style="margin-top: 0.5rem;"><?= esc((string) $item['error']); ?></p>
                     <?php else: ?>
                         <p class="history-timing">
@@ -561,6 +613,40 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
                                 · Canonical <?= esc($normalizedUrl); ?>
                             <?php endif; ?>
                         </p>
+                        <div class="authority-row">
+                            <strong>Authority</strong>
+                            <span>Page <?= esc(number_format($pageAuthorityScore * 100, 1)); ?></span>
+                            <span>Domain <?= esc(number_format($domainAuthorityScore * 100, 1)); ?></span>
+                            <span><?= esc((string) $inboundLinkCount); ?> inbound</span>
+                            <span><?= esc((string) $uniqueSourceCount); ?> source<?= $uniqueSourceCount === 1 ? '' : 's'; ?></span>
+                        </div>
+                        <p class="muted" style="margin: 0.2rem 0 0;">
+                            <?= $discoverySeed ? 'Seed target' : 'Discovered'; ?>
+                            <?php if ($firstDiscoveredAt !== ''): ?>
+                                <?= $discoverySeed ? ' · Added ' . esc($firstDiscoveredAt) : ' · ' . esc($firstDiscoveredAt); ?>
+                            <?php endif; ?>
+                            <?php if ($lastDiscoveredAt !== '' && $lastDiscoveredAt !== $firstDiscoveredAt): ?>
+                                · Updated <?= esc($lastDiscoveredAt); ?>
+                            <?php endif; ?>
+                        </p>
+                        <?php if ($discoverySources !== []): ?>
+                            <div class="discovery-sources">
+                                <?php foreach ($discoverySources as $source): ?>
+                                    <?php
+                                        $label = (string) ($source['domain'] ?? '');
+                                        $countValue = (int) ($source['count'] ?? 0);
+                                        $countSuffix = $countValue > 1 ? ' ×' . $countValue : '';
+                                    ?>
+                                    <?php if ($source['url'] !== ''): ?>
+                                        <a class="discovery-source" href="<?= esc((string) $source['url']); ?>" target="_blank" rel="noopener">
+                                            <?= esc($label . $countSuffix); ?>
+                                        </a>
+                                    <?php else: ?>
+                                        <span class="discovery-source"><?= esc($label . $countSuffix); ?></span>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
                         <p><?= esc((string) ($item['preview'] ?? '')); ?></p>
                         <?php if ($changeSummary !== ''): ?>
                             <p class="history-change"><?= esc($changeSummary); ?></p>
@@ -659,6 +745,7 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
     const lastTitleEl = document.getElementById('progress-last-title');
     const lastUrlEl = document.getElementById('progress-last-url');
     const lastQualityEl = document.getElementById('progress-last-quality');
+    const lastAuthorityEl = document.getElementById('progress-last-authority');
     const lastIngestEl = document.getElementById('progress-last-ingest');
     const lastErrorEl = document.getElementById('progress-last-error');
     const errorsEl = document.getElementById('progress-errors');
@@ -717,6 +804,9 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
             if (lastQualityEl) {
                 lastQualityEl.textContent = 'Quality score: 0.0 · Revision 0';
             }
+            if (lastAuthorityEl) {
+                lastAuthorityEl.textContent = 'Authority: 0.0 · Domain 0.0 · Inbound 0';
+            }
             if (lastIngestEl) {
                 lastIngestEl.textContent = 'Held locally';
             }
@@ -747,6 +837,13 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
             const quality = Number.isFinite(result.quality) ? Number(result.quality) : 0;
             const revision = Number.isFinite(result.revision) ? Number(result.revision) : 0;
             lastQualityEl.textContent = 'Quality score: ' + quality.toFixed(1) + ' · Revision ' + revision;
+        }
+
+        if (lastAuthorityEl) {
+            const authority = Number.isFinite(result.authority) ? Number(result.authority) : 0;
+            const domainAuthority = Number.isFinite(result.domain_authority) ? Number(result.domain_authority) : 0;
+            const inbound = Number.isFinite(result.inbound_links) ? Number(result.inbound_links) : 0;
+            lastAuthorityEl.textContent = 'Authority: ' + (authority * 100).toFixed(1) + ' · Domain ' + (domainAuthority * 100).toFixed(1) + ' · Inbound ' + inbound;
         }
 
         if (lastIngestEl) {
