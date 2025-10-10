@@ -23,13 +23,18 @@ $assetBase = $basePath === '' ? '' : $basePath;
 $stylesPath = $assetBase . '/assets/workbench.css';
 $searchStylesPath = $assetBase . '/assets/search.css';
 $scriptPath = $assetBase . '/assets/search.js';
+$newsStylesPath = $assetBase . '/assets/news-search.css';
+$newsScriptPath = $assetBase . '/assets/news-search.js';
 $apiPath = $assetBase . '/api/research.php';
+$newsEndpoint = $assetBase . '/api/news-search.php';
 $homePath = $assetBase . '/index.php';
 $graphPath = $assetBase . '/knowledge-graph.php';
 
 $stylesVersion = file_exists(__DIR__ . '/assets/workbench.css') ? (string) filemtime(__DIR__ . '/assets/workbench.css') : (string) time();
 $searchStylesVersion = file_exists(__DIR__ . '/assets/search.css') ? (string) filemtime(__DIR__ . '/assets/search.css') : (string) time();
+$newsStylesVersion = file_exists(__DIR__ . '/assets/news-search.css') ? (string) filemtime(__DIR__ . '/assets/news-search.css') : (string) time();
 $scriptVersion = file_exists(__DIR__ . '/assets/search.js') ? (string) filemtime(__DIR__ . '/assets/search.js') : (string) time();
+$newsScriptVersion = file_exists(__DIR__ . '/assets/news-search.js') ? (string) filemtime(__DIR__ . '/assets/news-search.js') : (string) time();
 
 $repository = new GraphRepository();
 $researcher = new GraphResearcher($repository);
@@ -95,6 +100,7 @@ $updatedLabel = $formatDate($updatedAt) ?? $updatedAt;
     <title>AIresearch Discovery Search</title>
     <link rel="stylesheet" href="<?= $escape($stylesPath . '?v=' . $stylesVersion) ?>">
     <link rel="stylesheet" href="<?= $escape($searchStylesPath . '?v=' . $searchStylesVersion) ?>">
+    <link rel="stylesheet" href="<?= $escape($newsStylesPath . '?v=' . $newsStylesVersion) ?>">
 </head>
 <body class="search-app">
     <header class="site-header">
@@ -280,8 +286,40 @@ $updatedLabel = $formatDate($updatedAt) ?? $updatedAt;
                 </div>
             </div>
         </section>
+        <section class="news-panel" data-news-app data-news-endpoint="<?= $escape($newsEndpoint) ?>">
+            <div class="news-panel__header">
+                <div>
+                    <h2>Live news intelligence</h2>
+                    <p class="news-panel__subtitle">Quality-ranked headlines from the crawler, searchable by entity, topic and source credibility.</p>
+                </div>
+                <form class="news-form" data-news-search-form>
+                    <label class="visually-hidden" for="news-query">Search the news index</label>
+                    <input id="news-query" type="search" name="news-query" placeholder="Search headlines, tickers or topics" autocomplete="off" spellcheck="false" data-news-query>
+                    <label class="visually-hidden" for="news-quality">Minimum quality score</label>
+                    <select id="news-quality" data-news-quality>
+                        <option value="60" selected>High quality (60+)</option>
+                        <option value="50">Good quality (50+)</option>
+                        <option value="70">Exceptional (70+)</option>
+                        <option value="0">All stories</option>
+                    </select>
+                    <button type="submit" class="button ghost">Search news</button>
+                </form>
+            </div>
+            <div class="news-meta">
+                <div class="news-status" data-news-status aria-live="polite">Loading curated sources…</div>
+                <div class="news-topics" data-news-topics hidden>
+                    <span class="news-topics__label">Trending topics</span>
+                    <div class="news-topics__chips" data-news-topics-list></div>
+                </div>
+                <div class="news-status" data-news-stats></div>
+            </div>
+            <div class="news-results" data-news-results>
+                <div class="news-empty">Launching crawler insights…</div>
+            </div>
+        </section>
     </main>
     <script>window.AISearch = <?= $initialJson ?>;</script>
     <script src="<?= $escape($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
+    <script src="<?= $escape($newsScriptPath . '?v=' . $newsScriptVersion) ?>" defer></script>
 </body>
 </html>
