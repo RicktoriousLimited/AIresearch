@@ -1,393 +1,423 @@
 <?php
-if (PHP_SAPI !== 'cli') {
-    require __DIR__ . '/web/storefront.php';
-    return;
-}
 
-require __DIR__ . '/src/SemanticEngine.php';
+declare(strict_types=1);
 
-function printUsage(): void
-{
-    $usage = <<<'USAGE'
-Usage: php index.php [options] [file ...]
+require __DIR__ . '/src/Ricktorious/Markets/bootstrap.php';
 
-Options:
-  -h, --help              Show this help message.
-  -f, --format FORMAT     Output format: text (default), json, csv.
-  -e, --export TYPE       Data to export: triples, synonyms. May be repeated.
-  -o, --output PATH       Write output to the specified file instead of STDOUT.
-  -s, --snapshot PATH     Load an existing engine snapshot from PATH and
-                          overwrite it with the updated state after processing.
+$kernel = ricktorious_markets_kernel();
+$overviewService = $kernel->overviewService();
+$newsService = $kernel->companyNewsService();
+$searchService = $kernel->searchService();
 
-If no files are provided, the command reads from STDIN. Use "-" as a file
-argument to explicitly read from STDIN alongside other files.
-USAGE;
+$overview = $overviewService->snapshot();
+$latestNews = array_map(
+    static function (array $item): array {
+        $news = $item['news'] ?? [];
+        if (isset($news['published_at']) && $news['published_at'] instanceof DateTimeInterface) {
+            $news['published_at'] = $news['published_at']->format(DATE_ATOM);
+        }
 
-    fwrite(STDOUT, $usage . PHP_EOL);
-}
-
-function fatalError(string $message): void
-{
-    fwrite(STDERR, 'Error: ' . $message . PHP_EOL);
-    exit(1);
-}
-
-/**
- * @param array<int, string> $argv
- * @return array{options: array{format: string, exports: array<int, string>, output: ?string, help: bool, snapshot: ?string}, files: array<int, string>}
- */
-function parseArguments(array $argv): array
-{
-    $args = $argv;
-    array_shift($args);
-
-    $options = [
-        'format' => 'text',
-        'exports' => [],
-        'output' => null,
-        'help' => false,
-        'snapshot' => null,
+        return [
+            'company' => $item['company'] ?? [],
+            'news' => $news,
+            'sentiment_label' => $item['sentiment_label'] ?? 'neutral',
+            'sentiment_score' => (float) ($item['sentiment_score'] ?? 0.0),
+        ];
+    },
+    $newsService->latestAcrossMarket(12)
+);
+$companies = $searchService->companies();
+$suggestionData = [];
+foreach ($companies as $company) {
+    $suggestionData[] = [
+        'symbol' => $company->symbol(),
+        'name' => $company->name(),
+        'sector' => $company->sector(),
     ];
-    $files = [];
-
-    while ($args !== []) {
-        $arg = array_shift($args);
-        if ($arg === null) {
-            break;
-        }
-
-        switch ($arg) {
-            case '-h':
-            case '--help':
-                $options['help'] = true;
-                continue 2;
-            case '-f':
-            case '--format':
-                $value = array_shift($args);
-                if ($value === null) {
-                    fatalError('Missing value for --format option.');
-                }
-                $options['format'] = $value;
-                continue 2;
-            case '-e':
-            case '--export':
-                $value = array_shift($args);
-                if ($value === null) {
-                    fatalError('Missing value for --export option.');
-                }
-                $options['exports'][] = $value;
-                continue 2;
-            case '-o':
-            case '--output':
-                $value = array_shift($args);
-                if ($value === null) {
-                    fatalError('Missing value for --output option.');
-                }
-                $options['output'] = $value;
-                continue 2;
-            case '-s':
-            case '--snapshot':
-                $value = array_shift($args);
-                if ($value === null) {
-                    fatalError('Missing value for --snapshot option.');
-                }
-                $options['snapshot'] = $value;
-                continue 2;
-        }
-
-        if (strpos($arg, '--format=') === 0) {
-            $options['format'] = substr($arg, 9);
-            continue;
-        }
-
-        if (strpos($arg, '--export=') === 0) {
-            $options['exports'][] = substr($arg, 9);
-            continue;
-        }
-
-        if (strpos($arg, '--output=') === 0) {
-            $options['output'] = substr($arg, 9);
-            continue;
-        }
-
-        if (strpos($arg, '--snapshot=') === 0) {
-            $options['snapshot'] = substr($arg, 11);
-            continue;
-        }
-
-        $files[] = $arg;
-    }
-
-    return ['options' => $options, 'files' => $files];
 }
+
+$companyCount = count($companies);
+$newsCount = count($latestNews);
+$watchlist = array_slice($overview['top_movers'] ?? [], 0, 5);
+$sectorLeaders = array_slice($overview['sectors'] ?? [], 0, 6);
 
 /**
- * @param array<int, string> $files
- * @return array<int, string>
+ * @param DateTimeImmutable $time
  */
-function readInputTexts(array $files): array
+function relative_time(DateTimeImmutable $time): string
 {
-    $texts = [];
-    $stdinConsumed = false;
+    $now = new DateTimeImmutable('now', $time->getTimezone());
+    $diff = max(0, $now->getTimestamp() - $time->getTimestamp());
 
-    if ($files === []) {
-        $stdin = stream_get_contents(STDIN);
-        if ($stdin === false) {
-            fatalError('Unable to read from STDIN.');
-        }
-        if (trim($stdin) !== '') {
-            $texts[] = $stdin;
-        }
-        return $texts;
+    if ($diff < 60) {
+        return 'just now';
     }
 
-    foreach ($files as $file) {
-        if ($file === '-') {
-            if ($stdinConsumed) {
-                continue;
-            }
-            $stdin = stream_get_contents(STDIN);
-            if ($stdin === false) {
-                fatalError('Unable to read from STDIN.');
-            }
-            if (trim($stdin) !== '') {
-                $texts[] = $stdin;
-            }
-            $stdinConsumed = true;
-            continue;
-        }
+    if ($diff < 3600) {
+        $minutes = (int) floor($diff / 60);
 
-        if (!is_file($file) || !is_readable($file)) {
-            fatalError(sprintf('Cannot read file "%s".', $file));
-        }
-
-        $contents = file_get_contents($file);
-        if ($contents === false) {
-            fatalError(sprintf('Failed to read file "%s".', $file));
-        }
-
-        if (trim($contents) !== '') {
-            $texts[] = $contents;
-        }
+        return $minutes === 1 ? '1 minute ago' : sprintf('%d minutes ago', $minutes);
     }
 
-    return $texts;
+    if ($diff < 86400) {
+        $hours = (int) floor($diff / 3600);
+
+        return $hours === 1 ? '1 hour ago' : sprintf('%d hours ago', $hours);
+    }
+
+    $days = (int) floor($diff / 86400);
+
+    return $days === 1 ? '1 day ago' : sprintf('%d days ago', $days);
 }
+
+$lastUpdatedLabel = 'recently';
+$lastUpdatedIso = null;
+$cacheAgeMinutes = null;
+$rawLastUpdated = $overview['last_updated'] ?? null;
+if (is_string($rawLastUpdated) && $rawLastUpdated !== '') {
+    try {
+        $lastUpdatedTime = new DateTimeImmutable($rawLastUpdated);
+        $lastUpdatedIso = $lastUpdatedTime->format(DATE_ATOM);
+        $lastUpdatedLabel = relative_time($lastUpdatedTime);
+        $cacheAgeMinutes = (int) floor(max(0, (new DateTimeImmutable())->getTimestamp() - $lastUpdatedTime->getTimestamp()) / 60);
+    } catch (Exception $exception) {
+        $lastUpdatedLabel = $rawLastUpdated;
+    }
+}
+
+$initialPulse = [
+    'generated_at' => date(DATE_ATOM),
+    'overview' => array_merge(
+        $overview,
+        [
+            'company_count' => $companyCount,
+            'news_count' => $newsCount,
+            'cache_age_minutes' => $cacheAgeMinutes,
+            'last_updated_iso' => $lastUpdatedIso,
+            'last_updated_relative' => $lastUpdatedLabel,
+        ]
+    ),
+    'latest_news' => $latestNews,
+    'watchlist' => $watchlist,
+    'sectors' => $sectorLeaders,
+];
 
 /**
- * @param array<int, array{0: string, 1: string, 2: string}> $triples
+ * @param float $value
  */
-function formatTriplesText(array $triples): string
+function format_number($value, int $decimals = 2): string
 {
-    if ($triples === []) {
-        return "No triples extracted." . PHP_EOL;
-    }
-
-    $lines = ["Triples:" . PHP_EOL];
-    foreach ($triples as [$subject, $relation, $object]) {
-        $lines[] = sprintf("- %s | %s | %s", $subject, $relation, $object) . PHP_EOL;
-    }
-
-    return implode('', $lines);
+    return number_format($value, $decimals, '.', ',');
 }
 
-/**
- * @param array<int, array{0: string, 1: array<int, string>}> $synonyms
- */
-function formatSynonymsText(array $synonyms): string
+function esc(string $value): string
 {
-    if ($synonyms === []) {
-        return "No synonyms stored." . PHP_EOL;
-    }
-
-    $lines = ["Synonyms:" . PHP_EOL];
-    foreach ($synonyms as [$entity, $values]) {
-        $lines[] = sprintf("- %s => %s", $entity, implode(', ', $values)) . PHP_EOL;
-    }
-
-    return implode('', $lines);
+    return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
-/**
- * @param array<int, array<int, string>> $rows
- * @param array<int, string> $header
- */
-function buildCsv(array $rows, array $header): string
+function change_badge(float $change): string
 {
-    $handle = fopen('php://temp', 'r+');
-    if ($handle === false) {
-        fatalError('Failed to initialise CSV buffer.');
+    if ($change > 0) {
+        return 'change-up';
     }
 
-    $delimiter = ',';
-    $enclosure = "\"";
-    $escape = "\\";
-    fputcsv($handle, $header, $delimiter, $enclosure, $escape);
-    foreach ($rows as $row) {
-        fputcsv($handle, $row, $delimiter, $enclosure, $escape);
+    if ($change < 0) {
+        return 'change-down';
     }
 
-    rewind($handle);
-    $csv = stream_get_contents($handle);
-    if ($csv === false) {
-        fclose($handle);
-        fatalError('Failed to read CSV buffer.');
-    }
-
-    fclose($handle);
-    return $csv;
+    return 'change-flat';
 }
 
-$parsed = parseArguments($argv);
-$options = $parsed['options'];
-$files = $parsed['files'];
-
-if ($options['help']) {
-    printUsage();
-    exit(0);
+$scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '/index.php');
+$scriptDir = str_replace('\\', '/', dirname($scriptName));
+if ($scriptDir === '.' || $scriptDir === '/' || $scriptDir === '\\') {
+    $scriptDir = '';
 }
-
-$format = strtolower($options['format']);
-$validFormats = ['text', 'json', 'csv'];
-if (!in_array($format, $validFormats, true)) {
-    fatalError(sprintf('Invalid format "%s". Expected one of: %s.', $options['format'], implode(', ', $validFormats)));
+$basePath = rtrim($scriptDir, '/');
+if ($basePath !== '') {
+    $basePath = '/' . ltrim($basePath, '/');
 }
+$assetBase = $basePath === '' ? '' : $basePath;
 
-$exports = $options['exports'] === [] ? ['triples', 'synonyms'] : $options['exports'];
-$exports = array_values(array_unique(array_map('strtolower', $exports)));
-$validExports = ['triples', 'synonyms'];
-foreach ($exports as $export) {
-    if (!in_array($export, $validExports, true)) {
-        fatalError(sprintf('Invalid export "%s". Expected one of: %s.', $export, implode(', ', $validExports)));
-    }
-}
+$stylesPath = $assetBase . '/assets/styles.css';
+$scriptPath = $assetBase . '/assets/market.js';
+$stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
+$scriptVersion = file_exists(__DIR__ . '/assets/market.js') ? (string) filemtime(__DIR__ . '/assets/market.js') : (string) time();
 
-if ($format === 'csv' && count($exports) !== 1) {
-    fatalError('CSV format supports exporting a single data type. Provide exactly one --export option.');
-}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Markets intelligence home</title>
+    <link rel="stylesheet" href="<?= esc($stylesPath . '?v=' . $stylesVersion); ?>">
+</head>
+<body>
+<header class="site-header">
+    <div class="shell header-shell">
+        <div class="brand">Signal Ledger</div>
+        <nav class="primary-nav" aria-label="Primary">
+            <a href="#overview">Overview</a>
+            <a href="#movers">Top movers</a>
+            <a href="#news">Market news</a>
+        </nav>
+        <div class="header-actions">
+            <a class="button ghost" href="#search">Search the market</a>
+            <a class="button primary" href="#news">Latest headlines</a>
+        </div>
+    </div>
+</header>
 
-$texts = readInputTexts($files);
-if ($texts === []) {
-    fatalError('No input text provided. Specify files or pipe text via STDIN.');
-}
+<main>
+    <section class="hero" id="overview">
+        <div class="shell hero-shell">
+            <div class="hero-copy">
+                <p class="eyebrow">Live coverage without third-party feeds</p>
+                <h1>Market overview, curated intelligence, zero external calls.</h1>
+                <p class="lead">Signal Ledger blends internal knowledge graphs with evergreen market datasets so you can monitor sentiment and headlines offline.</p>
+                <div class="live-toolbar">
+                    <div class="live-indicator" data-live-indicator data-state="ready" aria-live="polite">
+                        <span class="pulse-dot" aria-hidden="true"></span>
+                        <span data-pulse-text="status">Cache synced <?= esc($lastUpdatedLabel); ?></span>
+                    </div>
+                    <div class="live-actions">
+                        <button type="button" class="button ghost" data-action="refresh-pulse">Refresh now</button>
+                        <span class="muted small" data-pulse-countdown>Next refresh in 60s</span>
+                    </div>
+                </div>
+                <div class="hero-metrics">
+                    <div>
+                        <p class="metric-label">Total market cap</p>
+                        <p class="metric-value" data-pulse-metric="total_market_cap" data-format="currency-billions">$<?= esc(format_number(($overview['total_market_cap'] ?? 0.0) / 1_000_000_000, 1)); ?>B</p>
+                    </div>
+                    <div>
+                        <p class="metric-label">Avg change</p>
+                        <p class="metric-value <?= change_badge((float) ($overview['average_change_percent'] ?? 0.0)); ?>" data-pulse-metric="average_change_percent" data-format="percent" data-change-badge>
+                            <?= esc(sprintf('%+.2f%%', (float) ($overview['average_change_percent'] ?? 0.0))); ?>
+                        </p>
+                    </div>
+                    <div>
+                        <p class="metric-label">Advancers vs decliners</p>
+                        <p class="metric-value" data-pulse-metric="advancers_decliners" data-format="advancers">
+                            <?= esc((string) ($overview['advancers'] ?? 0)); ?> / <?= esc((string) ($overview['decliners'] ?? 0)); ?>
+                        </p>
+                    </div>
+                </div>
+                <p class="muted">Last updated
+                    <span data-pulse-timestamp<?php if ($lastUpdatedIso !== null): ?> data-initial-iso="<?= esc($lastUpdatedIso); ?>"<?php endif; ?>>
+                        <?= esc($lastUpdatedLabel); ?>
+                    </span>
+                </p>
+            </div>
+            <div class="hero-card" id="search">
+                <h2>Find company coverage</h2>
+                <p class="muted">Type a ticker, company name, or sector to jump straight to curated briefings.</p>
+                <form method="get" action="/company.php" class="search-form" autocomplete="off">
+                    <label class="search-label" for="company-query">Company or ticker</label>
+                    <div class="search-input">
+                        <input id="company-query" name="q" type="search" placeholder="e.g. ACME or Delta" list="company-suggestions">
+                        <button type="submit" class="button primary">View coverage</button>
+                    </div>
+                    <datalist id="company-suggestions">
+                        <?php foreach ($companies as $company): ?>
+                            <option value="<?= esc($company->symbol()); ?>"><?= esc($company->name()); ?></option>
+                            <option value="<?= esc($company->name()); ?>"><?= esc($company->symbol()); ?></option>
+                        <?php endforeach; ?>
+                    </datalist>
+                </form>
+                <div class="search-hints">
+                    <p class="muted">Popular right now:</p>
+                    <ul>
+                        <?php foreach (array_slice($overview['top_movers'] ?? [], 0, 3) as $mover): ?>
+                            <li><span class="badge <?= change_badge((float) ($mover['change_percent'] ?? 0.0)); ?>">
+                                <?= esc((string) ($mover['symbol'] ?? '')); ?></span> <?= esc((string) ($mover['name'] ?? '')); ?></li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+                <div class="hero-meta">
+                    <p class="muted small">Auto-refresh pulls from the offline cache every minute. Manual refreshes run instantly without touching external APIs.</p>
+                </div>
+            </div>
+        </div>
+    </section>
 
-$snapshotPath = $options['snapshot'];
-if ($snapshotPath !== null) {
-    $snapshotPath = trim($snapshotPath);
-    if ($snapshotPath === '') {
-        $snapshotPath = null;
-    }
-}
+    <section class="section" id="operations">
+        <div class="shell">
+            <div class="section-header">
+                <h2>Operations centre</h2>
+                <p class="muted">Realtime health of the self-hosted market intelligence cache.</p>
+            </div>
+            <div class="operations-grid">
+                <article class="ops-card">
+                    <header>
+                        <h3>Cache health</h3>
+                        <p class="muted small">Monitored by the semantic engine</p>
+                    </header>
+                    <p class="ops-metric" data-pulse-metric="company_count" data-format="integer"><?= esc((string) $companyCount); ?></p>
+                    <p class="muted">Companies with locally cached intelligence</p>
+                    <ul class="ops-list" data-pulse-list="watchlist">
+                        <?php foreach ($watchlist as $mover): ?>
+                            <li>
+                                <span class="badge <?= change_badge((float) ($mover['change_percent'] ?? 0.0)); ?>"><?= esc((string) ($mover['symbol'] ?? '')); ?></span>
+                                <strong><?= esc((string) ($mover['name'] ?? '')); ?></strong>
+                                <em><?= esc(sprintf('%+.2f%%', (float) ($mover['change_percent'] ?? 0.0))); ?></em>
+                            </li>
+                        <?php endforeach; ?>
+                        <?php if ($watchlist === []): ?>
+                            <li>No movers detected</li>
+                        <?php endif; ?>
+                    </ul>
+                </article>
+                <article class="ops-card">
+                    <header>
+                        <h3>Headline coverage</h3>
+                        <p class="muted small">Always available offline</p>
+                    </header>
+                    <p class="ops-metric" data-pulse-metric="news_count" data-format="integer"><?= esc((string) $newsCount); ?></p>
+                    <p class="muted">Stories stored in the local dataset</p>
+                    <ul class="ops-list ops-list--compact" data-pulse-list="headlines">
+                        <?php foreach (array_slice($latestNews, 0, 3) as $item): ?>
+                            <li>
+                                <strong><?= esc((string) ($item['news']['title'] ?? '')); ?></strong>
+                                <em><?= esc((string) ($item['news']['source'] ?? '')); ?> · <?= esc(date('H:i', strtotime((string) ($item['news']['published_at'] ?? '')))); ?></em>
+                            </li>
+                        <?php endforeach; ?>
+                        <?php if ($latestNews === []): ?>
+                            <li>No headlines cached yet</li>
+                        <?php endif; ?>
+                    </ul>
+                </article>
+                <article class="ops-card ops-card--status">
+                    <header>
+                        <h3>Autonomy status</h3>
+                        <p class="muted small">Designed to run fully self-sufficient</p>
+                    </header>
+                    <div class="ops-health" data-pulse-health>
+                        <span class="pulse-dot" aria-hidden="true"></span>
+                        <div>
+                            <strong data-pulse-text="autonomy">All systems nominal</strong>
+                            <p class="muted small">Cache synced <span data-pulse-timestamp<?php if ($lastUpdatedIso !== null): ?> data-initial-iso="<?= esc($lastUpdatedIso); ?>"<?php endif; ?>><?= esc($lastUpdatedLabel); ?></span></p>
+                        </div>
+                    </div>
+                    <p class="muted small">Zero third-party dependencies. Export datasets or APIs continue to operate even without an internet connection.</p>
+                    <div class="ops-actions">
+                        <a class="button ghost" href="/knowledge-graph.php">View knowledge graph</a>
+                        <a class="button ghost" href="/api/analyse.php" target="_blank" rel="noopener">API docs</a>
+                    </div>
+                </article>
+            </div>
+        </div>
+    </section>
 
-if ($snapshotPath !== null && is_file($snapshotPath)) {
-    $contents = file_get_contents($snapshotPath);
-    if ($contents === false) {
-        fatalError(sprintf('Failed to read snapshot file "%s".', $snapshotPath));
-    }
+    <section class="section" id="indices">
+        <div class="shell">
+            <div class="section-header">
+                <h2>Index snapshot</h2>
+                <p class="muted">Benchmarks refreshed from the offline market cache.</p>
+            </div>
+            <div class="indices-grid">
+                <?php foreach (($overview['indices'] ?? []) as $index): ?>
+                    <article class="index-card">
+                        <h3><?= esc((string) ($index['name'] ?? '')); ?></h3>
+                        <p class="index-price"><?= esc(format_number((float) ($index['price'] ?? 0.0), 2)); ?></p>
+                        <p class="index-change <?= change_badge((float) ($index['change'] ?? 0.0)); ?>">
+                            <?= esc(sprintf('%+.2f ( %+.2f%% )', (float) ($index['change'] ?? 0.0), (float) ($index['change_percent'] ?? 0.0))); ?>
+                        </p>
+                    </article>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </section>
 
-    $decoded = json_decode($contents, true);
-    if (!is_array($decoded)) {
-        fatalError(sprintf('Snapshot file "%s" does not contain valid JSON.', $snapshotPath));
-    }
+    <section class="section" id="movers">
+        <div class="shell">
+            <div class="section-header">
+                <h2>Top movers</h2>
+                <p class="muted">Quickly surface outsized swings across your tracked universe.</p>
+            </div>
+            <div class="movers-grid">
+                <?php foreach (($overview['top_movers'] ?? []) as $mover): ?>
+                    <article class="mover-card">
+                        <header>
+                            <span class="badge <?= change_badge((float) ($mover['change_percent'] ?? 0.0)); ?>">
+                                <?= esc((string) ($mover['symbol'] ?? '')); ?>
+                            </span>
+                            <h3><?= esc((string) ($mover['name'] ?? '')); ?></h3>
+                        </header>
+                        <p class="mover-price">$<?= esc(format_number((float) ($mover['price'] ?? 0.0), 2)); ?></p>
+                        <p class="mover-change <?= change_badge((float) ($mover['change_percent'] ?? 0.0)); ?>">
+                            <?= esc(sprintf('%+.2f (%+.2f%%)', (float) ($mover['change'] ?? 0.0), (float) ($mover['change_percent'] ?? 0.0))); ?>
+                        </p>
+                        <p class="muted">Sector: <?= esc((string) ($mover['sector'] ?? '')); ?></p>
+                    </article>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </section>
 
-    $engine = SemanticEngine::fromArray($decoded);
-} else {
-    if ($snapshotPath !== null && file_exists($snapshotPath) && !is_file($snapshotPath)) {
-        fatalError(sprintf('Snapshot path "%s" is not a regular file.', $snapshotPath));
-    }
-    $engine = new SemanticEngine();
-}
+    <section class="section" id="sectors">
+        <div class="shell">
+            <div class="section-header">
+                <h2>Sector pulse</h2>
+                <p class="muted">Internal analytics highlight which sectors are leading the session.</p>
+            </div>
+            <div class="sectors-grid" data-pulse-list="sectors">
+                <?php foreach ($sectorLeaders as $sector): ?>
+                    <article class="sector-card">
+                        <h3><?= esc((string) ($sector['sector'] ?? '')); ?></h3>
+                        <p class="sector-change <?= change_badge((float) ($sector['avg_change'] ?? 0.0)); ?>">
+                            <?= esc(sprintf('%+.2f%%', (float) ($sector['avg_change'] ?? 0.0))); ?>
+                        </p>
+                        <p class="muted">Constituents: <?= esc((string) ($sector['count'] ?? 0)); ?></p>
+                    </article>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </section>
 
-foreach ($texts as $text) {
-    $engine->extractRelations($text);
-}
+    <section class="section" id="news">
+        <div class="shell">
+            <div class="section-header">
+                <h2>Latest market news</h2>
+                <p class="muted">Every story is stored locally so briefing rooms keep working without the open web.</p>
+            </div>
+            <?php if ($latestNews === []): ?>
+                <div class="empty-state">
+                    <p>No articles available in the cache yet. Add more companies to expand coverage.</p>
+                </div>
+            <?php else: ?>
+                <div class="news-grid" data-pulse-region="news">
+                    <?php foreach ($latestNews as $item): ?>
+                        <article class="news-card">
+                            <header>
+                                <span class="badge <?= change_badge((float) ($item['sentiment_score'] ?? 0.0)); ?>">
+                                    <?= esc((string) ($item['company']['symbol'] ?? '')); ?>
+                                </span>
+                                <p class="news-source"><?= esc((string) ($item['news']['source'] ?? '')); ?> · <?= esc(date('M j, H:i', strtotime((string) ($item['news']['published_at'] ?? '')))); ?></p>
+                                <h3><a href="<?= esc((string) ($item['news']['url'] ?? '#')); ?>" target="_blank" rel="noopener">
+                                    <?= esc((string) ($item['news']['title'] ?? '')); ?></a></h3>
+                            </header>
+                            <p><?= esc((string) ($item['news']['summary'] ?? '')); ?></p>
+                            <footer>
+                                <a class="button ghost" href="/company.php?q=<?= urlencode((string) ($item['company']['symbol'] ?? '')); ?>">View company brief</a>
+                            </footer>
+                        </article>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+        </div>
+    </section>
+</main>
 
-$outputPayload = [];
-$triples = [];
-$synonyms = [];
+<footer class="site-footer">
+    <div class="shell">
+        <p>Signal Ledger keeps teams informed even when the network drops.</p>
+    </div>
+</footer>
 
-if (in_array('triples', $exports, true)) {
-    $triples = $engine->iterTriples();
-}
-if (in_array('synonyms', $exports, true)) {
-    $synonyms = $engine->iterSynonyms();
-}
-
-switch ($format) {
-    case 'json':
-        if (in_array('triples', $exports, true)) {
-            $outputPayload['triples'] = array_map(
-                static fn(array $triple): array => [
-                    'subject' => $triple[0],
-                    'relation' => $triple[1],
-                    'object' => $triple[2],
-                ],
-                $triples
-            );
-        }
-        if (in_array('synonyms', $exports, true)) {
-            $outputPayload['synonyms'] = array_map(
-                static fn(array $pair): array => [
-                    'entity' => $pair[0],
-                    'synonyms' => $pair[1],
-                ],
-                $synonyms
-            );
-        }
-        $encoded = json_encode($outputPayload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($encoded === false) {
-            fatalError('Failed to encode JSON output.');
-        }
-        $outputData = $encoded . PHP_EOL;
-        break;
-    case 'csv':
-        if ($exports[0] === 'triples') {
-            $rows = array_map(static fn(array $triple): array => [$triple[0], $triple[1], $triple[2]], $triples);
-            $outputData = buildCsv($rows, ['subject', 'relation', 'object']);
-        } else {
-            $rows = array_map(static fn(array $pair): array => [$pair[0], implode(';', $pair[1])], $synonyms);
-            $outputData = buildCsv($rows, ['entity', 'synonyms']);
-        }
-        break;
-    default:
-        $sections = [];
-        if (in_array('triples', $exports, true)) {
-            $sections[] = formatTriplesText($triples);
-        }
-        if (in_array('synonyms', $exports, true)) {
-            $sections[] = formatSynonymsText($synonyms);
-        }
-        $outputData = implode(PHP_EOL, array_map('rtrim', $sections)) . PHP_EOL;
-        break;
-}
-
-if ($options['output'] !== null) {
-    $bytes = @file_put_contents($options['output'], $outputData);
-    if ($bytes === false) {
-        fatalError(sprintf('Failed to write output to "%s".', $options['output']));
-    }
-    if ($snapshotPath !== null) {
-        $snapshotData = json_encode($engine->toArray(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        if ($snapshotData === false) {
-            fatalError('Failed to encode snapshot data as JSON.');
-        }
-        $bytes = @file_put_contents($snapshotPath, $snapshotData . PHP_EOL);
-        if ($bytes === false) {
-            fatalError(sprintf('Failed to write snapshot to "%s".', $snapshotPath));
-        }
-    }
-    exit(0);
-}
-
-echo $outputData;
-
-if ($snapshotPath !== null) {
-    $snapshotData = json_encode($engine->toArray(), JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    if ($snapshotData === false) {
-        fatalError('Failed to encode snapshot data as JSON.');
-    }
-    $bytes = @file_put_contents($snapshotPath, $snapshotData . PHP_EOL);
-    if ($bytes === false) {
-        fatalError(sprintf('Failed to write snapshot to "%s".', $snapshotPath));
-    }
-}
+<script type="application/json" id="market-pulse"><?= json_encode($initialPulse, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?></script>
+<script type="application/json" id="company-dataset"><?= json_encode($suggestionData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?></script>
+<script src="<?= esc($scriptPath . '?v=' . $scriptVersion); ?>" defer></script>
+</body>
+</html>

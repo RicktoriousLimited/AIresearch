@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-require __DIR__ . '/../src/Ricktorious/Markets/bootstrap.php';
+require __DIR__ . '/src/Ricktorious/Markets/bootstrap.php';
 
 $kernel = ricktorious_markets_kernel();
 $newsService = $kernel->companyNewsService();

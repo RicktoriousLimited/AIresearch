@@ -6,7 +6,7 @@ primary surfaces and how they interact.
 
 ```
 ┌────────────────────┐         ┌──────────────────────────┐
-│  Web Studio UI     │  ─┐     │  CLI (`php index.php`)   │
+│  Web Studio UI     │  ─┐     │  CLI (`php cli.php`)     │
 └─────────┬──────────┘    │     └────────────┬────────────┘
           │               │                  │
           ▼               ▼                  ▼
@@ -32,15 +32,15 @@ The result includes:
 
 ### Web experience
 
-- `web/index.php` bootstraps a lightweight SPA shell.
-- `web/assets/workbench.js` coordinates API calls, renders results, and exposes
+- `index.php` bootstraps a lightweight SPA shell.
+- `assets/workbench.js` coordinates API calls, renders results, and exposes
   download/copy affordances.
-- `web/assets/workbench.css` styles the interface using a glassmorphism-inspired
+- `assets/workbench.css` styles the interface using a glassmorphism-inspired
   dark theme suitable for long research sessions.
 
 ### API
 
-- `web/api/analyse.php` accepts `POST` payloads containing either `text` (single
+- `api/analyse.php` accepts `POST` payloads containing either `text` (single
   document) or `documents` (array of strings). Supplying a `state` field from a
   previous response continues building the same knowledge graph over time.
 - Responses are JSON by default and support optional filtering by passing an

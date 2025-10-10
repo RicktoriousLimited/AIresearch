@@ -7,9 +7,9 @@ services:
     volumes:
       - ./storage:/var/www/html/storage
     environment:
-      APACHE_DOCUMENT_ROOT: /var/www/html/web
+      APACHE_DOCUMENT_ROOT: /var/www/html
     healthcheck:
-      test: ["CMD", "php", "-r", "exit(file_exists('/var/www/html/web/health.php') ? 0 : 1);"]
+      test: ["CMD", "php", "-r", "exit(file_exists('/var/www/html/health.php') ? 0 : 1);"]
       interval: 30s
       timeout: 5s
       retries: 3
