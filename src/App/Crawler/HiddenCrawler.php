@@ -1677,13 +1677,11 @@ final class HiddenCrawler
             $previousFingerprint = (string) ($existing['fingerprint'] ?? '');
             if ($previousFingerprint === (string) ($entry['fingerprint'] ?? '')) {
                 $existing['last_checked_at'] = $entry['last_checked_at'] ?? $entry['fetched_at'] ?? date(DATE_ATOM);
+                $existing['unchanged'] = true;
+                $existing['changes'] = $this->buildNoChangeSummary();
                 $history[$key] = $existing;
 
-                $result = $existing;
-                $result['unchanged'] = true;
-                $result['changes'] = $this->buildNoChangeSummary();
-
-                return [$history, $result];
+                return [$history, $existing];
             }
 
             $entry['revision'] = (int) ($existing['revision'] ?? 1) + 1;
