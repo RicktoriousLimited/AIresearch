@@ -7,8 +7,10 @@ namespace App\Crawler;
 use App\Scraping\ScrapeResult;
 use App\Scraping\ScraperInterface;
 use App\Scraping\WebScraper;
+use App\KnowledgeGraph\ResearchService;
 use App\Text\TextRefiner;
 use RuntimeException;
+use Throwable;
 
 use function array_map;
 use function array_merge;
@@ -185,13 +187,21 @@ final class HiddenCrawler
 
     private TextRefiner $refiner;
 
+    private ?ResearchService $graphService;
+
     private string $storagePath;
 
-    public function __construct(string $storagePath, ?ScraperInterface $scraper = null, ?TextRefiner $refiner = null)
+    public function __construct(
+        string $storagePath,
+        ?ScraperInterface $scraper = null,
+        ?TextRefiner $refiner = null,
+        ?ResearchService $graphService = null
+    )
     {
         $this->storagePath = $storagePath;
         $this->scraper = $scraper ?? new WebScraper();
         $this->refiner = $refiner ?? new TextRefiner();
+        $this->graphService = $graphService;
 
         $directory = dirname($storagePath);
         if (!is_dir($directory)) {
@@ -307,14 +317,33 @@ final class HiddenCrawler
             'published_at' => is_array($meta) ? (string) ($meta['published_at'] ?? '') : '',
             'character_count' => $scraped->characterCount(),
             'paragraph_count' => $scraped->paragraphCount(),
+            'narrative' => is_array($analysis['analytics'] ?? null) ? $analysis['analytics'] : [],
         ];
 
         $classification = $this->classifyEntry($entry);
         $quality = $this->evaluateQuality($entry, $scraped);
         $recommendations = $this->recommendSources($scraped, (string) ($quality['source_domain'] ?? ''));
 
+        $graphContext = ['ingested' => false];
+        if ($this->graphService !== null && ($quality['ingest'] ?? false)) {
+            try {
+                $graphResult = $this->graphService->ingestScrapeResult($scraped);
+                $graphContext['ingested'] = true;
+                $graphContext['source'] = [
+                    'url' => (string) ($graphResult['source']['url'] ?? $scraped->url()),
+                    'title' => (string) ($graphResult['source']['title'] ?? $scraped->title()),
+                ];
+                if (isset($graphResult['graph']['summary']['generated_at'])) {
+                    $graphContext['graph_updated_at'] = (string) $graphResult['graph']['summary']['generated_at'];
+                }
+            } catch (Throwable $exception) {
+                $graphContext['error'] = $exception->getMessage();
+            }
+        }
+
         return array_merge($entry, $classification, $quality, [
             'recommended_sources' => $recommendations,
+            'graph' => $graphContext,
         ]);
     }
 
