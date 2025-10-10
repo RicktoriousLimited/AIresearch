@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\News;
 
 use App\Crawler\HiddenCrawler;
+use App\KnowledgeGraph\GraphRepository;
 use DateTimeImmutable;
 use Exception;
 
@@ -23,21 +24,29 @@ use function is_string;
 use function max;
 use function mb_strtolower;
 use function min;
+use function parse_url;
+use function preg_replace;
 use function preg_split;
 use function round;
+use function strtolower;
 use function str_contains;
 use function trim;
+use function ucfirst;
 use function usort;
 
 use const DATE_ATOM;
+use const PHP_URL_HOST;
 
 final class NewsSearchService
 {
     private HiddenCrawler $crawler;
 
-    public function __construct(HiddenCrawler $crawler)
+    private GraphRepository $graphRepository;
+
+    public function __construct(HiddenCrawler $crawler, ?GraphRepository $graphRepository = null)
     {
         $this->crawler = $crawler;
+        $this->graphRepository = $graphRepository ?? new GraphRepository();
     }
 
     /**
@@ -87,15 +96,17 @@ final class NewsSearchService
                 $weight -= 12.0;
             }
 
-            $matches[] = [
-                'weight' => $weight,
-                'item' => $this->formatRow($row),
-            ];
+            $this->upsertMatch($matches, $this->formatRow($row), $weight);
         }
 
-        usort($matches, static fn(array $a, array $b): int => $b['weight'] <=> $a['weight']);
+        if (count($matches) < $limit) {
+            $this->augmentMatchesFromGraph($matches, $terms, $minQuality, $now, $limit);
+        }
 
-        $items = array_map(static fn(array $match): array => $match['item'], $matches);
+        $sorted = array_values($matches);
+        usort($sorted, static fn(array $a, array $b): int => $b['weight'] <=> $a['weight']);
+
+        $items = array_map(static fn(array $match): array => $match['item'], $sorted);
         $results = array_slice($items, 0, $limit);
         $meta = $this->buildMeta($items);
 
@@ -107,6 +118,476 @@ final class NewsSearchService
             'meta' => $meta,
             'generated_at' => $now->format(DATE_ATOM),
         ];
+    }
+
+    /**
+     * @param array<string, array{weight: float, item: array<string, mixed>}> $matches
+     * @param array<string, mixed> $item
+     */
+    private function upsertMatch(array &$matches, array $item, float $weight): void
+    {
+        $key = $this->entryKey($item);
+        if ($key === '') {
+            return;
+        }
+
+        if (!isset($matches[$key])) {
+            $matches[$key] = ['weight' => $weight, 'item' => $item];
+
+            return;
+        }
+
+        $existing = $matches[$key];
+        $merged = $this->mergeItems($existing['item'], $item);
+        $matches[$key] = [
+            'weight' => max($existing['weight'], $weight),
+            'item' => $merged,
+        ];
+    }
+
+    /**
+     * @param array<string, array{weight: float, item: array<string, mixed>}> $matches
+     * @param array<int, string> $terms
+     */
+    private function augmentMatchesFromGraph(
+        array &$matches,
+        array $terms,
+        float $minQuality,
+        DateTimeImmutable $now,
+        int $limit
+    ): void {
+        $payload = $this->graphRepository->load();
+        $sources = isset($payload['sources']) && is_array($payload['sources']) ? $payload['sources'] : [];
+        if ($sources === []) {
+            return;
+        }
+
+        foreach ($sources as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+
+            $entry = $this->normaliseGraphSource($source);
+            $quality = (float) ($entry['quality_score'] ?? 0.0);
+            if ($quality < $minQuality) {
+                continue;
+            }
+
+            $matchScore = $this->matchScore($entry, $terms);
+            if ($terms !== [] && $matchScore <= 0.0) {
+                continue;
+            }
+
+            $weight = $quality + $matchScore + $this->recencyBoost((string) ($entry['fetched_at'] ?? ''), $now) + 6.0;
+
+            $this->upsertMatch($matches, $this->formatRow($entry), $weight);
+
+            if ($limit > 0 && count($matches) >= $limit * 3) {
+                break;
+            }
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     */
+    private function entryKey(array $item): string
+    {
+        $candidates = [];
+        if (isset($item['normalized_url']) && is_string($item['normalized_url'])) {
+            $candidates[] = $item['normalized_url'];
+        }
+        if (isset($item['url']) && is_string($item['url'])) {
+            $candidates[] = $item['url'];
+        }
+
+        foreach ($candidates as $candidate) {
+            $value = trim(mb_strtolower((string) $candidate));
+            if ($value === '') {
+                continue;
+            }
+
+            $value = preg_replace('/#.*$/u', '', $value) ?? $value;
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $primary
+     * @param array<string, mixed> $secondary
+     * @return array<string, mixed>
+     */
+    private function mergeItems(array $primary, array $secondary): array
+    {
+        $merged = $primary;
+
+        $stringFields = [
+            'title',
+            'summary',
+            'preview',
+            'source_site_name',
+            'source_domain',
+            'source_language',
+            'source_published_at',
+            'thumbnail',
+            'meta_description',
+            'content_type',
+            'fetched_at',
+            'last_checked_at',
+        ];
+
+        foreach ($stringFields as $field) {
+            $current = isset($merged[$field]) ? (string) $merged[$field] : '';
+            if ($current !== '') {
+                continue;
+            }
+            if (isset($secondary[$field]) && (string) $secondary[$field] !== '') {
+                $merged[$field] = $secondary[$field];
+            }
+        }
+
+        if (!isset($merged['normalized_url']) || (string) $merged['normalized_url'] === '') {
+            if (isset($secondary['normalized_url']) && (string) $secondary['normalized_url'] !== '') {
+                $merged['normalized_url'] = $secondary['normalized_url'];
+            } elseif (isset($secondary['url']) && (string) $secondary['url'] !== '') {
+                $merged['normalized_url'] = $secondary['url'];
+            }
+        }
+
+        if (!isset($merged['url']) || (string) $merged['url'] === '') {
+            if (isset($secondary['url']) && (string) $secondary['url'] !== '') {
+                $merged['url'] = $secondary['url'];
+            }
+        }
+
+        $merged['quality_score'] = max(
+            (float) ($primary['quality_score'] ?? 0.0),
+            (float) ($secondary['quality_score'] ?? 0.0)
+        );
+        if ($merged['quality_score'] > 0.0) {
+            $merged['quality_label'] = $this->qualityLabelFromScore((float) $merged['quality_score']);
+        }
+
+        $merged['ingest'] = !empty($primary['ingest']) || !empty($secondary['ingest']);
+
+        $merged['topics'] = $this->mergeStringLists($primary['topics'] ?? [], $secondary['topics'] ?? []);
+        $merged['quality_reasons'] = $this->mergeStringLists($primary['quality_reasons'] ?? [], $secondary['quality_reasons'] ?? []);
+        $merged['entities'] = $this->mergeEntities($primary['entities'] ?? [], $secondary['entities'] ?? []);
+        $merged['recommended_sources'] = $this->mergeRecommendedSources($primary['recommended_sources'] ?? [], $secondary['recommended_sources'] ?? []);
+
+        $merged['revision'] = max((int) ($primary['revision'] ?? 0), (int) ($secondary['revision'] ?? 0));
+        $merged['unchanged'] = !empty($primary['unchanged']) && !empty($secondary['unchanged']);
+
+        $primaryChanges = $primary['changes'] ?? [];
+        $secondaryChanges = $secondary['changes'] ?? [];
+        if ($this->isEmptyChangeSet($primaryChanges) && !$this->isEmptyChangeSet($secondaryChanges)) {
+            $merged['changes'] = $secondaryChanges;
+        }
+
+        if (empty($primary['versions']) && !empty($secondary['versions'])) {
+            $merged['versions'] = $secondary['versions'];
+        }
+
+        $merged['quality_label'] = (string) ($merged['quality_label'] ?? $secondary['quality_label'] ?? '');
+
+        return $merged;
+    }
+
+    /**
+     * @param mixed $changes
+     */
+    private function isEmptyChangeSet($changes): bool
+    {
+        if (!is_array($changes)) {
+            return true;
+        }
+
+        $summary = (string) ($changes['summary'] ?? '');
+        $keywordsAdded = $changes['keywords_added'] ?? [];
+        $keywordsRemoved = $changes['keywords_removed'] ?? [];
+        $entitiesAdded = $changes['entities_added'] ?? [];
+        $entitiesRemoved = $changes['entities_removed'] ?? [];
+        $lengthDelta = (int) ($changes['length_delta'] ?? 0);
+
+        return $summary === ''
+            && ($keywordsAdded === [] || $keywordsAdded === null)
+            && ($keywordsRemoved === [] || $keywordsRemoved === null)
+            && ($entitiesAdded === [] || $entitiesAdded === null)
+            && ($entitiesRemoved === [] || $entitiesRemoved === null)
+            && $lengthDelta === 0;
+    }
+
+    /**
+     * @param mixed $left
+     * @param mixed $right
+     * @return array<int, string>
+     */
+    private function mergeStringLists($left, $right): array
+    {
+        $values = [];
+
+        if (is_array($left)) {
+            foreach ($left as $value) {
+                if (!is_string($value)) {
+                    continue;
+                }
+                $trimmed = trim($value);
+                if ($trimmed === '') {
+                    continue;
+                }
+                $values[mb_strtolower($trimmed)] = $trimmed;
+            }
+        }
+
+        if (is_array($right)) {
+            foreach ($right as $value) {
+                if (!is_string($value)) {
+                    continue;
+                }
+                $trimmed = trim($value);
+                if ($trimmed === '') {
+                    continue;
+                }
+                $values[mb_strtolower($trimmed)] = $trimmed;
+            }
+        }
+
+        return array_values($values);
+    }
+
+    /**
+     * @param mixed $left
+     * @param mixed $right
+     * @return array<int, array<string, string>>
+     */
+    private function mergeEntities($left, $right): array
+    {
+        $map = [];
+
+        $collect = static function ($list) use (&$map): void {
+            if (!is_array($list)) {
+                return;
+            }
+
+            foreach ($list as $entity) {
+                if (!is_array($entity)) {
+                    continue;
+                }
+
+                $label = (string) ($entity['label'] ?? '');
+                if ($label === '') {
+                    continue;
+                }
+
+                $type = (string) ($entity['type'] ?? '');
+                $key = mb_strtolower($label . '|' . $type);
+                if (!isset($map[$key])) {
+                    $map[$key] = [
+                        'label' => $label,
+                        'type' => $type,
+                    ];
+                }
+            }
+        };
+
+        $collect($left);
+        $collect($right);
+
+        return array_values($map);
+    }
+
+    /**
+     * @param mixed $left
+     * @param mixed $right
+     * @return array<int, array<string, mixed>>
+     */
+    private function mergeRecommendedSources($left, $right): array
+    {
+        $map = [];
+
+        $collect = static function ($list) use (&$map): void {
+            if (!is_array($list)) {
+                return;
+            }
+
+            foreach ($list as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                $url = (string) ($entry['url'] ?? '');
+                if ($url === '') {
+                    continue;
+                }
+
+                $key = mb_strtolower($url);
+                if (!isset($map[$key])) {
+                    $map[$key] = [
+                        'url' => $url,
+                        'domain' => (string) ($entry['domain'] ?? ''),
+                        'trust_score' => (float) ($entry['trust_score'] ?? 0.0),
+                    ];
+                    continue;
+                }
+
+                if ($map[$key]['domain'] === '' && isset($entry['domain'])) {
+                    $map[$key]['domain'] = (string) $entry['domain'];
+                }
+
+                $map[$key]['trust_score'] = max(
+                    (float) ($map[$key]['trust_score'] ?? 0.0),
+                    (float) ($entry['trust_score'] ?? 0.0)
+                );
+            }
+        };
+
+        $collect($left);
+        $collect($right);
+
+        return array_values($map);
+    }
+
+    private function qualityLabelFromScore(float $score): string
+    {
+        if ($score >= 75.0) {
+            return 'High';
+        }
+
+        if ($score >= 55.0) {
+            return 'Medium';
+        }
+
+        if ($score >= 35.0) {
+            return 'Low';
+        }
+
+        return 'Very low';
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @return array<string, mixed>
+     */
+    private function normaliseGraphSource(array $source): array
+    {
+        $url = (string) ($source['url'] ?? '');
+        $preview = (string) ($source['preview'] ?? '');
+        $title = (string) ($source['title'] ?? $url);
+        $fetchedAt = (string) ($source['fetched_at'] ?? $source['verified_at'] ?? '');
+        $domain = $this->domainFromUrl($url);
+        $siteName = (string) ($source['site_name'] ?? '');
+        if ($siteName === '' && $domain !== '') {
+            $siteName = $this->humaniseDomain($domain);
+        }
+
+        $quality = $this->estimateGraphQualityScore($source);
+
+        return [
+            'title' => $title,
+            'summary' => $preview,
+            'preview' => $preview,
+            'url' => $url,
+            'topics' => $this->normaliseStringList($source['topics'] ?? []),
+            'entities' => [],
+            'fetched_at' => $fetchedAt,
+            'last_checked_at' => (string) ($source['verified_at'] ?? $fetchedAt),
+            'quality_score' => $quality,
+            'quality_label' => $this->qualityLabelFromScore($quality),
+            'quality_reasons' => ['Persisted in shared knowledge graph.'],
+            'ingest' => true,
+            'source_domain' => $domain,
+            'source_site_name' => $siteName,
+            'source_language' => (string) ($source['language'] ?? ''),
+            'source_published_at' => (string) ($source['published_at'] ?? ''),
+            'thumbnail' => (string) ($source['thumbnail'] ?? ''),
+            'meta_description' => (string) ($source['meta_description'] ?? ''),
+            'recommended_sources' => [],
+            'content_type' => 'article',
+            'revision' => 1,
+            'normalized_url' => $url,
+            'unchanged' => false,
+            'changes' => [],
+            'versions' => [],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     */
+    private function estimateGraphQualityScore(array $source): float
+    {
+        $score = 55.0;
+
+        $status = strtolower((string) ($source['status'] ?? 'active'));
+        if ($status === 'active') {
+            $score += 8.0;
+        }
+
+        $characters = isset($source['characters']) ? (int) $source['characters'] : 0;
+        if ($characters >= 3200) {
+            $score += 10.0;
+        } elseif ($characters >= 1800) {
+            $score += 6.0;
+        } elseif ($characters >= 900) {
+            $score += 3.0;
+        }
+
+        $paragraphs = isset($source['paragraphs']) ? (int) $source['paragraphs'] : 0;
+        if ($paragraphs >= 12) {
+            $score += 6.0;
+        } elseif ($paragraphs >= 6) {
+            $score += 3.0;
+        }
+
+        if (isset($source['preview']) && is_string($source['preview']) && trim($source['preview']) !== '') {
+            $score += 4.0;
+        }
+
+        if (isset($source['title']) && is_string($source['title']) && trim($source['title']) !== '') {
+            $score += 4.0;
+        }
+
+        return max(35.0, min(90.0, $score));
+    }
+
+    private function domainFromUrl(string $url): string
+    {
+        if ($url === '') {
+            return '';
+        }
+
+        $host = parse_url($url, PHP_URL_HOST);
+        if (!is_string($host) || $host === '') {
+            return '';
+        }
+
+        $host = strtolower($host);
+        $host = preg_replace('/^www\d*\./', '', $host) ?? $host;
+
+        return $host;
+    }
+
+    private function humaniseDomain(string $domain): string
+    {
+        $clean = preg_replace('/^www\d*\./', '', $domain) ?? $domain;
+        $parts = preg_split('/[\.-]+/', $clean) ?: [];
+        if ($parts === []) {
+            return $domain;
+        }
+
+        $parts = array_map(static function (string $part): string {
+            $part = trim($part);
+
+            return $part === '' ? '' : ucfirst($part);
+        }, array_slice($parts, 0, 3));
+
+        $parts = array_values(array_filter($parts, static fn(string $part): bool => $part !== ''));
+
+        return $parts === [] ? $domain : implode(' ', $parts);
     }
 
     /**

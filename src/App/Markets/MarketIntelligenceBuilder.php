@@ -22,12 +22,19 @@ use function json_decode;
 use function max;
 use function min;
 use function preg_match;
+use function preg_replace;
 use function preg_quote;
+use function preg_split;
+use function parse_url;
 use function str_contains;
 use function strtolower;
 use function strtoupper;
 use function trim;
+use function ucfirst;
+use function implode;
 use function usort;
+
+use const PHP_URL_HOST;
 
 final class MarketIntelligenceBuilder
 {
@@ -73,16 +80,14 @@ final class MarketIntelligenceBuilder
         }
 
         $historyArticles = $this->buildArticlesFromCrawlerHistory(array_keys($symbolUniverse), $companyNames);
-        if ($historyArticles === []) {
-            // fall back to knowledge graph sources when no crawler history is available
-            $historyArticles = $this->buildArticlesFromGraph(array_keys($symbolUniverse), $companyNames);
-        }
+        $graphArticles = $this->buildArticlesFromGraph(array_keys($symbolUniverse), $companyNames);
 
-        if ($historyArticles === []) {
+        $articles = $this->mergeArticles($historyArticles, $graphArticles);
+        if ($articles === []) {
             return $payload;
         }
 
-        $indexed = $this->indexArticlesBySymbol($historyArticles);
+        $indexed = $this->indexArticlesBySymbol($articles);
         $payload = $this->enrichPayload($payload, $indexed);
 
         return $payload;
@@ -155,18 +160,51 @@ final class MarketIntelligenceBuilder
                 continue;
             }
 
+            $url = (string) ($source['url'] ?? '');
+            $title = (string) ($source['title'] ?? $url);
+            $preview = (string) ($source['preview'] ?? '');
+            $summary = $preview !== '' ? $preview : $title;
+            $sourceName = (string) ($source['site_name'] ?? $this->extractSourceFromUrl($url));
+            $fetchedAt = (string) ($source['fetched_at'] ?? '');
+            $verifiedAt = (string) ($source['verified_at'] ?? $fetchedAt);
+            $publishedAt = (string) ($source['published_at'] ?? $fetchedAt);
+
+            $topics = [];
+            if (isset($source['topics']) && is_array($source['topics'])) {
+                foreach ($source['topics'] as $topic) {
+                    if (!is_string($topic)) {
+                        continue;
+                    }
+                    $label = trim($topic);
+                    if ($label === '') {
+                        continue;
+                    }
+                    $topics[strtolower($label)] = $label;
+                }
+            }
+
+            $qualityScore = $this->estimateGraphArticleQuality($source);
+            $relevance = $qualityScore > 0
+                ? min(1.0, max(0.2, $qualityScore / 100))
+                : 0.25;
+
             $articles[] = [
                 'symbols' => $matches,
-                'title' => (string) ($source['title'] ?? ''),
-                'summary' => (string) ($source['preview'] ?? ''),
-                'url' => (string) ($source['url'] ?? ''),
-                'source' => (string) ($source['site_name'] ?? ''),
-                'published_at' => (string) ($source['fetched_at'] ?? ''),
+                'title' => $title,
+                'summary' => $summary,
+                'url' => $url,
+                'source' => $sourceName,
+                'published_at' => $publishedAt,
                 'sentiment_score' => 0.0,
                 'sentiment_label' => 'neutral',
-                'relevance_score' => 0.15,
-                'topics' => [],
-                'symbol' => null,
+                'relevance_score' => $relevance,
+                'topics' => array_values($topics),
+                'fetched_at' => $fetchedAt,
+                'quality_label' => $this->labelForQualityScore($qualityScore),
+                'content_type' => 'article',
+                'revision' => 1,
+                'last_checked_at' => $verifiedAt,
+                'changes' => [],
             ];
         }
 
@@ -350,6 +388,160 @@ final class MarketIntelligenceBuilder
             'last_checked_at' => (string) ($entry['last_checked_at'] ?? $entry['fetched_at'] ?? ''),
             'changes' => is_array($entry['changes'] ?? null) ? $entry['changes'] : [],
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $primary
+     * @param array<int, array<string, mixed>> $secondary
+     * @return array<int, array<string, mixed>>
+     */
+    private function mergeArticles(array $primary, array $secondary): array
+    {
+        $merged = [];
+        $index = [];
+
+        foreach ($primary as $article) {
+            if (!is_array($article)) {
+                continue;
+            }
+
+            $key = $this->articleKey($article);
+            if ($key === '') {
+                $merged[] = $article;
+                continue;
+            }
+
+            $index[$key] = count($merged);
+            $merged[] = $article;
+        }
+
+        foreach ($secondary as $article) {
+            if (!is_array($article)) {
+                continue;
+            }
+
+            $key = $this->articleKey($article);
+            if ($key === '') {
+                $merged[] = $article;
+                continue;
+            }
+
+            if (isset($index[$key])) {
+                $position = $index[$key];
+                $merged[$position] = $this->mergeArticleDetails($merged[$position], $article);
+                continue;
+            }
+
+            $index[$key] = count($merged);
+            $merged[] = $article;
+        }
+
+        return $merged;
+    }
+
+    /**
+     * @param array<string, mixed> $article
+     */
+    private function articleKey(array $article): string
+    {
+        $candidates = [];
+        if (isset($article['normalized_url']) && is_string($article['normalized_url'])) {
+            $candidates[] = $article['normalized_url'];
+        }
+        if (isset($article['url']) && is_string($article['url'])) {
+            $candidates[] = $article['url'];
+        }
+
+        foreach ($candidates as $candidate) {
+            $value = trim(strtolower((string) $candidate));
+            if ($value === '') {
+                continue;
+            }
+
+            $value = preg_replace('/#.*$/u', '', $value) ?? $value;
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param array<string, mixed> $primary
+     * @param array<string, mixed> $secondary
+     * @return array<string, mixed>
+     */
+    private function mergeArticleDetails(array $primary, array $secondary): array
+    {
+        $merged = $primary;
+
+        $stringFields = [
+            'title',
+            'summary',
+            'source',
+            'published_at',
+            'fetched_at',
+            'last_checked_at',
+            'content_type',
+            'quality_label',
+        ];
+
+        foreach ($stringFields as $field) {
+            $current = isset($merged[$field]) ? (string) $merged[$field] : '';
+            if ($current !== '') {
+                continue;
+            }
+            if (isset($secondary[$field]) && (string) $secondary[$field] !== '') {
+                $merged[$field] = $secondary[$field];
+            }
+        }
+
+        $symbols = [];
+        if (isset($primary['symbols']) && is_array($primary['symbols'])) {
+            $symbols = $primary['symbols'];
+        }
+        if (isset($secondary['symbols']) && is_array($secondary['symbols'])) {
+            $symbols = array_merge($symbols, $secondary['symbols']);
+        }
+        if ($symbols !== []) {
+            $merged['symbols'] = array_values(array_unique($symbols));
+        }
+
+        $topics = [];
+        if (isset($primary['topics']) && is_array($primary['topics'])) {
+            $topics = $primary['topics'];
+        }
+        if (isset($secondary['topics']) && is_array($secondary['topics'])) {
+            $topics = array_merge($topics, $secondary['topics']);
+        }
+        if ($topics !== []) {
+            $merged['topics'] = array_values(array_unique($topics));
+        }
+
+        $merged['relevance_score'] = max(
+            (float) ($primary['relevance_score'] ?? 0.0),
+            (float) ($secondary['relevance_score'] ?? 0.0)
+        );
+
+        $primaryScore = (float) ($primary['sentiment_score'] ?? 0.0);
+        $secondaryScore = (float) ($secondary['sentiment_score'] ?? 0.0);
+        $score = $primaryScore;
+        if ($score === 0.0 || abs($secondaryScore) > abs($primaryScore)) {
+            $score = $secondaryScore;
+        }
+        $merged['sentiment_score'] = $score;
+        $merged['sentiment_label'] = $this->labelForAverage($score);
+
+        if (empty($primary['changes']) && !empty($secondary['changes'])) {
+            $merged['changes'] = $secondary['changes'];
+        }
+
+        if (!isset($merged['url']) || (string) $merged['url'] === '') {
+            $merged['url'] = $secondary['url'] ?? ($merged['url'] ?? '');
+        }
+
+        return $merged;
     }
 
     /**
@@ -607,6 +799,92 @@ final class MarketIntelligenceBuilder
         }
 
         return $leaders;
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     */
+    private function estimateGraphArticleQuality(array $source): float
+    {
+        $score = 55.0;
+
+        $status = strtolower((string) ($source['status'] ?? 'active'));
+        if ($status === 'active') {
+            $score += 8.0;
+        }
+
+        $characters = isset($source['characters']) ? (int) $source['characters'] : 0;
+        if ($characters >= 3200) {
+            $score += 10.0;
+        } elseif ($characters >= 1800) {
+            $score += 6.0;
+        } elseif ($characters >= 900) {
+            $score += 3.0;
+        }
+
+        $paragraphs = isset($source['paragraphs']) ? (int) $source['paragraphs'] : 0;
+        if ($paragraphs >= 12) {
+            $score += 6.0;
+        } elseif ($paragraphs >= 6) {
+            $score += 3.0;
+        }
+
+        if (isset($source['preview']) && is_string($source['preview']) && trim($source['preview']) !== '') {
+            $score += 4.0;
+        }
+
+        if (isset($source['title']) && is_string($source['title']) && trim($source['title']) !== '') {
+            $score += 4.0;
+        }
+
+        return max(35.0, min(90.0, $score));
+    }
+
+    private function labelForQualityScore(float $score): string
+    {
+        if ($score >= 75.0) {
+            return 'High';
+        }
+
+        if ($score >= 55.0) {
+            return 'Medium';
+        }
+
+        if ($score >= 35.0) {
+            return 'Low';
+        }
+
+        return 'Very low';
+    }
+
+    private function extractSourceFromUrl(string $url): string
+    {
+        if ($url === '') {
+            return '';
+        }
+
+        $host = parse_url($url, PHP_URL_HOST);
+        if (!is_string($host) || $host === '') {
+            return '';
+        }
+
+        $host = strtolower($host);
+        $host = preg_replace('/^www\d*\./', '', $host) ?? $host;
+
+        $parts = preg_split('/[\.-]+/', $host) ?: [];
+        if ($parts === []) {
+            return $host;
+        }
+
+        $parts = array_map(static function (string $part): string {
+            $part = trim($part);
+
+            return $part === '' ? '' : ucfirst($part);
+        }, array_slice($parts, 0, 3));
+
+        $parts = array_values(array_filter($parts, static fn(string $part): bool => $part !== ''));
+
+        return $parts === [] ? $host : implode(' ', $parts);
     }
 
     private function labelForAverage(float $score): string
