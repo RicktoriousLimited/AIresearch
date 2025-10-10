@@ -5,16 +5,18 @@ declare(strict_types=1);
 require __DIR__ . '/../src/App/bootstrap.php';
 require_once __DIR__ . '/../src/App/Crawler/HiddenCrawler.php';
 require_once __DIR__ . '/../src/App/News/NewsSearchService.php';
+require_once __DIR__ . '/../src/App/KnowledgeGraph/GraphRepository.php';
 
 use App\Crawler\HiddenCrawler;
 use App\News\NewsSearchService;
+use App\KnowledgeGraph\GraphRepository;
 
 header('Content-Type: application/json; charset=utf-8');
 
 try {
     $storage = __DIR__ . '/../storage/backend/crawler-history.json';
     $crawler = new HiddenCrawler($storage);
-    $service = new NewsSearchService($crawler);
+    $service = new NewsSearchService($crawler, new GraphRepository());
 
     $query = isset($_GET['q']) ? (string) $_GET['q'] : '';
     $limit = isset($_GET['limit']) ? (int) $_GET['limit'] : 24;
