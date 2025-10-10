@@ -45,6 +45,7 @@ final class TextRefiner
         'was' => true,
         'were' => true,
         'with' => true,
+        'your' => true,
     ];
 
     /** @var array<string, bool> */
@@ -166,6 +167,7 @@ final class TextRefiner
         'apps' => true,
         'archive' => true,
         'back' => true,
+        'bbc' => true,
         'careers' => true,
         'categories' => true,
         'contact' => true,
@@ -2128,10 +2130,6 @@ final class TextRefiner
             return true;
         }
 
-        if (preg_match('/[.!?]/u', $line) === 1) {
-            return false;
-        }
-
         $normalized = strtolower(trim($line));
         if ($normalized === '') {
             return true;
@@ -2161,6 +2159,7 @@ final class TextRefiner
         $tokenCount = 0;
         $boilerplateMatches = 0;
         $navigationMatches = 0;
+        $stopwordMatches = 0;
         $uniqueTokens = [];
         foreach ($tokens as $token) {
             if ($token === '') {
@@ -2173,6 +2172,9 @@ final class TextRefiner
             }
             if (isset(self::$navigationVocabulary[$token])) {
                 $navigationMatches++;
+            }
+            if (isset(self::$stopwords[$token])) {
+                $stopwordMatches++;
             }
             $uniqueTokens[$token] = true;
         }
@@ -2197,6 +2199,15 @@ final class TextRefiner
 
         if (count($uniqueTokens) === 1 && $tokenCount <= 4) {
             return true;
+        }
+
+        $capitalizedTokenCount = 0;
+        if (preg_match_all('/\b[A-Z][A-Za-z\']*\b/u', $line, $capitalizedMatches) > 0) {
+            $capitalizedTokenCount = count($capitalizedMatches[0]);
+        }
+
+        if ($this->containsBasicSentenceStructure($line, $tokenCount, $stopwordMatches, $capitalizedTokenCount)) {
+            return false;
         }
 
         return false;
@@ -2424,6 +2435,18 @@ final class TextRefiner
     {
         $text = str_replace(["\u{00A0}", "\u{200B}", "\u{200C}", "\u{200D}"], ' ', $text);
         $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        $text = preg_replace(
+            '/<\s*(?:script|style|noscript|template)\b[^>]*>.*?<\s*\/\s*(?:script|style|noscript|template)\s*>/is',
+            ' ',
+            $text
+        );
+        $text = preg_replace(
+            '/<\s*(?:nav|aside|menu)\b[^>]*>.*?<\s*\/\s*(?:nav|aside|menu)\s*>/is',
+            "\n",
+            is_string($text) ? $text : ''
+        );
+        $text = is_string($text) ? $text : '';
 
         $text = preg_replace('/<\s*br\s*\/?>/i', "\n", $text);
         $text = preg_replace('/<\s*\/p\s*>/i', "\n\n", $text);
