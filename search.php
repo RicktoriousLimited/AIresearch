@@ -20,21 +20,21 @@ if ($basePath !== '') {
 
 $assetBase = $basePath === '' ? '' : $basePath;
 
-$stylesPath = $assetBase . '/assets/workbench.css';
-$searchStylesPath = $assetBase . '/assets/search.css';
+$stylesPath = $assetBase . '/assets/styles.css';
+$researchStylesPath = $assetBase . '/assets/research.css';
 $scriptPath = $assetBase . '/assets/search.js';
-$newsStylesPath = $assetBase . '/assets/news-search.css';
 $newsScriptPath = $assetBase . '/assets/news-search.js';
+$knowledgeScriptPath = $assetBase . '/assets/knowledge-graph.js';
 $apiPath = $assetBase . '/api/research.php';
 $newsEndpoint = $assetBase . '/api/news-search.php';
 $homePath = $assetBase . '/index.php';
 $graphPath = $assetBase . '/knowledge-graph.php';
 
-$stylesVersion = file_exists(__DIR__ . '/assets/workbench.css') ? (string) filemtime(__DIR__ . '/assets/workbench.css') : (string) time();
-$searchStylesVersion = file_exists(__DIR__ . '/assets/search.css') ? (string) filemtime(__DIR__ . '/assets/search.css') : (string) time();
-$newsStylesVersion = file_exists(__DIR__ . '/assets/news-search.css') ? (string) filemtime(__DIR__ . '/assets/news-search.css') : (string) time();
+$stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
+$researchStylesVersion = file_exists(__DIR__ . '/assets/research.css') ? (string) filemtime(__DIR__ . '/assets/research.css') : (string) time();
 $scriptVersion = file_exists(__DIR__ . '/assets/search.js') ? (string) filemtime(__DIR__ . '/assets/search.js') : (string) time();
 $newsScriptVersion = file_exists(__DIR__ . '/assets/news-search.js') ? (string) filemtime(__DIR__ . '/assets/news-search.js') : (string) time();
+$knowledgeScriptVersion = file_exists(__DIR__ . '/assets/knowledge-graph.js') ? (string) filemtime(__DIR__ . '/assets/knowledge-graph.js') : (string) time();
 
 $repository = new GraphRepository();
 $researcher = new GraphResearcher($repository);
@@ -80,9 +80,20 @@ $initialState = [
     ],
 ];
 
+$autopilotConfig = [
+    'endpoints' => [
+        'search' => $apiPath,
+    ],
+];
+
 $initialJson = json_encode($initialState, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 if (!is_string($initialJson)) {
     $initialJson = '{}';
+}
+
+$autopilotJson = json_encode($autopilotConfig, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+if (!is_string($autopilotJson)) {
+    $autopilotJson = '{}';
 }
 
 $documentsProcessed = $formatNumber($summary['documents_processed'] ?? 0);
@@ -97,201 +108,270 @@ $updatedLabel = $formatDate($updatedAt) ?? $updatedAt;
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AIresearch Discovery Search</title>
+    <title>Autopilot Search &ndash; AIresearch</title>
     <link rel="stylesheet" href="<?= $escape($stylesPath . '?v=' . $stylesVersion) ?>">
-    <link rel="stylesheet" href="<?= $escape($searchStylesPath . '?v=' . $searchStylesVersion) ?>">
-    <link rel="stylesheet" href="<?= $escape($newsStylesPath . '?v=' . $newsStylesVersion) ?>">
+    <link rel="stylesheet" href="<?= $escape($researchStylesPath . '?v=' . $researchStylesVersion) ?>">
 </head>
-<body class="search-app">
-    <header class="site-header">
-        <div class="container">
-            <nav class="site-nav" aria-label="Primary">
-                <a class="site-nav__link" href="<?= $escape($homePath) ?>">Home</a>
-                <a class="site-nav__link site-nav__link--active" href="<?= $escape($assetBase . '/search.php') ?>">Graph Search</a>
-                <a class="site-nav__link" href="<?= $escape($graphPath) ?>">Knowledge Graph</a>
-                <a class="site-nav__link" href="<?= $escape($assetBase . '/docs') ?>">Documentation</a>
-            </nav>
-            <div class="search-hero">
-                <div>
-                    <h1>AIresearch Graph Search</h1>
-                    <p class="tagline">Query the shared knowledge graph, surface relationship triples, and trace every fact back to the original sources.</p>
+<body class="search-page">
+<header class="site-header">
+    <div class="shell header-shell">
+        <a class="brand" href="<?= $escape($assetBase . '/index.php') ?>">AIresearch</a>
+        <nav class="primary-nav" aria-label="Primary">
+            <a href="<?= $escape($assetBase . '/index.php') ?>" class="primary-nav__link">Home</a>
+            <a href="<?= $escape($assetBase . '/search.php') ?>" class="primary-nav__link primary-nav__link--active">Autopilot search</a>
+            <a href="<?= $escape($assetBase . '/knowledge-graph.php') ?>" class="primary-nav__link">Knowledge graph</a>
+            <a href="<?= $escape($assetBase . '/docs') ?>" class="primary-nav__link">Documentation</a>
+        </nav>
+        <div class="header-actions">
+            <a class="button primary" href="<?= $escape($assetBase . '/knowledge-graph.php') ?>">Explore graph</a>
+        </div>
+    </div>
+</header>
+<main class="search-main search-main--engine">
+    <section class="search-toolbar">
+        <div class="shell search-toolbar__shell">
+            <a class="search-toolbar__brand" href="<?= $escape($homePath) ?>" aria-label="Back to homepage">AIresearch</a>
+            <form class="search-form search-form--bar" data-search-form role="search">
+                <label class="visually-hidden" for="search-query">Search the knowledge graph</label>
+                <div class="search-form__field">
+                    <input id="search-query" name="q" type="search" placeholder="Search the Autopilot graph" autocomplete="off" spellcheck="false" data-search-input>
+                    <button type="submit" class="button primary">Autopilot brief</button>
                 </div>
-                <form class="search-form" data-search-form role="search">
-                    <label class="visually-hidden" for="search-query">Search the knowledge graph</label>
-                    <input id="search-query" name="q" type="search" placeholder="Search people, organisations, technologies&hellip;" autocomplete="off" spellcheck="false" data-search-input>
-                    <button type="submit" class="button primary">Search</button>
-                </form>
-                <div class="search-suggestions" data-search-trending<?= $topEntities === [] ? ' hidden' : '' ?>>
-                    <span class="search-suggestions__label">Trending</span>
-                    <div class="search-suggestions__chips" data-search-trending-list>
-                        <?php foreach ($topEntities as $entityRow): ?>
-                            <?php $entityName = (string) ($entityRow['entity'] ?? ''); ?>
-                            <?php if ($entityName === '') { continue; } ?>
-                            <button type="button" class="chip" data-entity="<?= $escape($entityName) ?>"><?= $escape($entityName) ?></button>
-                        <?php endforeach; ?>
-                    </div>
+            </form>
+        </div>
+        <div class="shell search-toolbar__meta">
+            <div class="search-toolbar__chips" data-search-trending<?= $topEntities === [] ? ' hidden' : '' ?>>
+                <span class="search-toolbar__label">Popular searches</span>
+                <div class="search-toolbar__list" data-search-trending-list>
+                    <?php foreach ($topEntities as $entityRow): ?>
+                        <?php $entityName = (string) ($entityRow['entity'] ?? ''); ?>
+                        <?php if ($entityName === '') { continue; } ?>
+                        <button type="button" class="chip" data-entity="<?= $escape($entityName) ?>"><?= $escape($entityName) ?></button>
+                    <?php endforeach; ?>
                 </div>
             </div>
         </div>
-    </header>
-    <main class="container">
-        <section class="panel">
-            <header class="panel-header">
-                <div>
-                    <h2>Knowledge results</h2>
-                    <p class="panel-subtitle">We analyse every crawl, extraction, and upload to make facts instantly searchable.</p>
-                </div>
-            </header>
-            <div class="status" data-search-status aria-live="polite">
-                <?= $hasGraph ? 'Ready to explore the global knowledge graph.' : 'No graph data yet. Start by analysing text or scraping a URL from the Data Studio.' ?>
-            </div>
-            <div class="results-overview" data-search-metrics<?= $hasGraph ? '' : ' hidden' ?>>
-                <article class="metric-card">
-                    <span class="metric-label">Documents processed</span>
-                    <span class="metric-value" data-metric-documents><?= $documentsProcessed ?></span>
-                    <span class="metric-sub" data-metric-sources>Sources tracked: <?= $sourcesTracked ?></span>
-                </article>
-                <article class="metric-card">
-                    <span class="metric-label">Triples extracted</span>
-                    <span class="metric-value" data-metric-triples><?= $triplesExtracted ?></span>
-                    <span class="metric-sub" data-metric-synonyms>Synonym groups: <?= $synonymGroups ?></span>
-                </article>
-                <article class="metric-card">
-                    <span class="metric-label">Unique entities</span>
-                    <span class="metric-value" data-metric-entities><?= $uniqueEntities ?></span>
-                    <span class="metric-sub" data-metric-updated><?= $updatedLabel !== null ? 'Updated ' . $escape($updatedLabel) : 'Awaiting first crawl' ?></span>
-                </article>
-            </div>
-            <div class="search-results" data-search-results<?= $hasGraph ? '' : ' hidden' ?>>
-                <div class="search-columns">
-                    <div class="search-columns__primary">
-                        <div class="grid search-grid">
-                            <article class="card span-3">
-                                <h3>Entities</h3>
-                                <p class="card-subtle" data-search-entities-empty<?= $hasGraph ? ' hidden' : '' ?>>Search to surface entity profiles with context, relations, and supporting sources.</p>
-                                <div class="entity-results" data-search-entities>
-                                    <?php foreach (array_slice($initialSearch['entities'] ?? [], 0, 6) as $entity): ?>
-                                        <?php $entityName = (string) ($entity['entity'] ?? ''); ?>
-                                        <?php if ($entityName === '') { continue; } ?>
-                                        <button type="button" class="entity-chip" data-entity="<?= $escape($entityName) ?>">
-                                            <span class="entity-chip__name"><?= $escape($entityName) ?></span>
-                                            <?php if (isset($entity['score'])): ?>
-                                                <span class="entity-chip__score">Match confidence <?= $escape((string) round((float) $entity['score'] * 100)) ?>%</span>
-                                            <?php endif; ?>
-                                            <?php if (!empty($entity['synonyms'])): ?>
-                                                <span class="entity-chip__meta">Synonyms: <?= $escape(implode(', ', (array) $entity['synonyms'])) ?></span>
-                                            <?php endif; ?>
-                                            <?php if (isset($entity['summary']['facts'])): ?>
-                                                <span class="entity-chip__signals">Facts indexed: <?= $escape((string) count((array) $entity['summary']['facts'])) ?></span>
-                                            <?php endif; ?>
-                                        </button>
-                                    <?php endforeach; ?>
-                                </div>
-                            </article>
-                            <article class="card span-2">
-                                <h3>Relation signals</h3>
-                                <p class="card-subtle" data-search-relations-empty<?= $hasGraph ? ' hidden' : '' ?>>Relation matches will appear here once you run a search.</p>
-                                <ul class="list-block" data-search-relations>
-                                    <?php foreach (array_slice($initialSearch['relations'] ?? [], 0, 8) as $relation): ?>
-                                        <?php $label = (string) ($relation['relation'] ?? $relation['label'] ?? ''); ?>
-                                        <?php if ($label === '') { continue; } ?>
-                                        <li>
-                                            <span class="label"><?= $escape($label) ?></span>
-                                            <?php if (isset($relation['count'])): ?>
-                                                <span class="value"><?= $escape($formatNumber($relation['count'])) ?></span>
-                                            <?php endif; ?>
-                                        </li>
-                                    <?php endforeach; ?>
-                                </ul>
-                            </article>
-                            <article class="card span-2">
-                                <h3>Synonym clusters</h3>
-                                <p class="card-subtle" data-search-synonyms-empty<?= $hasGraph ? ' hidden' : '' ?>>Advanced name matching highlights aliases and related spellings.</p>
-                                <ul class="list-block" data-search-synonyms>
-                                    <?php foreach (array_slice($initialSearch['synonyms'] ?? [], 0, 8) as $group): ?>
-                                        <?php $entityName = (string) ($group['entity'] ?? ''); ?>
-                                        <?php $synonyms = isset($group['synonyms']) && is_array($group['synonyms']) ? $group['synonyms'] : []; ?>
-                                        <?php if ($entityName === '' || $synonyms === []) { continue; } ?>
-                                        <li>
-                                            <span class="label"><?= $escape($entityName) ?></span>
-                                            <span class="value"><?= $escape(implode(', ', $synonyms)) ?></span>
-                                        </li>
-                                    <?php endforeach; ?>
-                                </ul>
-                            </article>
-                            <article class="card span-3">
-                                <h3>Triple matches</h3>
-                                <p class="card-subtle" data-search-triples-empty<?= $hasGraph ? ' hidden' : '' ?>>Semantic triples that mention your query will appear below.</p>
-                                <div class="table-wrapper">
-                                    <table class="search-table" data-search-triples>
-                                        <thead>
-                                            <tr>
-                                                <th scope="col">Subject</th>
-                                                <th scope="col">Relation</th>
-                                                <th scope="col">Object</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <?php foreach (array_slice($initialSearch['triples'] ?? [], 0, 10) as $triple): ?>
-                                                <tr>
-                                                    <td><?= $escape((string) ($triple['subject'] ?? '')) ?></td>
-                                                    <td><?= $escape((string) ($triple['relation'] ?? '')) ?></td>
-                                                    <td><?= $escape((string) ($triple['object'] ?? '')) ?></td>
-                                                </tr>
-                                            <?php endforeach; ?>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </article>
-                            <article class="card span-3">
-                                <h3>Source registry</h3>
-                                <p class="card-subtle" data-search-sources-empty<?= $hasGraph ? ' hidden' : '' ?>>Each fact links back to a crawled or uploaded source.</p>
-                                <ul class="list-block" data-search-sources>
-                                    <?php foreach (array_slice($sources, 0, 8) as $source): ?>
-                                        <?php $title = isset($source['title']) && is_string($source['title']) && trim($source['title']) !== '' ? $source['title'] : ($source['url'] ?? ''); ?>
-                                        <?php $url = isset($source['url']) && is_string($source['url']) ? $source['url'] : ''; ?>
-                                        <?php $lastSeen = isset($source['last_seen']) && is_string($source['last_seen']) ? $formatDate($source['last_seen']) : null; ?>
-                                        <?php if ($title === '' && $url === '') { continue; } ?>
-                                        <li>
-                                            <?php if ($url !== ''): ?>
-                                                <a href="<?= $escape($url) ?>" target="_blank" rel="noopener" class="label"><?= $escape((string) $title) ?></a>
-                                            <?php else: ?>
-                                                <span class="label"><?= $escape((string) $title) ?></span>
-                                            <?php endif; ?>
-                                            <?php if ($lastSeen !== null): ?>
-                                                <span class="value">Seen <?= $escape($lastSeen) ?></span>
-                                            <?php endif; ?>
-                                        </li>
-                                    <?php endforeach; ?>
-                                </ul>
-                            </article>
+    </section>
+
+    <section class="search-body" id="results">
+        <div class="shell search-body__shell">
+            <div class="search-grid">
+                <aside class="search-sidebar">
+                    <div class="search-sidebar__card search-sidebar__card--metrics">
+                        <h2>Graph coverage</h2>
+                        <p class="search-sidebar__hint">Signals currently indexed from crawls, analyst uploads, and partner feeds.</p>
+                        <dl class="search-metrics" data-search-metrics<?= $hasGraph ? '' : ' hidden' ?>>
+                            <div class="search-metrics__item">
+                                <dt>Documents processed</dt>
+                                <dd data-metric-documents><?= $documentsProcessed ?></dd>
+                            </div>
+                            <div class="search-metrics__item">
+                                <dt>Triples extracted</dt>
+                                <dd data-metric-triples><?= $triplesExtracted ?></dd>
+                            </div>
+                            <div class="search-metrics__item">
+                                <dt>Unique entities</dt>
+                                <dd data-metric-entities><?= $uniqueEntities ?></dd>
+                            </div>
+                            <div class="search-metrics__item">
+                                <dt>Synonym groups</dt>
+                                <dd data-metric-synonyms><?= $synonymGroups ?></dd>
+                            </div>
+                            <div class="search-metrics__item">
+                                <dt>Sources tracked</dt>
+                                <dd data-metric-sources><?= $sourcesTracked ?></dd>
+                            </div>
+                            <div class="search-metrics__item">
+                                <dt>Last refreshed</dt>
+                                <dd data-metric-updated><?= $updatedLabel !== null ? $escape($updatedLabel) : 'Awaiting first crawl' ?></dd>
+                            </div>
+                        </dl>
+                        <?php if (!$hasGraph): ?>
+                            <p class="search-sidebar__empty">No indexed graph yet. Run a crawl or upload a dossier to populate Autopilot insights.</p>
+                        <?php else: ?>
+                            <p class="search-sidebar__empty">Need deeper exploration? <a href="<?= $escape($graphPath) ?>">Open the knowledge graph</a>.</p>
+                        <?php endif; ?>
+                    </div>
+                    <div class="search-sidebar__card">
+                        <h2>Helpful references</h2>
+                        <p class="search-sidebar__hint" data-search-sources-empty<?= $hasGraph ? ' hidden' : '' ?>>Run a search to surface the most cited sources for your topic.</p>
+                        <ul class="reference-list" data-search-sources>
+                            <?php foreach (array_slice($sources, 0, 8) as $source): ?>
+                                <?php $title = isset($source['title']) && is_string($source['title']) && trim($source['title']) !== '' ? $source['title'] : ($source['url'] ?? ''); ?>
+                                <?php $url = isset($source['url']) && is_string($source['url']) ? $source['url'] : ''; ?>
+                                <?php $lastSeen = isset($source['last_seen']) && is_string($source['last_seen']) ? $formatDate($source['last_seen']) : null; ?>
+                                <?php if ($title === '' && $url === '') { continue; } ?>
+                                <li class="reference-list__item">
+                                    <?php if ($url !== ''): ?>
+                                        <a href="<?= $escape($url) ?>" target="_blank" rel="noopener" class="reference-list__title"><?= $escape((string) $title) ?></a>
+                                    <?php else: ?>
+                                        <span class="reference-list__title"><?= $escape((string) $title) ?></span>
+                                    <?php endif; ?>
+                                    <?php if ($lastSeen !== null): ?>
+                                        <span class="reference-list__meta">Seen <?= $escape($lastSeen) ?></span>
+                                    <?php endif; ?>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                    <div class="search-sidebar__card">
+                        <h2>Entity explorer</h2>
+                        <p class="search-sidebar__hint" data-search-entities-empty<?= $hasGraph ? ' hidden' : '' ?>>Search to surface entity profiles with context, relations, and supporting sources.</p>
+                        <div class="entity-results" data-search-entities>
+                            <?php foreach (array_slice($initialSearch['entities'] ?? [], 0, 8) as $entity): ?>
+                                <?php $entityName = (string) ($entity['entity'] ?? ''); ?>
+                                <?php if ($entityName === '') { continue; } ?>
+                                <button type="button" class="entity-chip" data-entity="<?= $escape($entityName) ?>">
+                                    <span class="entity-chip__name"><?= $escape($entityName) ?></span>
+                                    <?php if (isset($entity['score'])): ?>
+                                        <span class="entity-chip__score">Match confidence <?= $escape((string) round((float) $entity['score'] * 100)) ?>%</span>
+                                    <?php endif; ?>
+                                    <?php if (!empty($entity['synonyms'])): ?>
+                                        <span class="entity-chip__meta">Synonyms: <?= $escape(implode(', ', (array) $entity['synonyms'])) ?></span>
+                                    <?php endif; ?>
+                                </button>
+                            <?php endforeach; ?>
                         </div>
                     </div>
-                    <aside class="card entity-detail" data-entity-detail hidden>
+                    <aside class="search-sidebar__card entity-detail" data-entity-detail hidden>
                         <div class="entity-detail__header">
-                            <h3 data-entity-name>Entity detail</h3>
+                            <h2 data-entity-name>Entity detail</h2>
                             <p class="entity-detail__score" data-entity-score></p>
                             <div class="pill-list" data-entity-synonyms></div>
                         </div>
                         <div class="entity-detail__body">
                             <div class="entity-detail__section" data-entity-facts-wrap>
-                                <h4>Key facts</h4>
+                                <h3>Key facts</h3>
                                 <ul class="entity-detail__facts" data-entity-facts></ul>
                             </div>
                             <div class="entity-detail__section" data-entity-relations-wrap>
-                                <h4>Relation highlights</h4>
+                                <h3>Relation highlights</h3>
                                 <ul class="entity-detail__relations" data-entity-relations></ul>
                             </div>
                         </div>
                     </aside>
+                </aside>
+                <div class="search-main-column">
+                    <div class="status" data-search-status aria-live="polite">
+                        <?= $hasGraph ? 'Ready to explore the global knowledge graph.' : 'No graph data yet. Start by analysing text or scraping a URL from the Data Studio.' ?>
+                    </div>
+                    <article class="autopilot-brief">
+                        <header class="autopilot-brief__header">
+                            <div>
+                                <span class="autopilot-brief__eyebrow">Autopilot brief</span>
+                                <h1>Evidence-backed summary for your query</h1>
+                                <p class="autopilot-brief__lead">Submit a focus area to generate an analyst-ready narrative. Autopilot cross-references the graph and cites the most relevant sources.</p>
+                            </div>
+                            <button type="button" class="button ghost" data-report-refresh>Refresh with latest graph</button>
+                        </header>
+                        <div class="autopilot-brief__layout">
+                            <div class="autopilot-brief__form">
+                                <form class="report-form" data-report-form>
+                                    <label class="visually-hidden" for="report-query">Brief focus</label>
+                                    <textarea id="report-query" data-report-query placeholder="e.g. Autonomous vehicle safety breakthroughs" spellcheck="false"></textarea>
+                                    <p class="help-text">Autopilot blends every stored analysis, scores uniqueness, and fuses overlapping narratives into one report.</p>
+                                    <div class="report-actions">
+                                        <button type="submit" class="button primary">Generate brief</button>
+                                        <p class="status" data-report-status hidden></p>
+                                    </div>
+                                </form>
+                            </div>
+                            <div class="autopilot-brief__results" data-report-output>
+                                <p class="autopilot-brief__empty" data-report-empty>Run a brief to cross-reference the latest sources, citations, and imagery.</p>
+                                <div class="report-results" data-report-results hidden>
+                                    <div class="report-summary" data-report-summary></div>
+                                    <div class="report-topics" data-report-topics-wrapper>
+                                        <h2>Key themes</h2>
+                                        <ul data-report-topics></ul>
+                                    </div>
+                                    <div class="report-highlights" data-report-highlights></div>
+                                    <div class="report-combined" data-report-combined-wrapper>
+                                        <h2>Cross-referenced insights</h2>
+                                        <ol data-report-combined></ol>
+                                    </div>
+                                    <div class="report-citations" data-report-citations-wrapper>
+                                        <h2>Citations &amp; assets</h2>
+                                        <ol data-report-citations></ol>
+                                        <div class="report-images" data-report-images></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </article>
+                    <section class="search-sections" data-search-results<?= $hasGraph ? '' : ' hidden' ?>>
+                        <article class="result-block">
+                            <header>
+                                <h2>Relation signals</h2>
+                                <p class="result-block__hint" data-search-relations-empty<?= $hasGraph ? ' hidden' : '' ?>>Relation matches will appear here once you run a search.</p>
+                            </header>
+                            <ul class="list-block" data-search-relations>
+                                <?php foreach (array_slice($initialSearch['relations'] ?? [], 0, 8) as $relation): ?>
+                                    <?php $label = (string) ($relation['relation'] ?? $relation['label'] ?? ''); ?>
+                                    <?php if ($label === '') { continue; } ?>
+                                    <li>
+                                        <span class="label"><?= $escape($label) ?></span>
+                                        <?php if (isset($relation['count'])): ?>
+                                            <span class="value"><?= $escape($formatNumber($relation['count'])) ?></span>
+                                        <?php endif; ?>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </article>
+                        <article class="result-block">
+                            <header>
+                                <h2>Synonym clusters</h2>
+                                <p class="result-block__hint" data-search-synonyms-empty<?= $hasGraph ? ' hidden' : '' ?>>Advanced name matching highlights aliases and related spellings.</p>
+                            </header>
+                            <ul class="list-block" data-search-synonyms>
+                                <?php foreach (array_slice($initialSearch['synonyms'] ?? [], 0, 8) as $group): ?>
+                                    <?php $entityName = (string) ($group['entity'] ?? ''); ?>
+                                    <?php $synonyms = isset($group['synonyms']) && is_array($group['synonyms']) ? $group['synonyms'] : []; ?>
+                                    <?php if ($entityName === '' || $synonyms === []) { continue; } ?>
+                                    <li>
+                                        <span class="label"><?= $escape($entityName) ?></span>
+                                        <span class="value"><?= $escape(implode(', ', $synonyms)) ?></span>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </article>
+                        <article class="result-block result-block--table">
+                            <header>
+                                <h2>Triple matches</h2>
+                                <p class="result-block__hint" data-search-triples-empty<?= $hasGraph ? ' hidden' : '' ?>>Semantic triples that mention your query will appear below.</p>
+                            </header>
+                            <div class="table-wrapper">
+                                <table class="search-table" data-search-triples>
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Subject</th>
+                                            <th scope="col">Relation</th>
+                                            <th scope="col">Object</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <?php foreach (array_slice($initialSearch['triples'] ?? [], 0, 10) as $triple): ?>
+                                            <tr>
+                                                <td><?= $escape((string) ($triple['subject'] ?? '')) ?></td>
+                                                <td><?= $escape((string) ($triple['relation'] ?? '')) ?></td>
+                                                <td><?= $escape((string) ($triple['object'] ?? '')) ?></td>
+                                            </tr>
+                                        <?php endforeach; ?>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </article>
+                    </section>
                 </div>
             </div>
-        </section>
-        <section class="news-panel" data-news-app data-news-endpoint="<?= $escape($newsEndpoint) ?>">
-            <div class="news-panel__header">
+        </div>
+    </section>
+
+    <section class="news-section" data-news-app data-news-endpoint="<?= $escape($newsEndpoint) ?>">
+        <div class="shell">
+            <header class="news-section__header">
                 <div>
                     <h2>Live news intelligence</h2>
-                    <p class="news-panel__subtitle">Quality-ranked headlines from the crawler, searchable by entity, topic and source credibility.</p>
+                    <p class="news-section__subtitle">Quality-ranked headlines from the crawler, searchable by entity, topic, and source credibility.</p>
                 </div>
                 <form class="news-form" data-news-search-form>
                     <label class="visually-hidden" for="news-query">Search the news index</label>
@@ -305,8 +385,8 @@ $updatedLabel = $formatDate($updatedAt) ?? $updatedAt;
                     </select>
                     <button type="submit" class="button ghost">Search news</button>
                 </form>
-            </div>
-            <div class="news-meta">
+            </header>
+            <div class="news-section__meta">
                 <div class="news-status" data-news-status aria-live="polite">Loading curated sources…</div>
                 <div class="news-topics" data-news-topics hidden>
                     <span class="news-topics__label">Trending topics</span>
@@ -317,10 +397,18 @@ $updatedLabel = $formatDate($updatedAt) ?? $updatedAt;
             <div class="news-results" data-news-results>
                 <div class="news-empty">Launching crawler insights…</div>
             </div>
-        </section>
-    </main>
-    <script>window.AISearch = <?= $initialJson ?>;</script>
-    <script src="<?= $escape($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
-    <script src="<?= $escape($newsScriptPath . '?v=' . $newsScriptVersion) ?>" defer></script>
+        </div>
+    </section>
+</main>
+<footer class="site-footer">
+    <div class="shell">
+        <p>Knowledge graph snapshots are stored at <code><?= $escape($repository->path()) ?></code>. Scrape additional URLs from the <a href="<?= $escape($homePath) ?>">Data Preparation Studio</a>.</p>
+    </div>
+</footer>
+<script>window.AISearch = <?= $initialJson ?>;</script>
+<script>window.AIKnowledgeGraph = <?= $autopilotJson ?>;</script>
+<script src="<?= $escape($knowledgeScriptPath . '?v=' . $knowledgeScriptVersion) ?>" defer></script>
+<script src="<?= $escape($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
+<script src="<?= $escape($newsScriptPath . '?v=' . $newsScriptVersion) ?>" defer></script>
 </body>
 </html>

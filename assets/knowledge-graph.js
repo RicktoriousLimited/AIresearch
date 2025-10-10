@@ -1089,6 +1089,32 @@
         }
     }
 
+    function setReportQuery(value) {
+        const nextValue = typeof value === 'string' ? value : '';
+        if (reportQueryInput) {
+            reportQueryInput.value = nextValue;
+        }
+        currentReportQuery = nextValue;
+    }
+
+    function initialiseAutopilotApi() {
+        const api = Object.assign({}, window.AIAutopilot || {});
+        api.setQuery = (value) => {
+            const trimmed = typeof value === 'string' ? value.trim() : '';
+            setReportQuery(trimmed);
+        };
+        api.generate = (value) => {
+            const trimmed = typeof value === 'string' ? value.trim() : '';
+            api.setQuery(trimmed);
+            generateReport(trimmed);
+        };
+        api.refresh = () => {
+            loadDocumentComparison();
+            generateReport(currentReportQuery);
+        };
+        window.AIAutopilot = api;
+    }
+
     function renderEntityDetail(summary, context) {
         if (!entityDetail) {
             return;
@@ -1559,6 +1585,8 @@
             generateReport(currentReportQuery);
         });
     }
+
+    initialiseAutopilotApi();
 
     if (Array.isArray(initialTop) && initialTop.length > 0) {
         renderTopEntities(initialTop);

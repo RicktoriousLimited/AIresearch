@@ -20,13 +20,14 @@ if ($basePath !== '') {
 
 $assetBase = $basePath === '' ? '' : $basePath;
 
-$stylesPath = $assetBase . '/assets/workbench.css';
+$stylesPath = $assetBase . '/assets/styles.css';
+$researchStylesPath = $assetBase . '/assets/research.css';
 $homePath = $assetBase . '/index.php';
-$searchPath = $assetBase . '/search.php';
 $apiPath = $assetBase . '/api/research.php';
 $scriptPath = $assetBase . '/assets/knowledge-graph.js';
 
-$stylesVersion = file_exists(__DIR__ . '/assets/workbench.css') ? (string) filemtime(__DIR__ . '/assets/workbench.css') : (string) time();
+$stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
+$researchStylesVersion = file_exists(__DIR__ . '/assets/research.css') ? (string) filemtime(__DIR__ . '/assets/research.css') : (string) time();
 $scriptVersion = file_exists(__DIR__ . '/assets/knowledge-graph.js') ? (string) filemtime(__DIR__ . '/assets/knowledge-graph.js') : (string) time();
 
 $repository = new GraphRepository();
@@ -60,8 +61,8 @@ $formatDate = static function (?string $value): ?string {
     }
 
     try {
-        $date = new \DateTimeImmutable($value);
-    } catch (\Exception $exception) {
+        $date = new DateTimeImmutable($value);
+    } catch (Exception $exception) {
         return $value;
     }
 
@@ -96,36 +97,50 @@ if (!is_string($initialJson)) {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Global Knowledge Graph &ndash; AIresearch</title>
+    <title>Knowledge graph workspace &ndash; AIresearch</title>
     <link rel="stylesheet" href="<?= $escape($stylesPath . '?v=' . $stylesVersion) ?>">
+    <link rel="stylesheet" href="<?= $escape($researchStylesPath . '?v=' . $researchStylesVersion) ?>">
 </head>
-<body class="knowledge-graph">
-    <header class="site-header">
-        <div class="container">
-            <nav class="site-nav" aria-label="Primary">
-                <a class="site-nav__link" href="<?= $escape($homePath) ?>">Data Studio</a>
-                <a class="site-nav__link site-nav__link--active" href="<?= $escape($assetBase . '/knowledge-graph.php') ?>">Knowledge Graph</a>
-                <a class="site-nav__link" href="<?= $escape($searchPath) ?>">Discovery Search</a>
-            </nav>
-            <h1>AIresearch Knowledge Graph</h1>
-            <p class="tagline">A living graph enriched from every scraped article and research update.</p>
-            <p><a class="button tertiary" href="<?= $escape($homePath) ?>">Back to workbench</a></p>
+<body class="knowledge-page">
+<header class="site-header">
+    <div class="shell header-shell">
+        <a class="brand" href="<?= $escape($assetBase . '/index.php') ?>">AIresearch</a>
+        <nav class="primary-nav" aria-label="Primary">
+            <a href="<?= $escape($assetBase . '/index.php') ?>" class="primary-nav__link">Home</a>
+            <a href="<?= $escape($assetBase . '/search.php') ?>" class="primary-nav__link">Autopilot search</a>
+            <a href="<?= $escape($assetBase . '/knowledge-graph.php') ?>" class="primary-nav__link primary-nav__link--active">Knowledge graph</a>
+            <a href="<?= $escape($assetBase . '/docs') ?>" class="primary-nav__link">Documentation</a>
+        </nav>
+        <div class="header-actions">
+            <a class="button primary" href="<?= $escape($assetBase . '/search.php') ?>">Launch search</a>
         </div>
-    </header>
-    <main class="container">
-        <section class="panel">
-            <header class="panel-header">
+    </div>
+</header>
+<main class="graph-main">
+    <section class="graph-hero">
+        <div class="shell">
+            <div class="graph-hero__content">
                 <div>
-                    <h2>Shared intelligence</h2>
-                    <p>The scraper continuously ingests public URLs, extracts semantic triples, and fuses them into this shared knowledge base. Explore the latest entities, relations, and supporting sources below.</p>
+                    <p class="eyebrow">Live intelligence workspace</p>
+                    <h1>Explore the unified knowledge graph</h1>
+                    <p class="lead">Monitor the latest entities, relationship triples, and curated sources powering Autopilot briefs. Use the controls below to search, refresh crawls, and orchestrate new ingestion runs.</p>
                 </div>
                 <form class="graph-search" data-graph-search>
                     <label class="visually-hidden" for="graph-search-input">Search the knowledge graph</label>
                     <input id="graph-search-input" name="q" type="search" placeholder="Search people, organisations, relations&hellip;" autocomplete="off" spellcheck="false">
                     <button type="submit" class="button primary">Search</button>
                 </form>
+            </div>
+        </div>
+    </section>
+    <div class="shell graph-shell">
+        <section class="panel">
+            <header class="panel-header">
+                <div>
+                    <h2>Shared intelligence</h2>
+                    <p class="panel-subtitle">The crawler continuously ingests public URLs, extracts semantic triples, and merges them into this shared knowledge base. Explore the latest entities, relations, and supporting sources below.</p>
+                </div>
             </header>
-
             <div class="graph-feedback<?= $hasGraph ? ' is-hidden' : '' ?>" data-graph-feedback role="status">
                 <?php if (!$hasGraph): ?>
                     <p>No scraped documents yet. Use the <a href="<?= $escape($homePath) ?>">Data Preparation Studio</a> to fetch an article and enrich the shared graph.</p>
@@ -208,7 +223,7 @@ if (!is_string($initialJson)) {
                         <h3>Highlighted triples</h3>
                         <p class="card-subtle" data-graph-triples-empty<?= $triples !== [] ? ' hidden' : '' ?>>Entity relationships and evidence snippets will appear here.</p>
                         <div class="table-wrapper">
-                            <table class="table" data-graph-triples>
+                            <table class="search-table" data-graph-triples>
                                 <thead>
                                     <tr>
                                         <th scope="col">Subject</th>
@@ -246,7 +261,7 @@ if (!is_string($initialJson)) {
                                 $preview = (string) ($source['preview'] ?? '');
                                 ?>
                                 <li>
-                                    <p class="source-title"><a href="<?= $escape($sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $escape($label) ?></a></p>
+                                    <p class="source-title"><?php if ($sourceUrl !== ''): ?><a href="<?= $escape($sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $escape($label) ?></a><?php else: ?><?= $escape($label) ?><?php endif; ?></p>
                                     <p class="source-meta"><?= $escape($characters) ?> characters<?php if ($fetchedAt): ?> • <?= $escape($fetchedAt) ?><?php endif; ?></p>
                                     <?php if ($preview !== ''): ?>
                                         <p class="source-preview"><?= $escape($preview) ?></p>
@@ -266,7 +281,7 @@ if (!is_string($initialJson)) {
                     <p class="panel-subtitle">Blend every stored analysis into a single knowledge graph brief with citations, supporting media, and uniqueness scoring.</p>
                 </div>
                 <div class="panel-actions">
-                    <button type="button" class="button tertiary" data-report-refresh>Refresh insights</button>
+                    <button type="button" class="button ghost" data-report-refresh>Refresh insights</button>
                 </div>
             </header>
             <div class="grid autopilot-grid">
@@ -322,7 +337,7 @@ if (!is_string($initialJson)) {
                     <p class="panel-subtitle">Monitor the top-ranked entities and orchestrate automated crawls that expand the shared knowledge graph.</p>
                 </div>
                 <div class="panel-actions">
-                    <button type="button" class="button tertiary" data-refresh-sources>Refresh stored sources</button>
+                    <button type="button" class="button ghost" data-refresh-sources>Refresh stored sources</button>
                 </div>
             </header>
             <div class="grid research-grid">
@@ -385,19 +400,20 @@ if (!is_string($initialJson)) {
                 <h2>Entity insights</h2>
                 <p class="panel-subtitle">Select an entity to inspect relation histograms, synonym evidence, and the strongest supporting facts.</p>
             </header>
-            <div class="entity-detail" data-graph-entity-detail>
+            <div class="entity-detail entity-detail--full" data-graph-entity-detail>
                 <p class="empty-state">Choose an entity from the explorer to see a full research summary.</p>
             </div>
         </section>
-    </main>
-    <footer class="site-footer">
-        <div class="container">
-            <p>Knowledge graph snapshots are stored at <code><?= $escape($repository->path()) ?></code>. Scrape additional URLs from the <a href="<?= $escape($homePath) ?>">Data Preparation Studio</a>.</p>
-        </div>
-    </footer>
-    <script>
-        window.AIKnowledgeGraph = <?= $initialJson ?>;
-    </script>
-    <script src="<?= $escape($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
+    </div>
+</main>
+<footer class="site-footer">
+    <div class="shell">
+        <p>Knowledge graph snapshots are stored at <code><?= $escape($repository->path()) ?></code>. Scrape additional URLs from the <a href="<?= $escape($homePath) ?>">Data Preparation Studio</a>.</p>
+    </div>
+</footer>
+<script>
+    window.AIKnowledgeGraph = <?= $initialJson ?>;
+</script>
+<script src="<?= $escape($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
 </body>
 </html>
