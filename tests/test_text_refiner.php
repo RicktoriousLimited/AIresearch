@@ -24,11 +24,13 @@ $raw = "alice smyth wrks on data minng. she leads the lab.\n\n- builds pipeline\
 
 $cleaned = $refiner->cleanDocument($raw);
 assertTrue(strpos($cleaned, '- builds pipeline') !== false, 'Expected bullet formatting to be preserved.');
-assertTrue(strpos($cleaned, 'alice smyth wrks on data minng.') !== false, 'Expected sentences to remain present.');
+assertTrue(strpos($cleaned, 'alice smyth wrks on data minng.') === false, 'Expected incorrectly capitalised sentence to be removed.');
+assertTrue(strpos($cleaned, 'she leads the lab.') === false, 'Expected sentence lacking initial capitalisation to be removed.');
 
 $rewrite = $refiner->rewriteDocument($raw);
-assertTrue(strpos($rewrite, 'Alice smyth wrks on data minng.') !== false, 'Rewrite should capitalise sentences.');
-assertTrue(strpos($rewrite, 'She leads the lab.') !== false, 'Rewrite should segment sentences.');
+assertTrue(strpos($rewrite, '- Builds pipeline') !== false, 'Rewrite should capitalise bullet entries.');
+assertTrue(strpos($rewrite, '- Cleans datasets') !== false, 'Rewrite should capitalise each bullet item.');
+assertTrue(strpos($rewrite, 'Alice smyth wrks on data minng.') === false, 'Rewrite should not resurrect filtered sentences.');
 
 $keywords = $refiner->extractKeywords($raw, 5);
 assertNotEmpty($keywords, 'Expected keywords to be detected.');
@@ -97,6 +99,52 @@ assertTrue(strpos($navCleaned, 'Skip to content') === false, 'Expected navigatio
 assertTrue(strpos($navCleaned, 'Conservatives would scrap stamp duty') !== false, 'Expected article headline to remain.');
 assertTrue(strpos($navCleaned, 'She said scrapping stamp duty') !== false, 'Expected article body to remain.');
 
+$footerHtml = <<<HTML
+<article>
+    <h1>Breakthrough in battery storage</h1>
+    <p>Researchers developed a solid-state battery with double the capacity.</p>
+</article>
+<footer>
+    <div>Share this article</div>
+    <nav>
+        <a href="/privacy">Privacy policy</a>
+        <a href="/terms">Terms of use</a>
+    </nav>
+    <p>© 2024 Example Media Group. All rights reserved.</p>
+</footer>
+HTML;
+
+$footerCleaned = $refiner->cleanDocument($footerHtml);
+assertTrue(strpos($footerCleaned, 'Breakthrough in battery storage') !== false, 'Expected main article content to remain.');
+assertTrue(strpos($footerCleaned, 'solid-state battery') !== false, 'Expected article paragraph to remain.');
+assertTrue(strpos($footerCleaned, 'Example Media Group') === false, 'Expected footer attribution to be removed.');
+assertTrue(strpos($footerCleaned, 'Privacy policy') === false, 'Expected footer navigation links to be removed.');
+
+$accentedHtml = <<<HTML
+<header>
+    <nav>
+        <a href="#">Inicio</a>
+        <a href="#">Noticias</a>
+    </nav>
+</header>
+<article>
+    <p>El Niño trae façade de naïveté &amp; déjà vu — análisis por Zoë Müller.</p>
+</article>
+<footer>
+    <p>© 2025 Compañía Ejemplo</p>
+</footer>
+HTML;
+
+$accentedCleaned = $refiner->cleanDocument($accentedHtml);
+assertTrue(
+    strpos($accentedCleaned, 'El Niño trae façade de naïveté & déjà vu — análisis por Zoë Müller.') !== false,
+    'Expected accented and special characters to be preserved.'
+);
+assertTrue(
+    strpos($accentedCleaned, 'Compañía Ejemplo') === false,
+    'Expected footer attribution with special characters to be removed.'
+);
+
 $gibberish = <<<TEXT
 asdf qwer zxcv
 
@@ -116,5 +164,20 @@ TEXT;
 $unknownCleaned = $refiner->cleanDocument($unknownVocabulary);
 assertTrue(strpos($unknownCleaned, 'Xyzzor is qliph.') !== false, 'Expected structured sentence to remain.');
 assertTrue(strpos($unknownCleaned, 'asdf qwer zxcv') === false, 'Expected gibberish to still be filtered.');
+
+$grammarSample = <<<TEXT
+Running down the street.
+Because the dog was barking.
+The boy sang.
+I love to read I read every day.
+I love to read, and I read every day.
+TEXT;
+
+$grammarCleaned = $refiner->cleanDocument($grammarSample);
+assertTrue(strpos($grammarCleaned, 'Running down the street.') === false, 'Expected sentence fragment to be removed.');
+assertTrue(strpos($grammarCleaned, 'Because the dog was barking.') === false, 'Expected dependent clause fragment to be removed.');
+assertTrue(strpos($grammarCleaned, 'I love to read I read every day.') === false, 'Expected run-on sentence to be removed.');
+assertTrue(strpos($grammarCleaned, 'The boy sang.') !== false, 'Expected valid simple sentence to remain.');
+assertTrue(strpos($grammarCleaned, 'I love to read, and I read every day.') !== false, 'Expected properly punctuated compound sentence to remain.');
 
 echo "TextRefiner tests passed\n";
