@@ -2410,13 +2410,13 @@ final class HiddenCrawler
         $reasons = [];
 
         $base = $this->baseScoreForDomain($domain);
-        $score += $base * 35.0;
+        $score += $this->baseTrustContribution($base);
 
         if ($domain === '') {
             $reasons[] = 'Domain not detected – relying on content only.';
         } elseif ($base >= 0.85) {
             $reasons[] = 'Highly trusted newsroom (' . $domain . ').';
-            $score += 6.0;
+            $score += 3.0;
         } elseif ($base >= 0.7) {
             $reasons[] = 'Recognised publisher (' . $domain . ').';
         } else {
@@ -2496,6 +2496,10 @@ final class HiddenCrawler
             $score += 2.0;
         }
 
+        if ($score > 97.5) {
+            $score = 97.5 + ($score - 97.5) * 0.25;
+        }
+
         $score = max(0.0, min(100.0, $score));
         $label = $this->labelForScore($score);
         $reasons = array_values(array_unique($reasons));
@@ -2527,6 +2531,16 @@ final class HiddenCrawler
         }
 
         return self::SOURCE_BASELINE;
+    }
+
+    private function baseTrustContribution(float $baseScore): float
+    {
+        $baseline = max(0.0, min(1.0, self::SOURCE_BASELINE));
+        $clamped = max($baseline, min(1.0, $baseScore));
+        $range = max(0.0001, 1.0 - $baseline);
+        $normalized = ($clamped - $baseline) / $range;
+
+        return 18.0 + ($normalized * 14.0);
     }
 
     private function extractDomain(string $url): string
