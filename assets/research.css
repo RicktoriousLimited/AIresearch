@@ -1216,6 +1216,63 @@
     border: 1px solid var(--border);
     padding: 1.5rem;
     min-height: 240px;
+    position: relative;
+    overflow: hidden;
+}
+
+.report-output .report-results {
+    transition: opacity 0.2s ease, filter 0.2s ease;
+    will-change: opacity, filter;
+}
+
+.report-output.is-loading .report-results {
+    opacity: 0.45;
+    filter: blur(1px);
+}
+
+.report-output.is-loading [data-report-empty] {
+    opacity: 0.65;
+}
+
+.report-skeleton {
+    position: absolute;
+    inset: 0;
+    display: none;
+    pointer-events: none;
+    padding: 1.5rem;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0));
+    background-size: 200% 100%;
+    animation: report-skeleton-shimmer 1.6s linear infinite;
+    gap: 0.75rem;
+    flex-direction: column;
+}
+
+.report-skeleton__line {
+    height: 0.85rem;
+    border-radius: var(--radius-sm);
+    background: rgba(148, 163, 184, 0.18);
+}
+
+.report-skeleton__line--heading {
+    height: 1.2rem;
+    width: 60%;
+}
+
+.report-skeleton__line--short {
+    width: 40%;
+}
+
+.report-output.is-loading .report-skeleton {
+    display: flex;
+}
+
+@keyframes report-skeleton-shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 .document-comparison {

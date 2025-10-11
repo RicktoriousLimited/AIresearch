@@ -62,6 +62,10 @@
     const comparisonEmpty = document.querySelector('[data-comparison-empty]');
 
     const summaryCache = new Map();
+    const reportCache = new Map();
+    let reportAbortController = null;
+    let reportSkeleton = null;
+    let reportLoadingTimer = null;
     const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
     let currentReportQuery = '';
 
@@ -218,15 +222,66 @@
     }
 
     function toggleReportLoading(isLoading) {
-        if (!reportForm) {
+        const loading = Boolean(isLoading);
+
+        if (reportForm) {
+            reportForm.classList.toggle('is-loading', loading);
+            const submit = reportForm.querySelector('button[type="submit"]');
+            if (submit) {
+                submit.disabled = loading;
+            }
+        }
+
+        if (!reportOutput) {
             return;
         }
 
-        reportForm.classList.toggle('is-loading', Boolean(isLoading));
-        const submit = reportForm.querySelector('button[type="submit"]');
-        if (submit) {
-            submit.disabled = Boolean(isLoading);
+        if (reportLoadingTimer !== null) {
+            window.clearTimeout(reportLoadingTimer);
+            reportLoadingTimer = null;
         }
+
+        if (loading) {
+            reportOutput.setAttribute('aria-busy', 'true');
+            reportLoadingTimer = window.setTimeout(() => {
+                const skeleton = ensureReportSkeleton();
+                if (skeleton) {
+                    skeleton.removeAttribute('hidden');
+                }
+                reportOutput.classList.add('is-loading');
+            }, 120);
+        } else {
+            reportOutput.classList.remove('is-loading');
+            reportOutput.removeAttribute('aria-busy');
+            if (reportSkeleton) {
+                reportSkeleton.setAttribute('hidden', '');
+            }
+        }
+    }
+
+    function ensureReportSkeleton() {
+        if (!reportOutput) {
+            return null;
+        }
+
+        if (reportSkeleton && reportSkeleton.isConnected) {
+            return reportSkeleton;
+        }
+
+        const skeleton = document.createElement('div');
+        skeleton.className = 'report-skeleton';
+        skeleton.setAttribute('aria-hidden', 'true');
+        skeleton.setAttribute('hidden', '');
+        skeleton.innerHTML = `
+            <div class="report-skeleton__line report-skeleton__line--heading"></div>
+            <div class="report-skeleton__line"></div>
+            <div class="report-skeleton__line"></div>
+            <div class="report-skeleton__line report-skeleton__line--short"></div>
+        `;
+        reportOutput.appendChild(skeleton);
+        reportSkeleton = skeleton;
+
+        return skeleton;
     }
 
     function setReportStatus(message, tone = 'info') {
@@ -712,6 +767,7 @@
         if (reportTopicsList && reportTopicsWrapper) {
             reportTopicsList.innerHTML = '';
             if (Array.isArray(report.topics) && report.topics.length > 0) {
+                const fragment = document.createDocumentFragment();
                 reportTopicsWrapper.hidden = false;
                 report.topics.slice(0, 12).forEach((topic) => {
                     const label = topic && topic.label ? String(topic.label) : '';
@@ -724,8 +780,13 @@
                         <span class="label">${escapeHtml(label)}</span>
                         <span class="value">${count} sources</span>
                     `;
-                    reportTopicsList.appendChild(li);
+                    fragment.appendChild(li);
                 });
+                if (fragment.childNodes.length > 0) {
+                    reportTopicsList.appendChild(fragment);
+                } else {
+                    reportTopicsWrapper.hidden = true;
+                }
             } else {
                 reportTopicsWrapper.hidden = true;
             }
@@ -733,6 +794,7 @@
 
         if (reportHighlights) {
             reportHighlights.innerHTML = '';
+            const fragment = document.createDocumentFragment();
             report.highlights.forEach((item) => {
                 const relevance = typeof item.relevance === 'number' ? formatPercent(item.relevance) : '0%';
                 const uniqueness = typeof item.uniqueness === 'number' ? formatPercent(item.uniqueness) : '0%';
@@ -799,13 +861,17 @@
                     card.appendChild(sourceLink);
                 }
 
-                reportHighlights.appendChild(card);
+                fragment.appendChild(card);
             });
+            if (fragment.childNodes.length > 0) {
+                reportHighlights.appendChild(fragment);
+            }
         }
 
         if (reportCombinedList && reportCombinedWrapper) {
             reportCombinedList.innerHTML = '';
             if (Array.isArray(report.combined_summary) && report.combined_summary.length > 0) {
+                const fragment = document.createDocumentFragment();
                 reportCombinedWrapper.hidden = false;
                 report.combined_summary.forEach((entry) => {
                     if (!entry || typeof entry !== 'object') {
@@ -823,8 +889,13 @@
                         <span class="report-combined__answer">${escapeHtml(answer)}</span>
                         ${source ? `<a href="${escapeHtml(source)}" target="_blank" rel="noopener noreferrer">Source</a>` : ''}
                     `;
-                    reportCombinedList.appendChild(li);
+                    fragment.appendChild(li);
                 });
+                if (fragment.childNodes.length > 0) {
+                    reportCombinedList.appendChild(fragment);
+                } else {
+                    reportCombinedWrapper.hidden = true;
+                }
             } else {
                 reportCombinedWrapper.hidden = true;
             }
@@ -834,6 +905,7 @@
         if (reportCitationsList && reportCitationsWrapper) {
             reportCitationsList.innerHTML = '';
             if (Array.isArray(report.citations) && report.citations.length > 0) {
+                const fragment = document.createDocumentFragment();
                 reportCitationsWrapper.hidden = false;
                 report.citations.forEach((citation) => {
                     if (!citation || typeof citation !== 'object') {
@@ -854,7 +926,7 @@
                             ${preview ? `<p class="citation-preview">${escapeHtml(preview)}</p>` : ''}
                         </div>
                     `;
-                    reportCitationsList.appendChild(li);
+                    fragment.appendChild(li);
 
                     if (Array.isArray(citation.images)) {
                         citation.images.forEach((image) => {
@@ -864,6 +936,11 @@
                         });
                     }
                 });
+                if (fragment.childNodes.length > 0) {
+                    reportCitationsList.appendChild(fragment);
+                } else {
+                    reportCitationsWrapper.hidden = true;
+                }
             } else {
                 reportCitationsWrapper.hidden = true;
             }
@@ -872,15 +949,27 @@
         if (reportImages) {
             reportImages.innerHTML = '';
             if (imageUrls.size > 0) {
+                const fragment = document.createDocumentFragment();
                 imageUrls.forEach((url) => {
                     const figure = document.createElement('figure');
                     figure.className = 'report-image';
-                    figure.innerHTML = `
-                        <img src="${escapeHtml(url)}" alt="Referenced asset">
-                        <figcaption><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a></figcaption>
-                    `;
-                    reportImages.appendChild(figure);
+                    const img = document.createElement('img');
+                    img.src = url;
+                    img.alt = 'Referenced asset';
+                    const caption = document.createElement('figcaption');
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.textContent = url;
+                    caption.appendChild(link);
+                    figure.appendChild(img);
+                    figure.appendChild(caption);
+                    fragment.appendChild(figure);
                 });
+                if (fragment.childNodes.length > 0) {
+                    reportImages.appendChild(fragment);
+                }
             }
         }
     }
@@ -1047,24 +1136,44 @@
         }
     }
 
-    async function generateReport(query) {
+    async function generateReport(query, options = {}) {
         if (!searchEndpoint) {
             return;
         }
 
+        const { bypassCache = false } = typeof options === 'object' && options !== null ? options : {};
+        const trimmedQuery = typeof query === 'string' ? query.trim() : '';
+        const cacheKey = trimmedQuery.toLowerCase() || '__default__';
+
+        if (!bypassCache && reportCache.has(cacheKey)) {
+            const cachedReport = reportCache.get(cacheKey);
+            renderReport(cachedReport);
+            const docCount = typeof cachedReport.document_count === 'number' ? cachedReport.document_count : 0;
+            setReportStatus(`Loaded cached brief across ${formatNumber(docCount)} document${docCount === 1 ? '' : 's'}.`, 'success');
+            return;
+        }
+
+        if (reportAbortController) {
+            reportAbortController.abort();
+        }
+
+        const controller = new AbortController();
+        reportAbortController = controller;
+
         toggleReportLoading(true);
-        setReportStatus('Building research brief…', 'info');
+        setReportStatus('Generating instant brief…', 'info');
 
         try {
             const url = new URL(searchEndpoint, window.location.origin);
             url.searchParams.set('action', 'report');
             url.searchParams.set('limit', '6');
-            if (query) {
-                url.searchParams.set('q', query);
+            if (trimmedQuery) {
+                url.searchParams.set('q', trimmedQuery);
             }
 
             const response = await fetch(url.toString(), {
                 headers: { Accept: 'application/json' },
+                signal: controller.signal,
             });
 
             if (!response.ok) {
@@ -1078,14 +1187,20 @@
             }
 
             renderReport(report);
+            reportCache.set(cacheKey, report);
 
             const docCount = typeof report.document_count === 'number' ? report.document_count : 0;
             setReportStatus(`Brief generated across ${formatNumber(docCount)} document${docCount === 1 ? '' : 's'}.`, 'success');
         } catch (error) {
-            renderReport(null);
+            if (controller.signal.aborted) {
+                return;
+            }
             setReportStatus(error instanceof Error ? error.message : 'Unable to generate research brief.', 'error');
         } finally {
-            toggleReportLoading(false);
+            if (reportAbortController === controller) {
+                reportAbortController = null;
+                toggleReportLoading(false);
+            }
         }
     }
 
@@ -1110,7 +1225,7 @@
         };
         api.refresh = () => {
             loadDocumentComparison();
-            generateReport(currentReportQuery);
+            generateReport(currentReportQuery, { bypassCache: true });
         };
         window.AIAutopilot = api;
     }
@@ -1359,7 +1474,7 @@
 
         if (options.fromCrawl || options.fromRefresh) {
             loadDocumentComparison();
-            generateReport(currentReportQuery);
+            generateReport(currentReportQuery, { bypassCache: true });
         }
     }
 
@@ -1582,7 +1697,7 @@
         reportRefresh.addEventListener('click', (event) => {
             event.preventDefault();
             loadDocumentComparison();
-            generateReport(currentReportQuery);
+            generateReport(currentReportQuery, { bypassCache: true });
         });
     }
 
