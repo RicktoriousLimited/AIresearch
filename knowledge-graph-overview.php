@@ -15,76 +15,40 @@ $escape = $state['escape'];
 $formatNumber = $state['formatNumber'];
 $formatDate = $state['formatDate'];
 $heroDigest = $state['heroDigest'];
+$trendingTopics = $state['trendingTopics'];
 $graphCoverageSignals = $state['graphCoverageSignals'];
 $graphTimeline = $state['graphTimeline'];
 $spotlight = $state['spotlight'];
-$trendingTopics = array_slice($state['trendingTopics'], 0, 6);
+$summary = $state['summary'];
+$sources = $state['sources'];
+$entities = $state['entities'];
+$relations = $state['relations'];
+$synonymGroups = $state['synonymGroups'];
+$triples = $state['triples'];
 $hasGraph = (bool) $state['hasGraph'];
+$updatedAt = $state['updatedAt'];
 $initialJson = $state['initialJson'];
 $autocompleteJson = $state['autocompleteJson'];
-$initialState = $state['initialState'];
+$graphRepositoryPath = (string) ($state['initialState']['paths']['graph'] ?? '');
 
+$hubPath = PathResolver::url($assetBase, 'knowledge-graph.php');
 $overviewPath = PathResolver::url($assetBase, 'knowledge-graph-overview.php');
 $autopilotPath = PathResolver::url($assetBase, 'knowledge-graph-autopilot.php');
 $researchPath = PathResolver::url($assetBase, 'knowledge-graph-research.php');
-
-$graphRepositoryPath = (string) ($initialState['paths']['graph'] ?? '');
-
-$graphIntegrations = [
-    [
-        'title' => 'Insight overview',
-        'description' => 'Dive into entity discovery, relation density, and supporting evidence curated from recent crawls.',
-        'href' => $overviewPath,
-        'action' => 'Open overview',
-    ],
-    [
-        'title' => 'Autopilot briefs',
-        'description' => 'Compose instant research briefs that fuse citations, highlights, and unique insights from the graph.',
-        'href' => $autopilotPath,
-        'action' => 'Launch brief builder',
-    ],
-    [
-        'title' => 'Research console',
-        'description' => 'Run guided crawls, manage ingestion jobs, and review recommended leads in the operations console.',
-        'href' => $researchPath,
-        'action' => 'Visit console',
-    ],
-];
-
-$siteIntegrations = [
-    [
-        'title' => 'Search workspace',
-        'description' => 'Query the knowledge base, autocomplete trending topics, and compare graph-backed sources side-by-side.',
-        'href' => $state['searchPath'],
-        'action' => 'Launch search',
-    ],
-    [
-        'title' => 'Data preparation studio',
-        'description' => 'Scrape fresh URLs, clean content, and push structured data directly into the shared knowledge graph.',
-        'href' => $state['homePath'],
-        'action' => 'Open studio',
-    ],
-    [
-        'title' => 'Graph documentation',
-        'description' => 'Review API endpoints, schema guidance, and automation workflows that extend the knowledge graph.',
-        'href' => $state['docsPath'],
-        'action' => 'Read docs',
-    ],
-];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Knowledge graph workspace &ndash; AIresearch</title>
+    <title>Knowledge graph overview &ndash; AIresearch</title>
     <link rel="stylesheet" href="<?= $escape($assets['theme'] . '?v=' . $versions['theme']) ?>">
     <link rel="stylesheet" href="<?= $escape($assets['styles'] . '?v=' . $versions['styles']) ?>">
     <link rel="stylesheet" href="<?= $escape($assets['research'] . '?v=' . $versions['research']) ?>">
 </head>
 <body class="site site--graph">
 <?php SiteLayout::renderHeader($navigationPaths, 'graph', [
-    ['label' => 'Graph overview', 'href' => $overviewPath],
+    ['label' => 'Graph hub', 'href' => $hubPath],
     ['label' => 'Autopilot brief', 'href' => $autopilotPath],
     ['label' => 'Research console', 'href' => $researchPath],
     ['label' => 'Launch search', 'href' => $state['searchPath']],
@@ -94,9 +58,9 @@ $siteIntegrations = [
         <div class="site-container">
             <div class="graph-hero__content">
                 <div>
-                    <p class="eyebrow">Unified intelligence workspace</p>
-                    <h1>Explore the knowledge graph hub</h1>
-                    <p class="lead">Track the freshest entities, relationships, and supporting sources powering AIresearch experiences. Jump into a focused workspace or run a quick search below.</p>
+                    <p class="eyebrow">Graph intelligence</p>
+                    <h1>Knowledge graph overview</h1>
+                    <p class="lead">Inspect entity coverage, relation density, and the source material fueling the shared graph.</p>
                     <?php if ($heroDigest !== []): ?>
                         <ul class="graph-hero__metrics">
                             <?php foreach ($heroDigest as $metric): ?>
@@ -128,7 +92,8 @@ $siteIntegrations = [
                     </form>
                     <nav class="graph-subnav" aria-label="Knowledge graph sections">
                         <ul class="graph-subnav__list">
-                            <li><a class="graph-subnav__link" href="<?= $escape($overviewPath) ?>">Graph overview</a></li>
+                            <li><a class="graph-subnav__link" href="<?= $escape($hubPath) ?>">Graph hub</a></li>
+                            <li><a class="graph-subnav__link is-active" aria-current="page" href="<?= $escape($overviewPath) ?>">Overview</a></li>
                             <li><a class="graph-subnav__link" href="<?= $escape($autopilotPath) ?>">Autopilot brief</a></li>
                             <li><a class="graph-subnav__link" href="<?= $escape($researchPath) ?>">Research console</a></li>
                         </ul>
@@ -138,23 +103,6 @@ $siteIntegrations = [
         </div>
     </section>
     <div class="graph-shell site-container">
-        <section class="panel">
-            <header class="panel-header">
-                <div>
-                    <h2>Choose a focused workspace</h2>
-                    <p class="panel-subtitle">Each workspace pairs the shared graph with dedicated tooling for analysis, briefing, or ingestion.</p>
-                </div>
-            </header>
-            <div class="grid graph-hub-grid">
-                <?php foreach ($graphIntegrations as $card): ?>
-                    <article class="card span-2">
-                        <h3><?= $escape($card['title']) ?></h3>
-                        <p class="card-subtle"><?= $escape($card['description']) ?></p>
-                        <a class="button ghost" href="<?= $escape($card['href']) ?>"><?= $escape($card['action']) ?></a>
-                    </article>
-                <?php endforeach; ?>
-            </div>
-        </section>
         <section class="graph-suggestions" data-graph-suggestions<?= $trendingTopics === [] ? ' hidden' : '' ?>>
             <div class="graph-suggestions__header">
                 <h2>Jump-start discovery</h2>
@@ -169,8 +117,8 @@ $siteIntegrations = [
         <section class="panel graph-analytics">
             <header class="panel-header">
                 <div>
-                    <h2>Graph analytics snapshot</h2>
-                    <p class="panel-subtitle">A quick readout of ingestion velocity, coverage health, and a spotlight fact.</p>
+                    <h2>Graph analytics</h2>
+                    <p class="panel-subtitle">Track ingestion velocity and the depth of evidence backing knowledge graph explorations.</p>
                 </div>
             </header>
             <div class="graph-analytics__grid">
@@ -265,18 +213,143 @@ $siteIntegrations = [
         <section class="panel">
             <header class="panel-header">
                 <div>
-                    <h2>Where the graph shows up</h2>
-                    <p class="panel-subtitle">Cross-site features that plug into the shared intelligence layer.</p>
+                    <h2>Shared intelligence</h2>
+                    <p class="panel-subtitle">Explore the latest entities, relations, and supporting sources below.</p>
                 </div>
             </header>
-            <div class="grid graph-hub-grid">
-                <?php foreach ($siteIntegrations as $card): ?>
-                    <article class="card span-2">
-                        <h3><?= $escape($card['title']) ?></h3>
-                        <p class="card-subtle"><?= $escape($card['description']) ?></p>
-                        <a class="button ghost" href="<?= $escape($card['href']) ?>"><?= $escape($card['action']) ?></a>
+            <div class="graph-feedback<?= $hasGraph ? ' is-hidden' : '' ?>" data-graph-feedback role="status">
+                <?php if (!$hasGraph): ?>
+                    <p>No scraped documents yet. Use the <a href="<?= $escape($state['homePath']) ?>">Data Preparation Studio</a> to fetch an article and enrich the shared graph.</p>
+                <?php endif; ?>
+            </div>
+            <?php if ($hasGraph): ?>
+                <div class="results-overview" data-graph-metrics>
+                    <article class="metric-card">
+                        <span class="metric-label">Documents processed</span>
+                        <span class="metric-value"><?= $escape($formatNumber($summary['documents_processed'] ?? 0)) ?></span>
+                        <span class="metric-sub">Sources tracked: <?= $escape($formatNumber(count($sources))) ?></span>
                     </article>
-                <?php endforeach; ?>
+                    <article class="metric-card">
+                        <span class="metric-label">Triples extracted</span>
+                        <span class="metric-value"><?= $escape($formatNumber($summary['triples'] ?? count($triples))) ?></span>
+                        <span class="metric-sub">Synonym groups: <?= $escape($formatNumber($summary['synonym_groups'] ?? count($synonymGroups))) ?></span>
+                    </article>
+                    <article class="metric-card">
+                        <span class="metric-label">Unique entities</span>
+                        <span class="metric-value"><?= $escape($formatNumber($summary['unique_entities'] ?? count($entities))) ?></span>
+                        <?php if ($updatedAt !== null): ?>
+                            <span class="metric-sub">Updated <?= $escape($formatDate($updatedAt) ?? $updatedAt) ?></span>
+                        <?php endif; ?>
+                    </article>
+                </div>
+                <div class="grid graph-grid" data-graph-grid>
+                    <article class="card span-3">
+                        <h3>Entity explorer</h3>
+                        <p class="card-subtle" data-graph-entities-empty<?= $entities !== [] ? ' hidden' : '' ?>>Run a search to surface the most relevant entities and supporting evidence.</p>
+                        <div class="entity-results" data-graph-entities>
+                            <?php foreach (array_slice($entities, 0, 6) as $entity): ?>
+                                <?php $entityName = (string) ($entity['entity'] ?? ''); ?>
+                                <?php if ($entityName === '') { continue; } ?>
+                                <button type="button" class="entity-chip" data-entity="<?= $escape($entityName) ?>">
+                                    <span class="entity-chip__name"><?= $escape($entityName) ?></span>
+                                    <?php if (isset($entity['summary']['synonyms']) && is_array($entity['summary']['synonyms']) && $entity['summary']['synonyms'] !== []): ?>
+                                        <span class="entity-chip__meta">Synonyms: <?= $escape(implode(', ', $entity['summary']['synonyms'])) ?></span>
+                                    <?php endif; ?>
+                                </button>
+                            <?php endforeach; ?>
+                        </div>
+                    </article>
+                    <article class="card span-2">
+                        <h3>Relation signals</h3>
+                        <p class="card-subtle" data-graph-relations-empty<?= $relations !== [] ? ' hidden' : '' ?>>Relation matches will appear here once you start searching.</p>
+                        <ul class="list-block" data-graph-relations>
+                            <?php foreach (array_slice($relations, 0, 10) as $relation): ?>
+                                <?php $label = (string) ($relation['relation'] ?? $relation['label'] ?? ''); ?>
+                                <?php if ($label === '') { continue; } ?>
+                                <li>
+                                    <span class="label"><?= $escape($label) ?></span>
+                                    <?php if (isset($relation['count'])): ?>
+                                        <span class="value"><?= $escape($formatNumber($relation['count'])) ?></span>
+                                    <?php endif; ?>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </article>
+                    <article class="card span-2">
+                        <h3>Synonym clusters</h3>
+                        <p class="card-subtle" data-graph-synonyms-empty<?= $synonymGroups !== [] ? ' hidden' : '' ?>>Advanced name matching highlights aliases and related spellings.</p>
+                        <ul class="list-block" data-graph-synonyms>
+                            <?php foreach (array_slice($synonymGroups, 0, 8) as $group): ?>
+                                <?php $entityName = (string) ($group['entity'] ?? ''); ?>
+                                <?php $synonyms = isset($group['synonyms']) && is_array($group['synonyms']) ? $group['synonyms'] : []; ?>
+                                <?php if ($entityName === '' || $synonyms === []) { continue; } ?>
+                                <li>
+                                    <span class="label"><?= $escape($entityName) ?></span>
+                                    <span class="value"><?= $escape(implode(', ', $synonyms)) ?></span>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </article>
+                    <article class="card span-3">
+                        <h3>Highlighted triples</h3>
+                        <p class="card-subtle" data-graph-triples-empty<?= $triples !== [] ? ' hidden' : '' ?>>Entity relationships and evidence snippets will appear here.</p>
+                        <div class="table-wrapper">
+                            <table class="search-table" data-graph-triples>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Subject</th>
+                                        <th scope="col">Relation</th>
+                                        <th scope="col">Object</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <?php foreach (array_slice($triples, 0, 12) as $triple): ?>
+                                        <tr>
+                                            <td><?= $escape((string) ($triple['subject'] ?? $triple[0] ?? '')) ?></td>
+                                            <td><?= $escape((string) ($triple['relation'] ?? $triple[1] ?? '')) ?></td>
+                                            <td><?= $escape((string) ($triple['object'] ?? $triple[2] ?? '')) ?></td>
+                                        </tr>
+                                    <?php endforeach; ?>
+                                </tbody>
+                            </table>
+                        </div>
+                    </article>
+                    <article class="card span-2">
+                        <h3>Source library</h3>
+                        <p class="card-subtle" data-graph-sources-empty<?= $sources !== [] ? ' hidden' : '' ?>>Scraped URLs and research dossiers populate this feed.</p>
+                        <ul class="sources-list" data-graph-sources>
+                            <?php foreach (array_slice($sources, 0, 6) as $source): ?>
+                                <?php
+                                $label = is_string($source['title'] ?? null) && trim((string) $source['title']) !== ''
+                                    ? (string) $source['title']
+                                    : (string) ($source['url'] ?? '');
+                                $sourceUrl = (string) ($source['url'] ?? '');
+                                $characters = $formatNumber($source['characters'] ?? 0);
+                                $fetchedAt = isset($source['fetched_at']) && is_string($source['fetched_at'])
+                                    ? ($formatDate($source['fetched_at']) ?? $source['fetched_at'])
+                                    : null;
+                                $preview = (string) ($source['preview'] ?? '');
+                                ?>
+                                <li>
+                                    <p class="source-title"><?php if ($sourceUrl !== ''): ?><a href="<?= $escape($sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $escape($label) ?></a><?php else: ?><?= $escape($label) ?><?php endif; ?></p>
+                                    <p class="source-meta"><?= $escape($characters) ?> characters<?php if ($fetchedAt): ?> • <?= $escape($fetchedAt) ?><?php endif; ?></p>
+                                    <?php if ($preview !== ''): ?>
+                                        <p class="source-preview"><?= $escape($preview) ?></p>
+                                    <?php endif; ?>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </article>
+                </div>
+            <?php endif; ?>
+        </section>
+        <section class="panel">
+            <header class="panel-header">
+                <h2>Entity insights</h2>
+                <p class="panel-subtitle">Select an entity to inspect relation histograms, synonym evidence, and the strongest supporting facts.</p>
+            </header>
+            <div class="entity-detail entity-detail--full" data-graph-entity-detail>
+                <p class="empty-state">Choose an entity from the explorer to see a full research summary.</p>
             </div>
         </section>
     </div>
