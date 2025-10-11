@@ -1,0 +1,405 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+const SHARD_COUNT = 32;
+const DATA_DIR = __DIR__ . '/../data';
+const RAW_DIR = DATA_DIR . '/raw';
+const INDEX_DIR = DATA_DIR . '/index';
+const CACHE_DIR = DATA_DIR . '/cache';
+
+$b = 0.75; // BM25 b parameter
+$k1 = 1.2; // BM25 k1 parameter
+
+if (!is_dir(RAW_DIR)) {
+    fwrite(STDERR, "Missing raw data directory at " . RAW_DIR . "\n");
+    exit(1);
+}
+
+if (!is_dir(INDEX_DIR) && !mkdir(INDEX_DIR, 0775, true)) {
+    fwrite(STDERR, "Unable to create index directory at " . INDEX_DIR . "\n");
+    exit(1);
+}
+
+$stopwords = loadStopwords();
+$sourceRanks = loadSourceRanks();
+
+$rawFiles = glob(RAW_DIR . '/*.jsonl');
+if (!$rawFiles) {
+    fwrite(STDOUT, "No raw files found in " . RAW_DIR . "\n");
+}
+
+$docs = [];
+$totalLength = 0;
+$dedupeBuckets = [];
+$now = time();
+$facets = [
+    'source' => [],
+    'lang' => [],
+    'date' => [
+        'last24h' => 0,
+        'last7d' => 0,
+        'last30d' => 0,
+    ],
+];
+
+foreach ($rawFiles as $file) {
+    $handle = fopen($file, 'r');
+    if (!$handle) {
+        fwrite(STDERR, "Unable to open raw file {$file}\n");
+        continue;
+    }
+
+    while (($line = fgets($handle)) !== false) {
+        $line = trim($line);
+        if ($line === '') {
+            continue;
+        }
+        $record = json_decode($line, true);
+        if (!is_array($record)) {
+            fwrite(STDERR, "Skipping invalid JSON: {$line}\n");
+            continue;
+        }
+        $doc = normaliseDocument($record);
+        if ($doc === null) {
+            continue;
+        }
+
+        $doc['title'] = trim($doc['title']);
+        $doc['lede'] = trim($doc['lede']);
+        $doc['lede'] = mb_substr($doc['lede'], 0, 420, 'UTF-8');
+
+        $textForSimhash = $doc['title'] . ' ' . $doc['lede'];
+        $computedSimhash = simhash($textForSimhash, $stopwords);
+        if (empty($doc['simhash'])) {
+            $doc['simhash'] = $computedSimhash;
+        }
+
+        $dayKey = gmdate('Y-m-d', $doc['ts']);
+        $isDuplicate = false;
+        if (!empty($dedupeBuckets[$dayKey])) {
+            foreach ($dedupeBuckets[$dayKey] as $existingHash) {
+                if ($existingHash && hammingDist($doc['simhash'], $existingHash) <= 4) {
+                    $isDuplicate = true;
+                    break;
+                }
+            }
+        }
+        if ($isDuplicate) {
+            continue;
+        }
+        $dedupeBuckets[$dayKey][] = $doc['simhash'];
+
+        $titleTokens = tokenize($doc['title'], $stopwords);
+        $ledeTokens = tokenize($doc['lede'], $stopwords);
+
+        $docLength = count($titleTokens) + count($ledeTokens);
+        $totalLength += max(1, $docLength);
+
+        $termFreq = [];
+        foreach (array_count_values($titleTokens) as $token => $freq) {
+            $token = (string) $token;
+            $termFreq[$token] = ($termFreq[$token] ?? 0) + ($freq * 3);
+        }
+        foreach (array_count_values($ledeTokens) as $token => $freq) {
+            $token = (string) $token;
+            $termFreq[$token] = ($termFreq[$token] ?? 0) + ($freq * 2);
+        }
+
+        $doc['entities'] = array_values(array_unique(array_map('trim', $doc['entities'])));
+        $doc['lede'] = rtrim($doc['lede'], "\n");
+
+        $sourceKey = strtolower($doc['source']);
+        $sourceRank = $sourceRanks[$sourceKey] ?? 0.6;
+
+        $minutesSince = max(0, (int) floor(($now - $doc['ts']) / 60));
+
+        incrementFacet($facets['source'], $doc['source']);
+        incrementFacet($facets['lang'], $doc['lang']);
+        if ($minutesSince <= 60 * 24) {
+            $facets['date']['last24h']++;
+        }
+        if ($minutesSince <= 60 * 24 * 7) {
+            $facets['date']['last7d']++;
+        }
+        if ($minutesSince <= 60 * 24 * 30) {
+            $facets['date']['last30d']++;
+        }
+
+        $docs[] = [
+            'doc' => $doc,
+            'termFreq' => $termFreq,
+            'length' => max(1, $docLength),
+            'sourceRank' => $sourceRank,
+            'minutesSince' => $minutesSince,
+        ];
+    }
+    fclose($handle);
+}
+
+$docCount = count($docs);
+if ($docCount === 0) {
+    fwrite(STDOUT, "No documents indexed.\n");
+    exit(0);
+}
+
+$avgLength = max(1, $totalLength / $docCount);
+
+$version = gmdate('Ymd-His');
+$buildDir = INDEX_DIR . '/.build-' . $version;
+$finalDir = INDEX_DIR . '/' . $version;
+if (is_dir($buildDir)) {
+    rrmdir($buildDir);
+}
+mkdir($buildDir, 0775, true);
+
+$docShards = array_fill(0, SHARD_COUNT, []);
+$termShards = array_fill(0, SHARD_COUNT, []);
+$meta = ['__stats' => ['doc_count' => $docCount, 'avg_length' => $avgLength]];
+$recency = [];
+
+foreach ($docs as $entry) {
+    $doc = $entry['doc'];
+    $docId = (int) $doc['id'];
+    $lengthNorm = 1 - $b + $b * ($entry['length'] / $avgLength);
+    $meta[(string) $docId] = [
+        'lengthNorm' => $lengthNorm,
+        'sourceRank' => $entry['sourceRank'],
+    ];
+    $recency[(string) $docId] = $entry['minutesSince'];
+
+    $docShardId = $docId % SHARD_COUNT;
+    $docShards[$docShardId][] = json_encode($doc, JSON_UNESCAPED_UNICODE);
+
+    foreach ($entry['termFreq'] as $term => $freq) {
+        $term = (string) $term;
+        $termShardId = crc32($term) % SHARD_COUNT;
+        $termShards[$termShardId][$term][] = [$docId, $freq];
+    }
+}
+
+for ($i = 0; $i < SHARD_COUNT; $i++) {
+    $docFile = sprintf('%s/docs-%03d.jsonl', $buildDir, $i);
+    if ($docShards[$i]) {
+        file_put_contents($docFile, implode("\n", $docShards[$i]) . "\n");
+    } else {
+        file_put_contents($docFile, '');
+    }
+
+    $termMap = [];
+    foreach ($termShards[$i] as $term => $postings) {
+        usort($postings, function ($a, $b) {
+            return $a[0] <=> $b[0];
+        });
+        $termMap[$term] = $postings;
+    }
+    $termFile = sprintf('%s/terms-%03d.json', $buildDir, $i);
+    file_put_contents($termFile, json_encode($termMap, JSON_UNESCAPED_UNICODE));
+}
+
+file_put_contents($buildDir . '/facets.json', json_encode($facets, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+file_put_contents($buildDir . '/meta.json', json_encode($meta, JSON_UNESCAPED_UNICODE));
+file_put_contents($buildDir . '/recency.json', json_encode($recency, JSON_UNESCAPED_UNICODE));
+
+if (is_dir($finalDir)) {
+    rrmdir($finalDir);
+}
+rename($buildDir, $finalDir);
+
+$manifest = [
+    'version' => $version,
+    'built_at' => gmdate('c'),
+    'shards' => SHARD_COUNT,
+    'files' => [
+        'docs' => array_map(fn ($i) => sprintf('docs-%03d.jsonl', $i), range(0, SHARD_COUNT - 1)),
+        'terms' => array_map(fn ($i) => sprintf('terms-%03d.json', $i), range(0, SHARD_COUNT - 1)),
+        'facets' => 'facets.json',
+        'meta' => 'meta.json',
+        'recency' => 'recency.json',
+    ],
+    'base_path' => 'data/index/' . $version,
+];
+
+$tmpManifest = INDEX_DIR . '/manifest.json.tmp';
+file_put_contents($tmpManifest, json_encode($manifest, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
+rename($tmpManifest, INDEX_DIR . '/manifest.json');
+
+clearCache();
+
+fwrite(STDOUT, "Indexed {$docCount} documents into version {$version}.\n");
+exit(0);
+
+function tokenize(string $text, array $stopwords): array
+{
+    $text = asciiFold(mb_strtolower($text, 'UTF-8'));
+    $tokens = preg_split('/[^a-z0-9]+/u', $text) ?: [];
+    $tokens = array_filter($tokens, function ($token) use ($stopwords) {
+        return $token !== '' && !isset($stopwords[$token]) && mb_strlen($token, 'UTF-8') > 1;
+    });
+    return array_values($tokens);
+}
+
+function normaliseDocument(array $record): ?array
+{
+    $required = ['id', 'ts', 'title', 'lede', 'url', 'source', 'lang'];
+    foreach ($required as $field) {
+        if (!array_key_exists($field, $record)) {
+            return null;
+        }
+    }
+    $doc = [
+        'id' => (int) $record['id'],
+        'ts' => (int) $record['ts'],
+        'title' => (string) $record['title'],
+        'lede' => (string) ($record['lede'] ?? ''),
+        'url' => (string) $record['url'],
+        'source' => (string) $record['source'],
+        'lang' => strtolower((string) $record['lang'] ?? 'en'),
+        'entities' => is_array($record['entities'] ?? null) ? $record['entities'] : [],
+        'simhash' => isset($record['simhash']) ? strtolower((string) $record['simhash']) : '',
+    ];
+    if ($doc['id'] === 0 || $doc['ts'] === 0) {
+        return null;
+    }
+    return $doc;
+}
+
+function asciiFold(string $text): string
+{
+    $folded = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text);
+    if ($folded === false) {
+        return $text;
+    }
+    return $folded;
+}
+
+function loadStopwords(): array
+{
+    $words = [
+        'the','a','an','of','and','to','in','for','on','by','with','is','are','was','were','be','as','that','from','this','at','it','or','but','if','then','into','their','they','them','he','she','his','her','over','after','before','about','than','across','has','have','had','will','can','could','should','would','just','more','most','other','also','new','its','not','into','we','you','your','i','me','our','us','so','no','yes'
+    ];
+    $map = [];
+    foreach ($words as $word) {
+        $map[$word] = true;
+    }
+    return $map;
+}
+
+function loadSourceRanks(): array
+{
+    return [
+        'reuters' => 1.0,
+        'ap' => 1.0,
+        'associated press' => 1.0,
+        'bloomberg' => 0.85,
+        'wsj' => 0.85,
+        'wall street journal' => 0.85,
+        'ft' => 0.8,
+        'financial times' => 0.8,
+        'bbc' => 0.8,
+        'cnn' => 0.65,
+        'techcrunch' => 0.5,
+        'politico' => 0.7,
+        'guardian' => 0.75,
+    ];
+}
+
+function simhash(string $text, array $stopwords): string
+{
+    $tokens = tokenize($text, $stopwords);
+    if (!$tokens) {
+        return str_repeat('0', 16);
+    }
+    $vector = array_fill(0, 64, 0);
+    foreach ($tokens as $token) {
+        $hashHex = substr(hash('sha256', $token), 0, 16);
+        $bytes = unpack('C*', hex2bin($hashHex));
+        if (!$bytes) {
+            continue;
+        }
+        $bitIndex = 0;
+        foreach ($bytes as $byte) {
+            for ($bit = 7; $bit >= 0; $bit--) {
+                $bitValue = ($byte >> $bit) & 1;
+                $vector[$bitIndex] += $bitValue ? 1 : -1;
+                $bitIndex++;
+            }
+        }
+    }
+    $hashBits = '';
+    for ($i = 0; $i < 64; $i += 4) {
+        $nibble = 0;
+        for ($j = 0; $j < 4; $j++) {
+            $nibble <<= 1;
+            if ($vector[$i + $j] >= 0) {
+                $nibble |= 1;
+            }
+        }
+        $hashBits .= dechex($nibble);
+    }
+    return str_pad($hashBits, 16, '0');
+}
+
+function hammingDist(string $hex1, string $hex2): int
+{
+    $hex1 = str_pad(strtolower($hex1), 16, '0');
+    $hex2 = str_pad(strtolower($hex2), 16, '0');
+    $bin1 = hex2bin($hex1);
+    $bin2 = hex2bin($hex2);
+    if ($bin1 === false || $bin2 === false) {
+        return 64;
+    }
+    $diff = 0;
+    $len = min(strlen($bin1), strlen($bin2));
+    for ($i = 0; $i < $len; $i++) {
+        $xor = ord($bin1[$i]) ^ ord($bin2[$i]);
+        $diff += countBits($xor);
+    }
+    return $diff;
+}
+
+function countBits(int $byte): int
+{
+    $count = 0;
+    while ($byte) {
+        $count += $byte & 1;
+        $byte >>= 1;
+    }
+    return $count;
+}
+
+function incrementFacet(array &$facet, string $key): void
+{
+    $facet[$key] = ($facet[$key] ?? 0) + 1;
+}
+
+function rrmdir(string $dir): void
+{
+    if (!is_dir($dir)) {
+        return;
+    }
+    $items = scandir($dir);
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') {
+            continue;
+        }
+        $path = $dir . '/' . $item;
+        if (is_dir($path)) {
+            rrmdir($path);
+        } else {
+            unlink($path);
+        }
+    }
+    rmdir($dir);
+}
+
+function clearCache(): void
+{
+    if (!is_dir(CACHE_DIR)) {
+        return;
+    }
+    $files = glob(CACHE_DIR . '/*.json');
+    foreach ($files as $file) {
+        @unlink($file);
+    }
+}

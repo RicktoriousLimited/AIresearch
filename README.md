@@ -34,6 +34,31 @@ Open `http://localhost:8000/index.php` to launch the new research home. From her
 - Review the end-to-end workflow for framing a question, interrogating the graph, and exporting
   deliverables with citations.
 
+### File-based news search
+
+The repository now includes a self-contained PHP + JSON search stack for fast news discovery. It
+ships with a CLI indexer, cached result layer, and a lightweight UI that reads everything from the
+filesystem—no database required.
+
+```bash
+# 1. Build the index from sample JSONL input
+php bin/build-index
+
+# 2. Launch PHP's built-in server
+php -S 0.0.0.0:8000 -t public
+```
+
+Browse `http://localhost:8000/search.php` to:
+
+- Run full-text queries with recency-aware ranking, deduplication, and entity boosts.
+- Filter by recency, source, and language using precomputed facet counts.
+- Inspect highlighted snippets, entity chips, and "+N more sources" badges for collapsed stories.
+
+Raw articles live in `data/raw/*.jsonl`. The indexer writes sharded docs, inverted index maps,
+facets, metadata, and recency files into `data/index/<version>/`, then atomically updates
+`data/index/manifest.json`. Cached query responses land in `data/cache/` and are invalidated on
+every rebuild. Search traffic is logged to `data/search_logs.jsonl` for weekly reporting.
+
 ### Discovery search
 
 The discovery interface exposes the shared knowledge graph as a public search engine.
