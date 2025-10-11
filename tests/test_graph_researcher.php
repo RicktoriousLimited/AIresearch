@@ -154,9 +154,12 @@ assertEquals(1, count($metadata['sources']));
 assertEquals('2024-06-01T00:00:00+00:00', $metadata['updated_at']);
 
 $top = $researcher->listTopEntities(5);
-assertTrue(count($top) >= 2, 'Expected at least two entities in ranking list.');
+assertEquals(1, count($top), 'Only eligible entities should be returned in ranking list.');
 assertEquals('alice smith', $top[0]['entity']);
 assertTrue($top[0]['eligible']);
+foreach ($top as $rankedEntity) {
+    assertTrue($rankedEntity['eligible'], 'Ineligible entities should be filtered from rankings.');
+}
 assertEquals(3, $top[0]['fact_count']);
 assertEquals(1, $top[0]['synonym_count']);
 
