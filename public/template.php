@@ -1,4 +1,7 @@
 <?php
+require_once __DIR__ . '/../src/App/bootstrap.php';
+
+use App\Web\SiteLayout;
 /** @var array $results */
 /** @var string $query */
 /** @var int $page */
@@ -40,11 +43,11 @@ $searchUrl = $baseUrl;
 $graphUrl = $basePrefix . '/knowledge-graph.php';
 $docsUrl = $basePrefix . '/docs';
 
-$navLinks = [
-    ['label' => 'Home', 'href' => $homeUrl, 'active' => false],
-    ['label' => 'News search', 'href' => $searchUrl, 'active' => true],
-    ['label' => 'Knowledge graph', 'href' => $graphUrl, 'active' => false],
-    ['label' => 'Docs', 'href' => $docsUrl, 'active' => false],
+$navigationPaths = [
+    'home' => $homeUrl,
+    'search' => $searchUrl,
+    'graph' => $graphUrl,
+    'docs' => $docsUrl,
 ];
 ?>
 <!DOCTYPE html>
@@ -57,16 +60,7 @@ $navLinks = [
     <link rel="stylesheet" href="/assets/styles.css" />
 </head>
 <body class="site site--search">
-<header class="site-header">
-    <div class="site-header__inner">
-        <a class="site-brand" href="<?= esc($homeUrl); ?>">AIresearch</a>
-        <nav class="site-nav" aria-label="Primary navigation">
-            <?php foreach ($navLinks as $link): ?>
-                <a class="site-nav__link<?= $link['active'] ? ' site-nav__link--active' : ''; ?>" href="<?= esc($link['href']); ?>"><?= esc($link['label']); ?></a>
-            <?php endforeach; ?>
-        </nav>
-    </div>
-</header>
+<?php SiteLayout::renderHeader($navigationPaths, 'search'); ?>
 <main class="site-main" id="main">
     <div class="search-view">
         <section class="search-bar">
@@ -212,11 +206,7 @@ $navLinks = [
         </div>
     </div>
 </main>
-<footer class="site-footer">
-    <div class="site-footer__inner">
-        <p class="site-footer__meta">Serving real-time newsroom intelligence from the AIresearch crawler.</p>
-    </div>
-</footer>
+<?php SiteLayout::renderFooter($navigationPaths); ?>
 </body>
 </html>
 <?php

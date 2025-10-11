@@ -8,6 +8,7 @@ use App\Crawler\HiddenCrawler;
 use App\KnowledgeGraph\GraphRepository;
 use App\News\NewsSearchService;
 use App\Web\PathResolver;
+use App\Web\SiteLayout;
 
 function esc(string $value): string
 {
@@ -32,7 +33,15 @@ $autocompleteScriptVersion = file_exists(__DIR__ . '/assets/autocomplete.js') ? 
 $homePath = PathResolver::url($assetBase, 'index.php');
 $searchPath = PathResolver::url($assetBase, 'search.php');
 $graphPath = PathResolver::url($assetBase, 'knowledge-graph.php');
+$docsPath = PathResolver::url($assetBase, 'docs');
 $newsEndpoint = PathResolver::url($assetBase, 'api/news-search.php');
+
+$navigationPaths = [
+    'home' => $homePath,
+    'search' => $searchPath,
+    'graph' => $graphPath,
+    'docs' => $docsPath,
+];
 
 $initialResults = [];
 $initialMeta = [];
@@ -204,18 +213,9 @@ $discoveryStatusText = sprintf('Tracking %s page%s · %s pending', number_format
     <link rel="stylesheet" href="<?= esc($newsStylesPath . '?v=' . $newsStylesVersion) ?>">
 </head>
 <body class="site site--search search-page--news">
-<header class="site-header">
-    <div class="site-header__inner">
-        <a class="site-brand" href="<?= esc($homePath) ?>">AIresearch</a>
-        <nav class="site-nav" aria-label="Primary navigation">
-            <a class="site-nav__link" href="<?= esc($homePath) ?>">Home</a>
-            <a class="site-nav__link site-nav__link--active" href="<?= esc($searchPath) ?>">News search</a>
-            <a class="site-nav__link" href="<?= esc($graphPath) ?>">Knowledge graph</a>
-        </nav>
-    </div>
-</header>
-<main class="news-search" id="main">
-    <div class="news-search__shell" data-news-app data-news-endpoint="<?= esc($newsEndpoint) ?>">
+<?php SiteLayout::renderHeader($navigationPaths, 'search'); ?>
+<main class="site-main news-search" id="main">
+    <div class="news-search__shell site-container" data-news-app data-news-endpoint="<?= esc($newsEndpoint) ?>">
         <section class="news-search__masthead">
             <div class="news-search__masthead-intro">
                 <p class="news-search__eyebrow">Live headline monitor</p>
@@ -386,6 +386,7 @@ $discoveryStatusText = sprintf('Tracking %s page%s · %s pending', number_format
         </div>
     </div>
 </main>
+<?php SiteLayout::renderFooter($navigationPaths); ?>
 <script src="<?= esc($autocompleteScriptPath . '?v=' . $autocompleteScriptVersion) ?>" defer></script>
 <script src="<?= esc($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
 </body>
