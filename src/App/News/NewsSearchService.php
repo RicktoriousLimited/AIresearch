@@ -106,12 +106,16 @@ final class NewsSearchService
         $items = array_map(static fn(array $match): array => $match['item'], $sorted);
         $results = array_slice($items, 0, $limit);
         $meta = $this->buildMeta($items);
+        $discovery = $this->crawler->discoveryTree();
+
+        $meta['discovery'] = $discovery;
 
         return [
             'query' => $query,
             'limit' => $limit,
             'results' => $results,
             'meta' => $meta,
+            'discovery' => $discovery,
             'generated_at' => $now->format(DATE_ATOM),
         ];
     }

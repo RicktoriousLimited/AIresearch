@@ -59,6 +59,7 @@ use function usort;
 use function hash;
 use function ksort;
 use function sprintf;
+use function strtotime;
 
 
 use const DATE_ATOM;
@@ -649,6 +650,398 @@ final class HiddenCrawler
             'domains' => $domainList,
             'pages' => array_slice($pages, 0, 200),
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function discoveryTree(
+        int $maxSeeds = 6,
+        int $maxChildren = 5,
+        int $maxDepth = 3,
+        int $maxRecommended = 12
+    ): array {
+        $historyEntries = $this->loadStoredEntries();
+        if ($historyEntries === []) {
+            return [
+                'generated_at' => date(DATE_ATOM),
+                'seeds' => [],
+                'total_nodes' => 0,
+                'pending' => 0,
+                'recommended' => [],
+            ];
+        }
+
+        $ledger = $this->initialiseDiscoveryLedger($historyEntries);
+        $historyByKey = $this->indexHistoryByQueueKey($historyEntries);
+        $childrenMap = $this->buildDiscoveryChildren($ledger);
+        $seedKeys = $this->selectDiscoverySeeds($ledger);
+
+        $visited = [];
+        $nodes = [];
+        $totalNodes = 0;
+        $pendingCandidates = [];
+
+        $seedSlice = array_slice($seedKeys, 0, max(1, $maxSeeds));
+        foreach ($seedSlice as $seedKey) {
+            $node = $this->formatDiscoveryNode(
+                $seedKey,
+                $ledger,
+                $historyByKey,
+                $childrenMap,
+                $maxChildren,
+                $maxDepth,
+                0,
+                $visited,
+                $totalNodes,
+                $pendingCandidates
+            );
+            if ($node !== null) {
+                $nodes[] = $node;
+            }
+        }
+
+        usort($pendingCandidates, static fn(array $left, array $right): int => ($right['score'] ?? 0.0) <=> ($left['score'] ?? 0.0));
+
+        $recommended = [];
+        foreach (array_slice($pendingCandidates, 0, max(0, $maxRecommended)) as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+
+            $url = isset($candidate['url']) ? (string) $candidate['url'] : '';
+            if ($url === '') {
+                continue;
+            }
+
+            $recommended[] = [
+                'url' => $url,
+                'domain' => isset($candidate['domain']) ? (string) $candidate['domain'] : $this->extractDomain($url),
+                'score' => round((float) ($candidate['score'] ?? 0.0), 2),
+                'last_seen_at' => isset($candidate['last_seen_at']) ? (string) $candidate['last_seen_at'] : '',
+            ];
+        }
+
+        return [
+            'generated_at' => date(DATE_ATOM),
+            'seeds' => $nodes,
+            'total_nodes' => $totalNodes,
+            'pending' => count($pendingCandidates),
+            'recommended' => $recommended,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function continueDiscovery(int $limit = 5, int $maxDepth = 1): array
+    {
+        $limit = max(1, $limit);
+        $maxDepth = max(0, $maxDepth);
+
+        $snapshot = $this->discoveryTree(8, 6, 3, $limit * 3);
+        $targets = [];
+        $recommended = isset($snapshot['recommended']) && is_array($snapshot['recommended']) ? $snapshot['recommended'] : [];
+        foreach ($recommended as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+
+            $url = isset($candidate['url']) ? (string) $candidate['url'] : '';
+            if ($url === '') {
+                continue;
+            }
+
+            $targets[] = $url;
+            if (count($targets) >= $limit) {
+                break;
+            }
+        }
+
+        if ($targets === []) {
+            return [
+                'processed' => 0,
+                'targets' => [],
+                'errors' => [],
+                'discovery' => $snapshot,
+            ];
+        }
+
+        $entries = $this->crawl($targets, $maxDepth);
+        $errors = [];
+        foreach ($entries as $entry) {
+            if (!is_array($entry) || !isset($entry['error'])) {
+                continue;
+            }
+
+            $errors[] = [
+                'url' => (string) ($entry['url'] ?? ''),
+                'error' => (string) $entry['error'],
+            ];
+        }
+
+        return [
+            'processed' => count($entries),
+            'targets' => $targets,
+            'errors' => $errors,
+            'discovery' => $this->discoveryTree(),
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $entries
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function indexHistoryByQueueKey(array $entries): array
+    {
+        $indexed = [];
+
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $candidates = [];
+            if (isset($entry['normalized_url']) && is_string($entry['normalized_url'])) {
+                $candidates[] = $entry['normalized_url'];
+            }
+            if (isset($entry['canonical_url']) && is_string($entry['canonical_url'])) {
+                $candidates[] = $entry['canonical_url'];
+            }
+            if (isset($entry['url']) && is_string($entry['url'])) {
+                $candidates[] = $entry['url'];
+            }
+
+            foreach ($candidates as $candidate) {
+                $key = $this->queueKey($candidate);
+                if ($key === '') {
+                    continue;
+                }
+
+                $indexed[$key] = $entry;
+                break;
+            }
+        }
+
+        return $indexed;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $ledger
+     *
+     * @return array<string, array<int, string>>
+     */
+    private function buildDiscoveryChildren(array $ledger): array
+    {
+        $children = [];
+
+        foreach ($ledger as $key => $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $sources = isset($entry['sources']) && is_array($entry['sources']) ? $entry['sources'] : [];
+            if ($sources === []) {
+                continue;
+            }
+
+            $bestKey = null;
+            $bestCount = -1;
+            foreach ($sources as $sourceKey => $meta) {
+                if (!is_array($meta)) {
+                    continue;
+                }
+
+                $count = (int) ($meta['count'] ?? 0);
+                if ($count > $bestCount) {
+                    $bestCount = $count;
+                    $bestKey = $sourceKey;
+                }
+            }
+
+            if ($bestKey === null) {
+                $keys = array_keys($sources);
+                $bestKey = $keys[0] ?? null;
+            }
+
+            if ($bestKey === null) {
+                continue;
+            }
+
+            if (!isset($children[$bestKey])) {
+                $children[$bestKey] = [];
+            }
+
+            $children[$bestKey][] = $key;
+        }
+
+        return $children;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $ledger
+     *
+     * @return array<int, string>
+     */
+    private function selectDiscoverySeeds(array $ledger): array
+    {
+        $candidates = [];
+
+        foreach ($ledger as $key => $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $sources = isset($entry['sources']) && is_array($entry['sources']) ? $entry['sources'] : [];
+            if (!empty($entry['seed']) || $sources === []) {
+                $candidates[] = $key;
+            }
+        }
+
+        if ($candidates === []) {
+            $candidates = array_keys($ledger);
+        }
+
+        usort($candidates, static function (string $left, string $right) use ($ledger): int {
+            $leftSeen = isset($ledger[$left]['last_seen_at']) ? (string) $ledger[$left]['last_seen_at'] : '';
+            $rightSeen = isset($ledger[$right]['last_seen_at']) ? (string) $ledger[$right]['last_seen_at'] : '';
+
+            return $rightSeen <=> $leftSeen;
+        });
+
+        return $candidates;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $ledger
+     * @param array<string, array<string, mixed>> $historyByKey
+     * @param array<string, array<int, string>> $childrenMap
+     * @param array<string, bool> $visited
+     * @param array<int, array<string, mixed>> $pendingCandidates
+     *
+     * @return array<string, mixed>|null
+     */
+    private function formatDiscoveryNode(
+        string $key,
+        array $ledger,
+        array $historyByKey,
+        array $childrenMap,
+        int $maxChildren,
+        int $maxDepth,
+        int $depth,
+        array &$visited,
+        int &$totalNodes,
+        array &$pendingCandidates
+    ): ?array {
+        if (isset($visited[$key])) {
+            return null;
+        }
+        $visited[$key] = true;
+
+        if (!isset($ledger[$key]) || !is_array($ledger[$key])) {
+            return null;
+        }
+
+        $entry = $ledger[$key];
+        $url = isset($entry['url']) ? (string) $entry['url'] : '';
+        if ($url === '') {
+            return null;
+        }
+
+        $historyEntry = $historyByKey[$key] ?? null;
+        $status = $historyEntry !== null ? 'indexed' : 'pending';
+        $totalNodes++;
+
+        if ($status === 'pending') {
+            $pendingCandidates[] = [
+                'url' => $url,
+                'domain' => $this->extractDomain($url),
+                'score' => $this->scoreDiscoveryCandidate($entry),
+                'last_seen_at' => isset($entry['last_seen_at']) ? (string) $entry['last_seen_at'] : '',
+            ];
+        }
+
+        $childrenKeys = $childrenMap[$key] ?? [];
+        $childrenKeys = array_values(array_unique($childrenKeys));
+        usort($childrenKeys, static function (string $left, string $right) use ($ledger): int {
+            $leftSeen = isset($ledger[$left]['last_seen_at']) ? (string) $ledger[$left]['last_seen_at'] : '';
+            $rightSeen = isset($ledger[$right]['last_seen_at']) ? (string) $ledger[$right]['last_seen_at'] : '';
+
+            return $rightSeen <=> $leftSeen;
+        });
+        $childCount = count($childrenKeys);
+        if ($maxChildren > 0) {
+            $childrenKeys = array_slice($childrenKeys, 0, $maxChildren);
+        }
+
+        $children = [];
+        if ($depth < $maxDepth) {
+            foreach ($childrenKeys as $childKey) {
+                $child = $this->formatDiscoveryNode(
+                    $childKey,
+                    $ledger,
+                    $historyByKey,
+                    $childrenMap,
+                    $maxChildren,
+                    $maxDepth,
+                    $depth + 1,
+                    $visited,
+                    $totalNodes,
+                    $pendingCandidates
+                );
+
+                if ($child !== null) {
+                    $children[] = $child;
+                }
+            }
+        }
+
+        $title = '';
+        if ($historyEntry !== null && isset($historyEntry['title'])) {
+            $title = (string) $historyEntry['title'];
+        }
+        if ($title === '') {
+            $title = $url;
+        }
+
+        return [
+            'url' => $url,
+            'title' => $title,
+            'domain' => $this->extractDomain($url),
+            'first_seen_at' => isset($entry['first_seen_at']) ? (string) $entry['first_seen_at'] : '',
+            'last_seen_at' => isset($entry['last_seen_at']) ? (string) $entry['last_seen_at'] : '',
+            'seed' => !empty($entry['seed']),
+            'status' => $status,
+            'quality' => isset($historyEntry['quality_score']) ? (float) $historyEntry['quality_score'] : 0.0,
+            'child_count' => $childCount,
+            'children' => $children,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $ledgerEntry
+     */
+    private function scoreDiscoveryCandidate(array $ledgerEntry): float
+    {
+        $url = isset($ledgerEntry['url']) ? (string) $ledgerEntry['url'] : '';
+        $domain = $this->extractDomain($url);
+        $base = $this->baseScoreForDomain($domain) * 100.0;
+
+        $sources = isset($ledgerEntry['sources']) && is_array($ledgerEntry['sources']) ? $ledgerEntry['sources'] : [];
+        $sourceBoost = min(25.0, count($sources) * 4.5);
+
+        $recencyBoost = 0.0;
+        $lastSeen = isset($ledgerEntry['last_seen_at']) ? (string) $ledgerEntry['last_seen_at'] : '';
+        if ($lastSeen !== '') {
+            $timestamp = strtotime($lastSeen);
+            if (is_int($timestamp)) {
+                $ageHours = max(0.0, (time() - $timestamp) / 3600.0);
+                $recencyBoost = max(0.0, 12.0 - min(12.0, $ageHours));
+            }
+        }
+
+        return $base + $sourceBoost + $recencyBoost;
     }
 
     private function deriveProgressPath(string $storagePath): string

@@ -16,8 +16,14 @@
     const topicsListEl = root.querySelector('[data-news-topics-list]');
     const resultsEl = root.querySelector('[data-news-results]');
     const statsEl = root.querySelector('[data-news-stats]');
+    const discoverySection = root.querySelector('[data-news-discovery]');
+    const discoveryStatusEl = root.querySelector('[data-news-discovery-status]');
+    const discoveryTreeEl = root.querySelector('[data-news-discovery-tree]');
+    const continueButton = root.querySelector('[data-news-continue]');
+    const continueStatusEl = root.querySelector('[data-news-continue-status]');
 
     let controller = null;
+    let continueController = null;
 
     function relativeTime(iso) {
         if (!iso) {
@@ -337,7 +343,7 @@
             }
             const chip = document.createElement('button');
             chip.type = 'button';
-            chip.className = 'news-chip';
+            chip.className = 'news-search__chip';
             chip.textContent = topicName;
             chip.addEventListener('click', () => {
                 if (input) {
@@ -364,6 +370,127 @@
             return `${domain} (${avg.toFixed(1)})`;
         }).join(' · ');
         statsEl.textContent = `Top sources: ${top}`;
+    }
+
+    function renderDiscovery(snapshot) {
+        if (!discoverySection) {
+            return;
+        }
+
+        const seeds = snapshot && Array.isArray(snapshot.seeds) ? snapshot.seeds : [];
+        const total = snapshot && typeof snapshot.total_nodes === 'number' ? snapshot.total_nodes : seeds.length;
+        const pending = snapshot && typeof snapshot.pending === 'number' ? snapshot.pending : 0;
+        const recommended = snapshot && Array.isArray(snapshot.recommended) ? snapshot.recommended : [];
+
+        if (!seeds.length && !pending && !recommended.length) {
+            discoverySection.setAttribute('hidden', 'hidden');
+        } else {
+            discoverySection.removeAttribute('hidden');
+        }
+
+        if (discoveryStatusEl) {
+            const totalLabel = total === 1 ? '1 page' : `${total.toLocaleString()} pages`;
+            const pendingLabel = pending === 1 ? '1 pending' : `${pending.toLocaleString()} pending`;
+            discoveryStatusEl.textContent = `Tracking ${totalLabel} · ${pendingLabel}`;
+        }
+
+        if (discoveryTreeEl) {
+            clearChildren(discoveryTreeEl);
+            if (!seeds.length) {
+                const empty = document.createElement('p');
+                empty.className = 'discovery-tree__empty';
+                empty.textContent = 'Connect seed URLs to populate the discovery tree.';
+                discoveryTreeEl.appendChild(empty);
+            } else {
+                discoveryTreeEl.appendChild(buildDiscoveryList(seeds, 0));
+            }
+        }
+
+        if (continueButton) {
+            const labelBase = 'Continue discovery';
+            if (recommended.length) {
+                continueButton.removeAttribute('disabled');
+                continueButton.textContent = `${labelBase} (${recommended.length})`;
+            } else {
+                continueButton.setAttribute('disabled', 'disabled');
+                continueButton.textContent = labelBase;
+            }
+        }
+
+        if (continueStatusEl && !continueStatusEl.dataset.busy) {
+            continueStatusEl.textContent = recommended.length
+                ? 'Queue primed with fresh leads.'
+                : 'No queued pages right now.';
+        }
+    }
+
+    function buildDiscoveryList(nodes, depth) {
+        const list = document.createElement('ul');
+        list.className = depth === 0 ? 'discovery-tree' : 'discovery-tree__children';
+
+        nodes.forEach((node) => {
+            const normalised = node && typeof node === 'object' ? node : {};
+            const url = typeof normalised.url === 'string' ? normalised.url : '';
+            if (!url) {
+                return;
+            }
+
+            const title = typeof normalised.title === 'string' && normalised.title.trim()
+                ? normalised.title.trim()
+                : url;
+
+            const item = document.createElement('li');
+            item.className = 'discovery-tree__item';
+            if (normalised.seed) {
+                item.classList.add('discovery-tree__item--seed');
+            }
+
+            const link = document.createElement('a');
+            link.className = 'discovery-tree__link';
+            link.href = url;
+            link.target = '_blank';
+            link.rel = 'noopener';
+            link.textContent = title;
+            item.appendChild(link);
+
+            const childCount = typeof normalised.child_count === 'number' ? normalised.child_count : 0;
+            const status = typeof normalised.status === 'string' ? normalised.status : '';
+            const stamp = normalised.last_seen_at || normalised.first_seen_at || '';
+            const metaParts = [];
+            if (childCount > 0) {
+                metaParts.push(`${childCount} link${childCount === 1 ? '' : 's'}`);
+            }
+            if (status) {
+                metaParts.push(status === 'indexed' ? 'Indexed' : 'Pending');
+            }
+            const relative = relativeTime(stamp);
+            if (relative) {
+                metaParts.push(relative);
+            }
+
+            if (metaParts.length) {
+                const meta = document.createElement('span');
+                meta.className = 'discovery-tree__meta';
+                meta.textContent = metaParts.join(' · ');
+                item.appendChild(meta);
+            }
+
+            const children = Array.isArray(normalised.children) ? normalised.children : [];
+            if (children.length) {
+                item.appendChild(buildDiscoveryList(children, depth + 1));
+            }
+
+            list.appendChild(item);
+        });
+
+        if (!list.children.length) {
+            const empty = document.createElement('li');
+            empty.className = 'discovery-tree__item discovery-tree__item--empty';
+            empty.textContent = 'No discovery links recorded yet.';
+            list.appendChild(empty);
+        }
+
+        return list;
     }
 
     function renderResults(payload) {
@@ -420,15 +547,18 @@
 
             const summaryText = result.summary || result.preview || '';
             if (summaryText) {
-                const summary = document.createElement('div');
-                summary.className = 'news-card__summary';
                 const summaryList = buildSummaryList(summaryText);
                 if (summaryList) {
-                    summary.appendChild(summaryList);
+                    const wrapper = document.createElement('div');
+                    wrapper.className = 'news-card__summary';
+                    wrapper.appendChild(summaryList);
+                    body.appendChild(wrapper);
                 } else {
-                    summary.textContent = summaryText;
+                    const paragraph = document.createElement('p');
+                    paragraph.className = 'news-card__summary';
+                    paragraph.textContent = summaryText;
+                    body.appendChild(paragraph);
                 }
-                body.appendChild(summary);
             }
 
             const meta = document.createElement('div');
@@ -679,6 +809,7 @@
                 renderTopics(payload.meta);
                 renderStats(payload.meta);
                 renderResults(payload);
+                renderDiscovery(payload.discovery || (payload.meta && payload.meta.discovery));
             })
             .catch((error) => {
                 if (error.name === 'AbortError') {
@@ -697,6 +828,97 @@
         form.addEventListener('submit', (event) => {
             event.preventDefault();
             fetchResults();
+        });
+    }
+
+    function continueDiscovery() {
+        if (!continueButton) {
+            return;
+        }
+
+        if (continueController) {
+            continueController.abort();
+        }
+
+        continueController = new AbortController();
+        continueButton.setAttribute('disabled', 'disabled');
+        continueButton.textContent = 'Continuing…';
+
+        if (continueStatusEl) {
+            continueStatusEl.dataset.busy = 'true';
+            continueStatusEl.textContent = 'Dispatching crawler to explore queued leads…';
+        }
+
+        fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                action: 'continue',
+                limit: 5,
+                depth: 1,
+            }),
+            signal: continueController.signal,
+        })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`Request failed with status ${response.status}`);
+                }
+                return response.json();
+            })
+            .then((payload) => {
+                const processed = typeof payload.processed === 'number' ? payload.processed : 0;
+                const targetCount = Array.isArray(payload.targets) ? payload.targets.length : 0;
+
+                if (continueStatusEl) {
+                    const processedLabel = processed === 1 ? 'Processed 1 page.' : `Processed ${processed} pages.`;
+                    const queuedLabel = targetCount === 1 ? 'Queued 1 target.' : `Queued ${targetCount} targets.`;
+                    continueStatusEl.textContent = processed || targetCount
+                        ? `${processed ? processedLabel : ''} ${targetCount ? queuedLabel : ''}`.trim()
+                        : 'No new pages discovered right now.';
+                }
+
+                renderDiscovery(payload.discovery);
+
+                if (continueStatusEl) {
+                    const statusNode = continueStatusEl;
+                    window.setTimeout(() => {
+                        if (statusNode.dataset.busy) {
+                            statusNode.removeAttribute('data-busy');
+                        }
+                    }, 3000);
+                }
+
+                setTimeout(() => {
+                    fetchResults();
+                }, 250);
+            })
+            .catch((error) => {
+                if (error.name === 'AbortError') {
+                    if (continueStatusEl) {
+                        continueStatusEl.removeAttribute('data-busy');
+                    }
+                    return;
+                }
+                if (continueStatusEl) {
+                    continueStatusEl.textContent = 'Discovery refresh failed. Try again soon.';
+                    const statusNode = continueStatusEl;
+                    window.setTimeout(() => {
+                        if (statusNode.dataset.busy) {
+                            statusNode.removeAttribute('data-busy');
+                        }
+                    }, 3000);
+                }
+            })
+            .finally(() => {
+                continueController = null;
+            });
+    }
+
+    if (continueButton) {
+        continueButton.addEventListener('click', () => {
+            continueDiscovery();
         });
     }
 
