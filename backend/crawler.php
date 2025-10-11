@@ -139,7 +139,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             try {
                 $results = $crawler->crawl($targets, $depth, $autoInterval, $autoStart, $refreshAfter);
-                $messages[] = 'Crawler fetched ' . count($results) . ' page(s).';
+                $processedCount = 0;
+                $failedCount = 0;
+                $failureMessages = [];
+
+                foreach ($results as $entry) {
+                    if (!is_array($entry)) {
+                        continue;
+                    }
+
+                    $errorMessage = (string) ($entry['error'] ?? '');
+                    if ($errorMessage !== '') {
+                        $failedCount++;
+                        $failureMessages[] = 'Failed to crawl ' . esc((string) ($entry['url'] ?? '')) . ': ' . esc($errorMessage) . '.';
+                        continue;
+                    }
+
+                    $processedCount++;
+                }
+
+                $statusMessage = 'Crawler fetched ' . $processedCount . ' page(s).';
+                if ($failedCount > 0) {
+                    $statusMessage .= ' ' . $failedCount . ' page(s) failed.';
+                }
+
+                $messages[] = $statusMessage;
+
+                foreach ($failureMessages as $failureMessage) {
+                    $errors[] = $failureMessage;
+                }
             } catch (Throwable $exception) {
                 $errors[] = 'Crawler failed: ' . $exception->getMessage();
             }

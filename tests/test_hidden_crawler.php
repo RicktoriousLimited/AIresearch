@@ -22,6 +22,20 @@ class StubScraper implements ScraperInterface
     }
 }
 
+class FlakyScraper implements ScraperInterface
+{
+    public function scrape(string $url): ScrapeResult
+    {
+        if (str_contains($url, 'fail')) {
+            throw new RuntimeException('Simulated fetch failure');
+        }
+
+        $text = 'Signal Ledger tracks resilient tasks.';
+
+        return new ScrapeResult($url, 'Resilient page', $text, [$text], []);
+    }
+}
+
 $storage = sys_get_temp_dir() . '/crawler_history_' . bin2hex(random_bytes(4)) . '.json';
 $crawler = new HiddenCrawler($storage, new StubScraper(), new TextRefiner());
 
@@ -159,6 +173,36 @@ if (!is_array($meaninglessReasons) || !in_array('Flagged meaningless text – no
 
 if (!in_array('Quality below recommended threshold – included for comprehensive coverage.', $meaninglessReasons, true)) {
     throw new RuntimeException('Low quality inclusions should note comprehensive coverage.');
+}
+
+$flakyStorage = sys_get_temp_dir() . '/crawler_history_' . bin2hex(random_bytes(4)) . '.json';
+$flakyCrawler = new HiddenCrawler($flakyStorage, new FlakyScraper(), new TextRefiner());
+$flakyResult = $flakyCrawler->crawl([
+    'https://example.com/fail',
+    'https://example.com/success',
+]);
+
+if (count($flakyResult) !== 2) {
+    throw new RuntimeException('Flaky crawler run should return entries for every attempted URL.');
+}
+
+$flakyFailures = array_values(array_filter($flakyResult, static fn(array $entry): bool => !empty($entry['error'])));
+if (count($flakyFailures) !== 1) {
+    throw new RuntimeException('Exactly one flaky crawl should report a failure.');
+}
+
+$flakySuccesses = array_values(array_filter($flakyResult, static fn(array $entry): bool => empty($entry['error'])));
+if (count($flakySuccesses) !== 1) {
+    throw new RuntimeException('Successful crawls should be returned alongside failures.');
+}
+
+unlink($flakyStorage);
+$flakyProgress = preg_replace('/\.json$/', '.progress.json', $flakyStorage);
+if (!is_string($flakyProgress)) {
+    $flakyProgress = $flakyStorage . '.progress.json';
+}
+if (file_exists($flakyProgress)) {
+    unlink($flakyProgress);
 }
 
 unlink($storage);

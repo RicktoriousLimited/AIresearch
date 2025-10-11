@@ -396,6 +396,7 @@ final class HiddenCrawler
         $processed = 0;
         $discoveredTotal = 0;
         $lastProcessedKey = null;
+        $failedEntries = [];
 
         while ($queue !== []) {
             $current = array_shift($queue);
@@ -436,7 +437,16 @@ final class HiddenCrawler
             $progress['task_totals'] = $this->summariseTaskTotals($tasks);
             $this->writeProgress($progress);
 
-            [$history, $result, $scraped] = $this->crawlUrl($currentUrl, $history);
+            try {
+                [$history, $result, $scraped] = $this->crawlUrl($currentUrl, $history);
+            } catch (Throwable $exception) {
+                $result = $this->createFailedEntry($currentUrl, $exception->getMessage());
+                $scraped = null;
+            }
+
+            if (isset($result['error'])) {
+                $failedEntries[] = $result;
+            }
 
             $normalizedAfterCrawl = (string) ($result['normalized_url'] ?? '');
             $this->reconcileDiscoveryKey(
@@ -559,6 +569,10 @@ final class HiddenCrawler
         $progress['tasks'] = array_values($tasks);
         $progress['task_totals'] = $this->summariseTaskTotals($tasks);
         $this->writeProgress($progress);
+
+        if ($failedEntries !== []) {
+            return array_merge($entries, $failedEntries);
+        }
 
         return $entries;
     }
@@ -2191,19 +2205,7 @@ final class HiddenCrawler
         try {
             $scraped = $this->scraper->scrape($url);
         } catch (RuntimeException $exception) {
-            $entry = [
-                'url' => $url,
-                'fetched_at' => date(DATE_ATOM),
-                'last_checked_at' => date(DATE_ATOM),
-                'error' => $exception->getMessage(),
-                'content_type' => 'error',
-                'revision' => null,
-                'versions' => [],
-                'changes' => $this->buildNoChangeSummary(),
-                'unchanged' => false,
-            ];
-
-            return [$history, $entry, null];
+            return [$history, $this->createFailedEntry($url, $exception->getMessage()), null];
         }
 
         $analysis = $this->refiner->analyseDocument($scraped->text());
@@ -2300,6 +2302,38 @@ final class HiddenCrawler
         [$history, $merged] = $this->mergeEntry($fullEntry, $history);
 
         return [$history, $merged, $scraped];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function createFailedEntry(string $url, string $message): array
+    {
+        $timestamp = date(DATE_ATOM);
+
+        return [
+            'url' => $url,
+            'title' => $url,
+            'fetched_at' => $timestamp,
+            'last_checked_at' => $timestamp,
+            'error' => $message,
+            'content_type' => 'error',
+            'revision' => null,
+            'versions' => [],
+            'changes' => $this->buildNoChangeSummary(),
+            'unchanged' => false,
+            'normalized_url' => $this->normaliseStoredUrl($url),
+            'graph' => [
+                'ingested' => false,
+            ],
+            'keywords' => [],
+            'entities' => [],
+            'links' => [],
+            'recommended_sources' => [],
+            'character_count' => 0,
+            'paragraph_count' => 0,
+            'meaningful' => false,
+        ];
     }
 
     /**
