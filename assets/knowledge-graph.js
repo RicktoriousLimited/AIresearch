@@ -60,6 +60,15 @@
     const reportRefresh = document.querySelector('[data-report-refresh]');
     const comparisonPanel = document.querySelector('[data-report-comparison]');
     const comparisonEmpty = document.querySelector('[data-comparison-empty]');
+    const suggestionContainer = document.querySelector('[data-graph-suggestions]');
+    const timelineList = document.querySelector('[data-graph-timeline]');
+    const timelineEmpty = document.querySelector('[data-graph-timeline-empty]');
+    const coverageList = document.querySelector('[data-graph-coverage]');
+    const coverageEmpty = document.querySelector('[data-graph-coverage-empty]');
+    const spotlightContainer = document.querySelector('[data-graph-spotlight]');
+    const spotlightEmpty = document.querySelector('[data-graph-spotlight-empty]');
+
+    const initialAnalytics = (config.initial && config.initial.analytics) || {};
 
     const summaryCache = new Map();
     const reportCache = new Map();
@@ -68,6 +77,7 @@
     let reportSkeleton = null;
     let reportLoadingTimer = null;
     const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+    const decimalFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1, minimumFractionDigits: 0 });
     let currentReportQuery = '';
 
     function escapeHtml(value) {
@@ -105,6 +115,335 @@
             return value;
         }
         return date.toLocaleString();
+    }
+
+    function formatDecimal(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) {
+            return '0';
+        }
+        return decimalFormatter.format(numeric);
+    }
+
+    function buildTimelineFromSources(sources, limit = 8) {
+        if (!Array.isArray(sources) || sources.length === 0) {
+            return [];
+        }
+
+        const buckets = new Map();
+
+        sources.forEach((source) => {
+            if (!source || typeof source !== 'object') {
+                return;
+            }
+
+            const fetchedAt = typeof source.fetched_at === 'string' ? source.fetched_at : '';
+            if (!fetchedAt) {
+                return;
+            }
+
+            const fetchedDate = new Date(fetchedAt);
+            if (Number.isNaN(fetchedDate.getTime())) {
+                return;
+            }
+
+            const key = fetchedDate.toISOString().slice(0, 10);
+            const label = fetchedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            const entry = buckets.get(key) || { count: 0, label };
+            entry.count += 1;
+            entry.label = label;
+            buckets.set(key, entry);
+        });
+
+        const sorted = Array.from(buckets.entries()).sort(([a], [b]) => (a < b ? -1 : 1));
+        const trimmed = sorted.slice(Math.max(sorted.length - limit, 0));
+
+        return trimmed.map(([date, data]) => ({
+            date,
+            label: data && data.label ? data.label : date,
+            count: data && Number.isFinite(data.count) ? Number(data.count) : (data && data.count) || 0,
+        }));
+    }
+
+    function renderTimeline(timeline) {
+        if (!timelineList || !timelineEmpty) {
+            return;
+        }
+
+        timelineList.innerHTML = '';
+
+        if (!Array.isArray(timeline) || timeline.length === 0) {
+            timelineList.hidden = true;
+            timelineEmpty.hidden = false;
+            return;
+        }
+
+        timelineEmpty.hidden = true;
+        timelineList.hidden = false;
+
+        const maxCount = timeline.reduce((max, bucket) => {
+            const count = bucket && bucket.count != null ? Number(bucket.count) : 0;
+            return Number.isFinite(count) && count > max ? count : max;
+        }, 0) || 1;
+
+        timeline.forEach((bucket) => {
+            if (!bucket || typeof bucket !== 'object') {
+                return;
+            }
+
+            const label = bucket.label ? String(bucket.label) : String(bucket.date || '');
+            const count = bucket.count != null ? Number(bucket.count) : 0;
+            const width = Math.max(0, Math.min(100, Math.round((Number.isFinite(count) ? count : 0) / maxCount * 100)));
+
+            const item = document.createElement('li');
+            item.innerHTML = `
+                <span class="graph-timeline__date">${escapeHtml(label)}</span>
+                <span class="graph-timeline__meter"><span style="--meter-width: ${width}%"></span></span>
+                <span class="graph-timeline__value">${formatNumber(count)}</span>
+            `;
+            timelineList.appendChild(item);
+        });
+    }
+
+    function buildCoverageSignals(summary, sources, timeline, updatedAt) {
+        const signals = [];
+        const data = summary && typeof summary === 'object' ? summary : {};
+        const uniqueEntities = Number(data.unique_entities ?? data.entities ?? 0) || 0;
+        const triples = Number(data.triples ?? 0) || 0;
+        const synonymGroups = Number(data.synonym_groups ?? 0) || 0;
+        const sourcesCount = Array.isArray(sources) ? sources.length : 0;
+
+        if (updatedAt) {
+            const formatted = parseDate(updatedAt);
+            signals.push({
+                label: 'Last merge',
+                value: formatted || updatedAt,
+                hint: 'Timestamp of the latest knowledge graph ingestion.',
+            });
+        }
+
+        if (sourcesCount > 0) {
+            signals.push({
+                label: 'Active sources',
+                value: formatNumber(sourcesCount),
+                hint: 'Documents currently linked to this entity graph.',
+            });
+        }
+
+        if (uniqueEntities > 0 && triples > 0) {
+            signals.push({
+                label: 'Triples per entity',
+                value: formatDecimal(triples / uniqueEntities),
+                hint: 'Average number of supporting facts tied to each entity.',
+            });
+        }
+
+        if (uniqueEntities > 0 && synonymGroups > 0) {
+            const coveragePercent = Math.round((synonymGroups / uniqueEntities) * 100);
+            signals.push({
+                label: 'Synonym coverage',
+                value: `${formatNumber(coveragePercent)}%`,
+                hint: 'Share of tracked entities enriched with alias clusters.',
+            });
+        }
+
+        if (Array.isArray(timeline) && timeline.length > 0) {
+            const total = timeline.reduce((sum, bucket) => sum + (Number(bucket.count) || 0), 0);
+            if (total > 0) {
+                signals.push({
+                    label: 'Avg daily ingestion',
+                    value: formatDecimal(total / timeline.length),
+                    hint: 'Mean number of sources merged across recent crawls.',
+                });
+            }
+        }
+
+        return signals.slice(0, 5);
+    }
+
+    function renderCoverage(signals) {
+        if (!coverageList || !coverageEmpty) {
+            return;
+        }
+
+        coverageList.innerHTML = '';
+
+        if (!Array.isArray(signals) || signals.length === 0) {
+            coverageList.hidden = true;
+            coverageEmpty.hidden = false;
+            return;
+        }
+
+        coverageEmpty.hidden = true;
+        coverageList.hidden = false;
+
+        signals.forEach((signal) => {
+            if (!signal || typeof signal !== 'object') {
+                return;
+            }
+
+            const label = signal.label ? String(signal.label) : '';
+            const value = signal.value ? String(signal.value) : '';
+            if (!label || !value) {
+                return;
+            }
+
+            const hint = signal.hint ? String(signal.hint) : '';
+
+            const item = document.createElement('li');
+            item.innerHTML = `
+                <div class="stat-list__row">
+                    <span class="stat-list__label">${escapeHtml(label)}</span>
+                    <span class="stat-list__value">${escapeHtml(value)}</span>
+                </div>
+                ${hint ? `<p class="stat-list__hint">${escapeHtml(hint)}</p>` : ''}
+            `;
+            coverageList.appendChild(item);
+        });
+    }
+
+    function deriveSpotlight(triples, sources, updatedAt) {
+        if (!Array.isArray(triples)) {
+            return null;
+        }
+
+        let triple = null;
+        for (let index = 0; index < triples.length; index += 1) {
+            const candidate = triples[index];
+            if (!candidate || typeof candidate !== 'object') {
+                continue;
+            }
+
+            const subject = candidate.subject || candidate[0] || '';
+            const relation = candidate.relation || candidate[1] || '';
+            const object = candidate.object || candidate[2] || '';
+            if (subject && relation && object) {
+                triple = {
+                    subject: String(subject),
+                    relation: String(relation),
+                    object: String(object),
+                };
+                break;
+            }
+        }
+
+        if (!triple) {
+            return null;
+        }
+
+        let source = null;
+        if (Array.isArray(sources) && sources.length > 0) {
+            source = sources
+                .filter((item) => item && typeof item === 'object')
+                .slice()
+                .sort((a, b) => {
+                    const first = a && typeof a.fetched_at === 'string' ? new Date(a.fetched_at) : null;
+                    const second = b && typeof b.fetched_at === 'string' ? new Date(b.fetched_at) : null;
+                    const firstTime = first && Number.isFinite(first.getTime()) ? first.getTime() : 0;
+                    const secondTime = second && Number.isFinite(second.getTime()) ? second.getTime() : 0;
+                    return secondTime - firstTime;
+                })[0] || null;
+        }
+
+        return {
+            subject: triple.subject,
+            relation: triple.relation,
+            object: triple.object,
+            source_title: source && source.title ? String(source.title) : source && source.url ? String(source.url) : '',
+            source_url: source && source.url ? String(source.url) : '',
+            source_preview: source && source.preview ? String(source.preview) : '',
+            fetched_at: source && source.fetched_at ? String(source.fetched_at) : updatedAt || '',
+        };
+    }
+
+    function renderSpotlight(spotlight) {
+        if (!spotlightContainer || !spotlightEmpty) {
+            return;
+        }
+
+        spotlightContainer.innerHTML = '';
+
+        if (!spotlight || typeof spotlight !== 'object') {
+            spotlightEmpty.hidden = false;
+            return;
+        }
+
+        const subject = spotlight.subject ? String(spotlight.subject) : '';
+        const relation = spotlight.relation ? String(spotlight.relation) : '';
+        const object = spotlight.object ? String(spotlight.object) : '';
+
+        if (!subject || !relation || !object) {
+            spotlightEmpty.hidden = false;
+            return;
+        }
+
+        spotlightEmpty.hidden = true;
+
+        const triple = document.createElement('div');
+        triple.className = 'graph-spotlight__triple';
+        triple.innerHTML = `
+            <span class="graph-spotlight__subject">${escapeHtml(subject)}</span>
+            <span class="graph-spotlight__relation">${escapeHtml(relation)}</span>
+            <span class="graph-spotlight__object">${escapeHtml(object)}</span>
+        `;
+        spotlightContainer.appendChild(triple);
+
+        const preview = spotlight.source_preview ? String(spotlight.source_preview) : '';
+        if (preview) {
+            const previewEl = document.createElement('p');
+            previewEl.className = 'graph-spotlight__preview';
+            previewEl.textContent = preview;
+            spotlightContainer.appendChild(previewEl);
+        }
+
+        const sourceTitle = spotlight.source_title ? String(spotlight.source_title) : '';
+        const sourceUrl = spotlight.source_url ? String(spotlight.source_url) : '';
+        if (sourceTitle || sourceUrl) {
+            const sourceEl = document.createElement('p');
+            sourceEl.className = 'graph-spotlight__source';
+            if (sourceUrl) {
+                sourceEl.innerHTML = `<a href="${escapeHtml(sourceUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceTitle || sourceUrl)}</a>`;
+            } else {
+                sourceEl.textContent = sourceTitle;
+            }
+            spotlightContainer.appendChild(sourceEl);
+        }
+
+        const fetchedAt = spotlight.fetched_at ? parseDate(String(spotlight.fetched_at)) : '';
+        if (fetchedAt) {
+            const meta = document.createElement('p');
+            meta.className = 'graph-spotlight__meta';
+            meta.textContent = `Backed by ${fetchedAt}`;
+            spotlightContainer.appendChild(meta);
+        }
+    }
+
+    function renderAnalytics(summary, sources, triples, updatedAt, override = null) {
+        const overrideData = override && typeof override === 'object' ? override : {};
+
+        let timeline = buildTimelineFromSources(sources);
+        if ((!timeline || timeline.length === 0) && Array.isArray(overrideData.timeline)) {
+            timeline = overrideData.timeline.map((entry) => ({
+                date: entry && entry.date ? String(entry.date) : '',
+                label: entry && entry.label ? String(entry.label) : String(entry && entry.date ? entry.date : ''),
+                count: entry && entry.count != null ? Number(entry.count) : 0,
+            }));
+        }
+        renderTimeline(timeline);
+
+        const coverageSignals = buildCoverageSignals(summary, sources, timeline, updatedAt);
+        if (coverageSignals.length === 0 && Array.isArray(overrideData.coverage) && overrideData.coverage.length > 0) {
+            renderCoverage(overrideData.coverage);
+        } else {
+            renderCoverage(coverageSignals);
+        }
+
+        const spotlight = deriveSpotlight(triples, sources, updatedAt);
+        if (!spotlight && overrideData.spotlight) {
+            renderSpotlight(overrideData.spotlight);
+        } else {
+            renderSpotlight(spotlight);
+        }
     }
 
     function capitalize(value) {
@@ -1485,6 +1824,9 @@
         const summary = search.summary || {};
         const sources = Array.isArray(search.sources) ? search.sources : [];
         const updatedAt = search.updated_at || null;
+        const analyticsOverride = options && typeof options === 'object' && options.analytics && typeof options.analytics === 'object'
+            ? options.analytics
+            : null;
 
         const skipFollowups = Boolean(options.skipFollowups);
 
@@ -1494,6 +1836,7 @@
         renderSynonyms(search.synonyms || []);
         renderTriples(search.triples || []);
         renderSources(sources);
+        renderAnalytics(summary, sources, search.triples || [], updatedAt, analyticsOverride);
 
         const hasMatches = (Array.isArray(search.entities) && search.entities.length > 0)
             || (Array.isArray(search.relations) && search.relations.length > 0)
@@ -1626,6 +1969,37 @@
         } finally {
             toggleLoading(false);
         }
+    }
+
+    function initialiseSuggestions() {
+        if (!suggestionContainer) {
+            return;
+        }
+
+        const buttons = suggestionContainer.querySelectorAll('[data-graph-suggestion]');
+        if (!buttons.length) {
+            return;
+        }
+
+        buttons.forEach((button) => {
+            if (!(button instanceof HTMLElement)) {
+                return;
+            }
+
+            button.addEventListener('click', () => {
+                const queryAttr = button.getAttribute('data-query');
+                const query = queryAttr && queryAttr.trim() ? queryAttr.trim() : button.textContent || '';
+                if (!query) {
+                    return;
+                }
+
+                if (input) {
+                    input.value = query;
+                }
+
+                runSearch(query);
+            });
+        });
     }
 
     async function handleCrawl(event) {
@@ -1772,6 +2146,7 @@
         });
     }
 
+    initialiseSuggestions();
     initialiseAutopilotApi();
 
     if (Array.isArray(initialTop) && initialTop.length > 0) {
@@ -1791,7 +2166,7 @@
     }
 
     if (initial && hasInitialGraph) {
-        renderSearchResult(initial, { fromInitial: true });
+        renderSearchResult(initial, { fromInitial: true, analytics: initialAnalytics });
         currentReportQuery = initial.query || '';
         generateReport(currentReportQuery);
         loadDocumentComparison();

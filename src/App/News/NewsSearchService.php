@@ -874,6 +874,20 @@ final class NewsSearchService
         $qualityScores = [];
         $ingested = 0;
         $typeBreakdown = [];
+        $recencyBuckets = [
+            'past_hour' => 0,
+            'past_day' => 0,
+            'past_week' => 0,
+            'older' => 0,
+        ];
+        $qualityBuckets = [
+            '90_plus' => 0,
+            '70_89' => 0,
+            '50_69' => 0,
+            'under_50' => 0,
+        ];
+
+        $now = new DateTimeImmutable();
 
         foreach ($items as $item) {
             $topics = is_array($item['topics'] ?? null) ? $item['topics'] : [];
@@ -891,7 +905,8 @@ final class NewsSearchService
                 $sourceCounts[$domain]['score'] += (float) ($item['quality_score'] ?? 0.0);
             }
 
-            $qualityScores[] = (float) ($item['quality_score'] ?? 0.0);
+            $qualityScore = (float) ($item['quality_score'] ?? 0.0);
+            $qualityScores[] = $qualityScore;
             if (!empty($item['ingest'])) {
                 $ingested++;
             }
@@ -900,6 +915,14 @@ final class NewsSearchService
             if ($type !== '') {
                 $typeBreakdown[$type] = ($typeBreakdown[$type] ?? 0) + 1;
             }
+
+            $bucketKey = $this->resolveRecencyBucket($item, $now);
+            if ($bucketKey !== null) {
+                $recencyBuckets[$bucketKey] = ($recencyBuckets[$bucketKey] ?? 0) + 1;
+            }
+
+            $qualityBucket = $this->resolveQualityBucket($qualityScore);
+            $qualityBuckets[$qualityBucket] = ($qualityBuckets[$qualityBucket] ?? 0) + 1;
         }
 
         arsort($topicCounts);
@@ -937,6 +960,41 @@ final class NewsSearchService
             $averageQuality = round(array_sum($qualityScores) / max(1, count($qualityScores)), 1);
         }
 
+        $facets = [
+            'recency' => $this->formatFacetList($recencyBuckets, [
+                'past_hour' => 'Past hour',
+                'past_day' => 'Past 24 hours',
+                'past_week' => 'Past 7 days',
+                'older' => 'Older',
+            ]),
+            'quality' => $this->formatFacetList($qualityBuckets, [
+                '90_plus' => 'Score ≥ 90',
+                '70_89' => 'Score 70-89',
+                '50_69' => 'Score 50-69',
+                'under_50' => 'Score &lt; 50',
+            ]),
+            'content_types' => $this->formatFacetList($typeBreakdown, null, static function (string $key): string {
+                if ($key === '') {
+                    return 'Unknown';
+                }
+
+                return match ($key) {
+                    'article' => 'Article',
+                    'page' => 'Landing page',
+                    'non_article' => 'Non article',
+                    'error' => 'Error',
+                    default => ucfirst(str_replace('_', ' ', $key)),
+                };
+            }),
+            'ingestion' => $this->formatFacetList([
+                'ingested' => $ingested,
+                'unreviewed' => max(0, count($items) - $ingested),
+            ], [
+                'ingested' => 'Captured & enriched',
+                'unreviewed' => 'Awaiting enrichment',
+            ]),
+        ];
+
         return [
             'total_matches' => count($items),
             'average_quality' => $averageQuality,
@@ -946,7 +1004,117 @@ final class NewsSearchService
             'ingested' => $ingested,
             'suggested_queries' => array_map(static fn(array $row): string => (string) $row['topic'], array_slice($topics, 0, 5)),
             'types' => $typeBreakdown,
+            'facets' => array_filter($facets, static fn(array $facet): bool => $facet !== []),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $item
+     */
+    private function resolveRecencyBucket(array $item, DateTimeImmutable $now): ?string
+    {
+        $candidates = [
+            $item['source_published_at'] ?? null,
+            $item['last_checked_at'] ?? null,
+            $item['fetched_at'] ?? null,
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (!is_string($candidate) || trim($candidate) === '') {
+                continue;
+            }
+
+            try {
+                $stamp = new DateTimeImmutable($candidate);
+            } catch (Exception $exception) {
+                continue;
+            }
+
+            $diff = $now->getTimestamp() - $stamp->getTimestamp();
+
+            if ($diff <= 0) {
+                return 'past_hour';
+            }
+
+            if ($diff <= 3600) {
+                return 'past_hour';
+            }
+
+            if ($diff <= 86400) {
+                return 'past_day';
+            }
+
+            if ($diff <= 604800) {
+                return 'past_week';
+            }
+
+            return 'older';
+        }
+
+        return null;
+    }
+
+    private function resolveQualityBucket(float $score): string
+    {
+        if ($score >= 90.0) {
+            return '90_plus';
+        }
+
+        if ($score >= 70.0) {
+            return '70_89';
+        }
+
+        if ($score >= 50.0) {
+            return '50_69';
+        }
+
+        return 'under_50';
+    }
+
+    /**
+     * @param array<string, int> $buckets
+     * @param array<string, string>|null $labels
+     * @param callable|null $labelResolver
+     *
+     * @return array<int, array{key: string, label: string, count: int, share: float}>
+     */
+    private function formatFacetList(array $buckets, ?array $labels = null, ?callable $labelResolver = null): array
+    {
+        $total = 0;
+        foreach ($buckets as $count) {
+            if (is_numeric($count)) {
+                $total += (int) $count;
+            }
+        }
+
+        $formatted = [];
+        foreach ($buckets as $key => $count) {
+            if (!is_numeric($count) || (int) $count <= 0) {
+                continue;
+            }
+
+            $label = $labels[$key] ?? null;
+            if ($label === null && $labelResolver !== null) {
+                $label = $labelResolver((string) $key);
+            }
+            if ($label === null) {
+                $label = ucfirst(str_replace('_', ' ', (string) $key));
+            }
+
+            $intCount = (int) $count;
+            $share = $total > 0 ? round($intCount / $total, 3) : 0.0;
+
+            $formatted[] = [
+                'key' => (string) $key,
+                'label' => $label,
+                'count' => $intCount,
+                'share' => $share,
+            ];
+        }
+
+        usort($formatted, static fn(array $a, array $b): int => $b['count'] <=> $a['count']);
+
+        return $formatted;
     }
 
     /**

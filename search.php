@@ -164,6 +164,17 @@ $formatRelative = static function (?string $value) use ($formatDate): ?string {
     return $formatDate($value);
 };
 
+$formatPercent = static function (?float $value): string {
+    if ($value === null || !is_finite($value)) {
+        return '0%';
+    }
+
+    $normalised = max(0.0, min(1.0, $value));
+    $precision = $normalised >= 0.1 ? 0 : 1;
+
+    return number_format($normalised * 100, $precision) . '%';
+};
+
 $initialStatus = 'Loading live coverage…';
 if ($initialMeta !== []) {
     $totalMatches = isset($initialMeta['total_matches']) ? (int) $initialMeta['total_matches'] : count($initialResults);
@@ -201,6 +212,68 @@ $discoveryRecommendedCount = count($discoveryRecommended);
 $discoveryPreviewSeeds = array_slice($discoverySeeds, 0, 3);
 $discoveryStatusText = sprintf('Tracking %s page%s · %s pending', number_format($discoveryTotal), $discoveryTotal === 1 ? '' : 's', number_format($discoveryPending));
 
+$facets = isset($initialMeta['facets']) && is_array($initialMeta['facets']) ? $initialMeta['facets'] : [];
+
+$normaliseFacet = static function ($facet): array {
+    if (!is_array($facet)) {
+        return [];
+    }
+
+    $normalised = [];
+    foreach ($facet as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $label = isset($row['label']) ? (string) $row['label'] : '';
+        $count = isset($row['count']) ? (int) $row['count'] : 0;
+        $share = isset($row['share']) ? (float) $row['share'] : null;
+        if ($label === '' || $count <= 0) {
+            continue;
+        }
+
+        $normalised[] = [
+            'label' => $label,
+            'count' => $count,
+            'share' => $share,
+        ];
+    }
+
+    return $normalised;
+};
+
+$recencyFacet = $normaliseFacet($facets['recency'] ?? []);
+$qualityFacet = $normaliseFacet($facets['quality'] ?? []);
+$contentFacet = $normaliseFacet($facets['content_types'] ?? []);
+$ingestionFacet = $normaliseFacet($facets['ingestion'] ?? []);
+
+$recencySummary = $recencyFacet === []
+    ? 'Fresh coverage metrics will appear once crawls complete.'
+    : sprintf('%s of coverage from %s', $formatPercent($recencyFacet[0]['share'] ?? null), strtolower($recencyFacet[0]['label']));
+
+$qualitySummary = $qualityFacet === []
+    ? 'Awaiting quality signals from the latest crawl.'
+    : sprintf('%s of stories score %s', $formatPercent($qualityFacet[0]['share'] ?? null), strtolower($qualityFacet[0]['label']));
+
+$ingestionSummary = 'No ingestion stats yet.';
+if ($ingestionFacet !== []) {
+    $totalIngested = 0;
+    $totalStories = 0;
+    foreach ($ingestionFacet as $row) {
+        $totalStories += $row['count'];
+        if (stripos($row['label'], 'captured') !== false || stripos($row['label'], 'ingested') !== false) {
+            $totalIngested += $row['count'];
+        }
+    }
+    if ($totalStories > 0) {
+        $ingestionSummary = sprintf('%s of results already enriched', $formatPercent($totalIngested / $totalStories));
+    }
+}
+
+$contentSummary = $contentFacet === []
+    ? 'Content mix pending enrichment.'
+    : sprintf('%s of stories are %s', $formatPercent($contentFacet[0]['share'] ?? null), strtolower($contentFacet[0]['label']));
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -230,6 +303,79 @@ $discoveryStatusText = sprintf('Tracking %s page%s · %s pending', number_format
             <div class="news-search__masthead-meta">
                 <p class="news-search__status" role="status" data-news-status><?= esc($initialStatus) ?></p>
                 <p class="news-search__stats" data-news-stats><?= esc($statsSummary) ?></p>
+            </div>
+        </section>
+
+        <section class="news-search__insights" aria-label="Coverage insights" data-news-insights>
+            <header class="news-search__insights-header">
+                <h2>Coverage insights</h2>
+                <p>Track freshness, quality mix, content types, and enrichment progress for the current query.</p>
+            </header>
+            <div class="news-insights__grid">
+                <article class="news-insight-card" data-news-recency-card>
+                    <h3>Recency</h3>
+                    <p class="news-insight-card__summary" data-news-recency-summary><?= esc($recencySummary) ?></p>
+                    <ul class="news-insight-card__list" data-news-recency>
+                        <?php if ($recencyFacet === []): ?>
+                            <li class="news-insight-card__empty">Recency distribution will populate after the next crawl.</li>
+                        <?php else: ?>
+                            <?php foreach ($recencyFacet as $facetRow): ?>
+                                <li>
+                                    <span class="label"><?= esc($facetRow['label']) ?></span>
+                                    <span class="value"><?= esc((string) $facetRow['count']) ?> · <?= esc($formatPercent($facetRow['share'] ?? null)) ?></span>
+                                </li>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </ul>
+                </article>
+                <article class="news-insight-card" data-news-quality-card>
+                    <h3>Quality mix</h3>
+                    <p class="news-insight-card__summary" data-news-quality-summary><?= esc($qualitySummary) ?></p>
+                    <ul class="news-insight-card__list" data-news-quality>
+                        <?php if ($qualityFacet === []): ?>
+                            <li class="news-insight-card__empty">Quality buckets appear once headlines are scored.</li>
+                        <?php else: ?>
+                            <?php foreach ($qualityFacet as $facetRow): ?>
+                                <li>
+                                    <span class="label"><?= esc($facetRow['label']) ?></span>
+                                    <span class="value"><?= esc((string) $facetRow['count']) ?> · <?= esc($formatPercent($facetRow['share'] ?? null)) ?></span>
+                                </li>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </ul>
+                </article>
+                <article class="news-insight-card" data-news-content-card>
+                    <h3>Content types</h3>
+                    <p class="news-insight-card__summary" data-news-content-summary><?= esc($contentSummary) ?></p>
+                    <ul class="news-insight-card__list" data-news-content>
+                        <?php if ($contentFacet === []): ?>
+                            <li class="news-insight-card__empty">We will classify formats as new sources arrive.</li>
+                        <?php else: ?>
+                            <?php foreach ($contentFacet as $facetRow): ?>
+                                <li>
+                                    <span class="label"><?= esc($facetRow['label']) ?></span>
+                                    <span class="value"><?= esc((string) $facetRow['count']) ?> · <?= esc($formatPercent($facetRow['share'] ?? null)) ?></span>
+                                </li>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </ul>
+                </article>
+                <article class="news-insight-card" data-news-ingest-card>
+                    <h3>Enrichment</h3>
+                    <p class="news-insight-card__summary" data-news-ingest-summary><?= esc($ingestionSummary) ?></p>
+                    <ul class="news-insight-card__list" data-news-ingest>
+                        <?php if ($ingestionFacet === []): ?>
+                            <li class="news-insight-card__empty">Ingestion progress will update as documents are processed.</li>
+                        <?php else: ?>
+                            <?php foreach ($ingestionFacet as $facetRow): ?>
+                                <li>
+                                    <span class="label"><?= esc($facetRow['label']) ?></span>
+                                    <span class="value"><?= esc((string) $facetRow['count']) ?> · <?= esc($formatPercent($facetRow['share'] ?? null)) ?></span>
+                                </li>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </ul>
+                </article>
             </div>
         </section>
 
