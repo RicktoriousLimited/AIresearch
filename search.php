@@ -143,6 +143,98 @@ if ($initialHighlights !== []) {
 
 $trendingChips = array_slice($topEntities, 0, 8);
 $fallbackSources = $initialHighlights === [] ? array_slice($sources, 0, 6) : [];
+
+$watchlistEntities = [];
+foreach (array_slice($initialEntities, 0, 8) as $entity) {
+    if (is_array($entity)) {
+        $name = isset($entity['entity']) && is_string($entity['entity']) ? trim($entity['entity']) : '';
+    } else {
+        $name = is_string($entity) ? trim($entity) : '';
+    }
+
+    if ($name !== '') {
+        $watchlistEntities[] = $name;
+    }
+}
+
+$workspaceTemplates = [
+    [
+        'label' => 'LLM evaluation scorecard',
+        'description' => 'Compare benchmarks, datasets, and release cadence.',
+        'query' => 'foundation model evaluation frameworks',
+    ],
+    [
+        'label' => 'Strategic partnership tracker',
+        'description' => 'Surface alliances, integrations, and GTM motions.',
+        'query' => 'emerging biotech partnerships',
+    ],
+    [
+        'label' => 'Risk and regulation pulse',
+        'description' => 'Follow policy hearings, compliance updates, and fines.',
+        'query' => 'ai policy enforcement actions',
+    ],
+];
+
+$toolbarMetrics = [
+    [
+        'key' => 'highlights',
+        'label' => 'Curated highlights',
+        'value' => $formatNumber(count($initialHighlights)),
+    ],
+    [
+        'key' => 'sources',
+        'label' => 'Sources analysed',
+        'value' => $formatNumber($docCount),
+    ],
+    [
+        'key' => 'entities',
+        'label' => 'Entities referenced',
+        'value' => $formatNumber(count($initialEntities)),
+    ],
+    [
+        'key' => 'updated',
+        'label' => 'Last generated',
+        'value' => $generatedLabel ?? 'Not yet generated',
+    ],
+];
+
+$timeFilters = [
+    ['value' => '24h', 'label' => '24h'],
+    ['value' => '7d', 'label' => '7d'],
+    ['value' => '30d', 'label' => '30d'],
+];
+
+$signalFilters = [
+    ['value' => 'all', 'label' => 'All signals'],
+    ['value' => 'news', 'label' => 'News'],
+    ['value' => 'filings', 'label' => 'Filings'],
+    ['value' => 'social', 'label' => 'Community'],
+];
+
+$sentimentFilters = [
+    ['value' => 'any', 'label' => 'Any tone'],
+    ['value' => 'positive', 'label' => 'Positive'],
+    ['value' => 'neutral', 'label' => 'Neutral'],
+    ['value' => 'negative', 'label' => 'Caution'],
+];
+
+$workspaceActions = [
+    [
+        'label' => 'Export briefing',
+        'description' => 'Download slides with citations and sources.',
+        'action' => 'export',
+    ],
+    [
+        'label' => 'Share with stakeholders',
+        'description' => 'Send a live link or schedule recurring updates.',
+        'action' => 'share',
+    ],
+    [
+        'label' => 'Launch graph explorer',
+        'description' => 'Pivot across relationships inside the knowledge graph.',
+        'href' => $graphPath,
+    ],
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -163,25 +255,95 @@ $fallbackSources = $initialHighlights === [] ? array_slice($sources, 0, 6) : [];
 <main class="news-search">
     <div class="news-search__shell">
         <section class="news-search__hero">
-            <h1 class="news-search__title">Explore the knowledge graph like a news desk</h1>
-            <p class="news-search__lead">Type a topic to surface a living briefing and the most relevant sources without extra clicks.</p>
-            <form class="news-search__form" data-search-form role="search">
-                <label class="visually-hidden" for="news-query">Search focus</label>
-                <input id="news-query" name="q" type="search" placeholder="Search companies, topics, or emerging themes" autocomplete="off" spellcheck="false" data-search-input>
-            </form>
-            <p class="news-search__status news-search__status--info" data-search-status aria-live="polite"><?= $escape($initialStatus) ?></p>
-            <div class="news-search__trending" data-trending<?= $trendingChips === [] ? ' hidden' : '' ?>>
-                <span class="news-search__trending-label">Popular topics</span>
-                <div class="news-search__trending-list" data-trending-list>
-                    <?php foreach ($trendingChips as $chip): ?>
-                        <?php $chipName = isset($chip['entity']) ? (string) $chip['entity'] : ''; ?>
-                        <?php if ($chipName === '') { continue; } ?>
-                        <button type="button" class="news-search__chip" data-entity="<?= $escape($chipName) ?>"><?= $escape($chipName) ?></button>
-                    <?php endforeach; ?>
+            <div class="news-search__hero-grid">
+                <div class="news-search__hero-main">
+                    <h1 class="news-search__title">Explore the knowledge graph like a news desk</h1>
+                    <p class="news-search__lead">Type a topic to surface a living briefing and the most relevant sources without extra clicks.</p>
+                    <form class="news-search__form" data-search-form role="search">
+                        <label class="visually-hidden" for="news-query">Search focus</label>
+                        <input id="news-query" name="q" type="search" placeholder="Search companies, topics, or emerging themes" autocomplete="off" spellcheck="false" data-search-input>
+                    </form>
+                    <div class="news-search__filters" data-filter-panel>
+                        <div class="news-filter" data-filter-group="timeframe">
+                            <span class="news-filter__label">Time window</span>
+                            <div class="news-filter__options">
+                                <?php foreach ($timeFilters as $filter): ?>
+                                    <?php $isDefault = $filter['value'] === '7d'; ?>
+                                    <button type="button" class="news-filter__chip<?= $isDefault ? ' is-active' : '' ?>" data-filter-value="<?= $escape($filter['value']) ?>"<?= $isDefault ? ' data-filter-default' : '' ?>><?= $escape($filter['label']) ?></button>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                        <div class="news-filter" data-filter-group="signal">
+                            <span class="news-filter__label">Signal type</span>
+                            <div class="news-filter__options">
+                                <?php foreach ($signalFilters as $filter): ?>
+                                    <?php $isDefault = $filter['value'] === 'all'; ?>
+                                    <button type="button" class="news-filter__chip<?= $isDefault ? ' is-active' : '' ?>" data-filter-value="<?= $escape($filter['value']) ?>"<?= $isDefault ? ' data-filter-default' : '' ?>><?= $escape($filter['label']) ?></button>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                        <div class="news-filter" data-filter-group="sentiment">
+                            <span class="news-filter__label">Sentiment</span>
+                            <div class="news-filter__options">
+                                <?php foreach ($sentimentFilters as $filter): ?>
+                                    <?php $isDefault = $filter['value'] === 'any'; ?>
+                                    <button type="button" class="news-filter__chip<?= $isDefault ? ' is-active' : '' ?>" data-filter-value="<?= $escape($filter['value']) ?>"<?= $isDefault ? ' data-filter-default' : '' ?>><?= $escape($filter['label']) ?></button>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="news-search__filters-note" data-filter-summary>Filtering last 7d · All signals · Any tone</p>
+                    <p class="news-search__status news-search__status--info" data-search-status aria-live="polite"><?= $escape($initialStatus) ?></p>
+                    <div class="news-search__trending" data-trending<?= $trendingChips === [] ? ' hidden' : '' ?>>
+                        <span class="news-search__trending-label">Popular topics</span>
+                        <div class="news-search__trending-list" data-trending-list>
+                            <?php foreach ($trendingChips as $chip): ?>
+                                <?php $chipName = isset($chip['entity']) ? (string) $chip['entity'] : ''; ?>
+                                <?php if ($chipName === '') { continue; } ?>
+                                <button type="button" class="news-search__chip" data-entity="<?= $escape($chipName) ?>"><?= $escape($chipName) ?></button>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <div class="news-search__templates">
+                        <span class="news-search__templates-label">Research starters</span>
+                        <div class="news-search__templates-grid">
+                            <?php foreach ($workspaceTemplates as $template): ?>
+                                <button type="button" class="news-template" data-search-template="<?= $escape($template['query']) ?>">
+                                    <span class="news-template__title"><?= $escape($template['label']) ?></span>
+                                    <span class="news-template__text"><?= $escape($template['description']) ?></span>
+                                </button>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
                 </div>
+                <aside class="news-search__hero-aside">
+                    <div class="news-toolbar" data-toolbar>
+                        <?php foreach ($toolbarMetrics as $metric): ?>
+                            <div class="news-toolbar__metric">
+                                <span class="news-toolbar__value" data-metric="<?= $escape($metric['key']) ?>"><?= $escape($metric['value']) ?></span>
+                                <span class="news-toolbar__label"><?= $escape($metric['label']) ?></span>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="news-search__watchlist">
+                        <h3>Active watchlist</h3>
+                        <ul class="news-search__watchlist-list" data-watchlist-list>
+                            <?php foreach ($watchlistEntities as $entity): ?>
+                                <li><button type="button" data-search-template="<?= $escape($entity) ?>"><?= $escape($entity) ?></button></li>
+                            <?php endforeach; ?>
+                        </ul>
+                        <?php if ($watchlistEntities === []): ?>
+                            <p class="news-search__watchlist-empty">Run a search to seed your watchlist.</p>
+                        <?php else: ?>
+                            <p class="news-search__watchlist-hint">Tap an entity to refocus the briefing instantly.</p>
+                        <?php endif; ?>
+                    </div>
+                </aside>
             </div>
         </section>
 
+        <div class="news-search__layout">
+        <div class="news-search__main">
         <section class="news-brief<?= $initialCombined === [] ? ' is-empty' : '' ?>" data-brief>
             <header class="news-brief__header">
                 <h2 class="news-brief__title">Focus brief</h2>
@@ -317,6 +479,66 @@ $fallbackSources = $initialHighlights === [] ? array_slice($sources, 0, 6) : [];
                 <?php endif; ?>
             </div>
         </section>
+        </div>
+        <aside class="news-search__aside">
+            <section class="news-sidecard">
+                <h3>Workspace actions</h3>
+                <ul class="news-sidecard__list">
+                    <?php foreach ($workspaceActions as $action): ?>
+                        <li>
+                            <?php if (isset($action['href'])): ?>
+                                <a class="news-sidecard__button" href="<?= $escape($action['href']) ?>">
+                                    <span class="news-sidecard__title"><?= $escape($action['label']) ?></span>
+                                    <span class="news-sidecard__text"><?= $escape($action['description']) ?></span>
+                                </a>
+                            <?php else: ?>
+                                <button type="button" class="news-sidecard__button" data-workspace-action="<?= $escape($action['action'] ?? '') ?>">
+                                    <span class="news-sidecard__title"><?= $escape($action['label']) ?></span>
+                                    <span class="news-sidecard__text"><?= $escape($action['description']) ?></span>
+                                </button>
+                            <?php endif; ?>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            </section>
+            <section class="news-sidecard">
+                <h3>Research starters</h3>
+                <ul class="news-sidecard__template-list">
+                    <?php foreach ($workspaceTemplates as $template): ?>
+                        <li>
+                            <button type="button" data-search-template="<?= $escape($template['query']) ?>">
+                                <span class="news-sidecard__title"><?= $escape($template['label']) ?></span>
+                                <span class="news-sidecard__text"><?= $escape($template['description']) ?></span>
+                            </button>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            </section>
+            <section class="news-sidecard">
+                <h3>Latest stored sources</h3>
+                <ul class="news-sidecard__sources" data-source-list>
+                    <?php foreach (array_slice($fallbackSources, 0, 5) as $source): ?>
+                        <?php
+                            if (!is_array($source)) {
+                                continue;
+                            }
+                            $title = isset($source['title']) && is_string($source['title']) ? trim($source['title']) : '';
+                            $url = isset($source['url']) && is_string($source['url']) ? trim($source['url']) : '';
+                            $host = $getHost($url);
+                            $label = $title !== '' ? $title : ($host !== '' ? $host : 'Source');
+                            $lastSeen = $formatDate($source['last_seen'] ?? ($source['fetched_at'] ?? null));
+                        ?>
+                        <li>
+                            <span class="news-sidecard__source-title" title="<?= $escape($label) ?>"><?= $escape($label) ?></span>
+                            <?php if ($lastSeen !== null): ?>
+                                <span class="news-sidecard__source-meta"><?= $escape($lastSeen) ?></span>
+                            <?php endif; ?>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            </section>
+        </aside>
+        </div>
     </div>
 </main>
 <footer class="site-footer">

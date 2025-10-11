@@ -170,6 +170,91 @@ $quickLinks = [
         'href' => $assetBase . '/docs',
     ],
 ];
+
+$homeShortcuts = [
+    [
+        'title' => 'Benchmark competitors',
+        'description' => 'Line up product launches, pricing moves, and market traction across a peer set.',
+        'query' => 'competitive intelligence for vector database vendors',
+    ],
+    [
+        'title' => 'Map funding momentum',
+        'description' => 'Surface the newest venture rounds, investor sentiment, and growth signals.',
+        'query' => 'latest funding momentum in applied robotics startups',
+    ],
+    [
+        'title' => 'Track regulatory shifts',
+        'description' => 'Follow policy updates, compliance milestones, and expert commentary.',
+        'query' => 'global AI safety regulation updates',
+    ],
+];
+
+$researchPlaybooks = [
+    [
+        'label' => 'Autonomous mobility safety heatmap',
+        'description' => 'Identify critical incidents, mitigation strategies, and regulatory deadlines.',
+        'query' => 'autonomous vehicle safety breakthroughs',
+    ],
+    [
+        'label' => 'Synthetic data supply chain scan',
+        'description' => 'Understand vendors, policies, and enterprise adoption signals.',
+        'query' => 'synthetic data governance policies',
+    ],
+    [
+        'label' => 'Enterprise CX benchmark pack',
+        'description' => 'Gather reference wins, sentiment drivers, and capability gaps.',
+        'query' => 'customer experience AI benchmarks',
+    ],
+    [
+        'label' => 'Climate resilience briefing',
+        'description' => 'Monitor transition risk disclosures and adaptation investments.',
+        'query' => 'climate risk scenario planning',
+    ],
+];
+
+$insightStreams = array_slice($entityNames, 0, 6);
+
+$workflowStages = [
+    [
+        'title' => 'Monitor signals',
+        'items' => [
+            'Entity change log with provenance',
+            'Policy and regulation digests',
+            'Funding and partnership heatmap',
+        ],
+    ],
+    [
+        'title' => 'Synthesize briefs',
+        'items' => [
+            'Narratives grounded in citations',
+            'Auto-generated charts and callouts',
+            'Exportable executive summaries',
+        ],
+    ],
+    [
+        'title' => 'Activate insights',
+        'items' => [
+            'Share playbooks with stakeholders',
+            'Push updates to Slack and email',
+            'Schedule refreshes and alerts',
+        ],
+    ],
+];
+
+$evidencePillars = [
+    [
+        'title' => 'Coverage spotlight',
+        'description' => 'See which domains, companies, or scientists are dominating the conversation right now.',
+    ],
+    [
+        'title' => 'Emerging questions',
+        'description' => 'AI surfaces the hard questions decision makers are asking so you can answer them first.',
+    ],
+    [
+        'title' => 'Source transparency',
+        'description' => 'Trace every claim back to filings, research papers, community posts, and analyst notes.',
+    ],
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -198,44 +283,137 @@ $quickLinks = [
 <main class="home-main home-main--search">
     <section class="home-search" id="search">
         <div class="shell home-search__shell">
-            <div class="home-search__brand">
-                <span class="home-search__logo">AIresearch</span>
-                <p class="home-search__tagline">Autopilot search that generates research briefs in seconds.</p>
-            </div>
-            <form class="search-form home-search__form" method="get" action="<?= esc($assetBase . '/search.php'); ?>" role="search" data-home-search>
-                <label class="visually-hidden" for="home-search-input">Search the AIresearch graph</label>
-                <div class="search-form__field">
-                    <input id="home-search-input" name="q" type="search" placeholder="Try &ldquo;<?= esc($placeholderPhrases[0] ?? 'emerging AI research hubs'); ?>&rdquo;" autocomplete="off" spellcheck="false" data-home-search-input data-home-phrases='<?= esc($placeholderJson); ?>'>
-                    <button type="submit" class="button primary">Autopilot brief</button>
+            <div class="home-search__grid">
+                <div class="home-search__column home-search__column--primary">
+                    <div class="home-search__brand">
+                        <span class="home-search__logo">AIresearch</span>
+                        <p class="home-search__tagline">Autopilot search that generates research briefs in seconds.</p>
+                    </div>
+                    <form class="search-form home-search__form" method="get" action="<?= esc($assetBase . '/search.php'); ?>" role="search" data-home-search>
+                        <label class="visually-hidden" for="home-search-input">Search the AIresearch graph</label>
+                        <div class="search-form__field">
+                            <input id="home-search-input" name="q" type="search" placeholder="Try &ldquo;<?= esc($placeholderPhrases[0] ?? 'emerging AI research hubs'); ?>&rdquo;" autocomplete="off" spellcheck="false" data-home-search-input data-home-phrases='<?= esc($placeholderJson); ?>'>
+                            <button type="submit" class="button primary">Autopilot brief</button>
+                        </div>
+                    </form>
+                    <?php if ($trendingQueries !== []): ?>
+                    <div class="home-search__chips" data-home-trending>
+                        <span class="home-search__label">Popular queries</span>
+                        <div class="home-search__list">
+                            <?php foreach ($trendingQueries as $query): ?>
+                                <button type="button" class="chip" data-home-chip="<?= esc($query); ?>"><?= esc($query); ?></button>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+                    <div class="home-search__suggestions">
+                        <span class="home-search__label">Jump to a template</span>
+                        <div class="home-search__suggestion-list">
+                            <?php foreach ($researchPlaybooks as $playbook): ?>
+                                <button type="button" class="home-suggestion" data-home-suggestion="<?= esc($playbook['query']); ?>">
+                                    <span class="home-suggestion__name"><?= esc($playbook['label']); ?></span>
+                                    <span class="home-suggestion__description"><?= esc($playbook['description']); ?></span>
+                                </button>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <div class="home-search__links">
+                        <?php foreach ($quickLinks as $link): ?>
+                            <a class="home-search__link" href="<?= esc($link['href']); ?>"><?= esc($link['label']); ?></a>
+                        <?php endforeach; ?>
+                    </div>
                 </div>
-            </form>
-            <?php if ($trendingQueries !== []): ?>
-            <div class="home-search__chips" data-home-trending>
-                <span class="home-search__label">Popular queries</span>
-                <div class="home-search__list">
-                    <?php foreach ($trendingQueries as $query): ?>
-                        <button type="button" class="chip" data-home-chip="<?= esc($query); ?>"><?= esc($query); ?></button>
-                    <?php endforeach; ?>
-                </div>
+                <aside class="home-search__column home-search__column--secondary">
+                    <div class="home-panel">
+                        <h3 class="home-panel__title">Workspace shortcuts</h3>
+                        <ul class="home-shortcuts" data-home-shortcuts>
+                            <?php foreach ($homeShortcuts as $shortcut): ?>
+                                <li class="home-shortcut">
+                                    <button type="button" data-home-suggestion="<?= esc($shortcut['query']); ?>">
+                                        <span class="home-shortcut__title"><?= esc($shortcut['title']); ?></span>
+                                        <span class="home-shortcut__description"><?= esc($shortcut['description']); ?></span>
+                                    </button>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                    <div class="home-panel">
+                        <h3 class="home-panel__title">Trending insight streams</h3>
+                        <ul class="home-streams">
+                            <?php foreach ($insightStreams as $stream): ?>
+                                <li>
+                                    <button type="button" class="home-stream" data-home-suggestion="<?= esc($stream); ?>">
+                                        <span class="home-stream__name"><?= esc($stream); ?></span>
+                                        <span class="home-stream__meta">Follow live signals instantly</span>
+                                    </button>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                </aside>
             </div>
-            <?php endif; ?>
-            <div class="home-search__links">
-                <?php foreach ($quickLinks as $link): ?>
-                    <a class="home-search__link" href="<?= esc($link['href']); ?>"><?= esc($link['label']); ?></a>
+        </div>
+    </section>
+
+    <section class="home-intel">
+        <div class="shell home-intel__shell">
+            <div class="home-intel__grid" aria-live="polite">
+                <?php foreach ($statGroups as $stat): ?>
+                    <article class="home-intel__card">
+                        <span class="home-intel__label"><?= esc($stat['label']); ?></span>
+                        <span class="home-intel__value"><?= esc((string) $stat['value']); ?></span>
+                        <span class="home-intel__hint">Continuously refreshed from the research graph</span>
+                    </article>
                 <?php endforeach; ?>
             </div>
         </div>
     </section>
 
-    <section class="home-metrics">
-        <div class="shell home-metrics__shell">
-            <div class="home-metrics__grid" aria-live="polite">
-                <?php foreach ($statGroups as $stat): ?>
-                    <article class="home-metric">
-                        <span class="home-metric__label"><?= esc($stat['label']); ?></span>
-                        <span class="home-metric__value"><?= esc((string) $stat['value']); ?></span>
+    <section class="home-workflow">
+        <div class="shell home-workflow__shell">
+            <div class="home-workflow__intro">
+                <h2>Design your research autopilot</h2>
+                <p class="muted">Blend live monitoring, synthesis, and distribution without leaving the workspace.</p>
+            </div>
+            <div class="home-workflow__grid">
+                <?php foreach ($workflowStages as $stage): ?>
+                    <article class="home-workflow__stage">
+                        <h3><?= esc($stage['title']); ?></h3>
+                        <ul>
+                            <?php foreach ($stage['items'] as $item): ?>
+                                <li><?= esc($item); ?></li>
+                            <?php endforeach; ?>
+                        </ul>
                     </article>
                 <?php endforeach; ?>
+            </div>
+        </div>
+    </section>
+
+    <section class="home-updates">
+        <div class="shell home-updates__shell">
+            <div class="home-updates__grid">
+                <div class="home-updates__panel">
+                    <h2>Evidence board</h2>
+                    <p class="muted">Pin live streams, trigger alerts, and share reports from one place.</p>
+                    <ul class="home-updates__list">
+                        <?php foreach ($evidencePillars as $pillar): ?>
+                            <li>
+                                <span class="home-updates__item-title"><?= esc($pillar['title']); ?></span>
+                                <span class="home-updates__item-text"><?= esc($pillar['description']); ?></span>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+                <div class="home-updates__panel home-updates__panel--streams">
+                    <h2>Active streams</h2>
+                    <ol class="home-updates__streams" data-home-trending-list>
+                        <?php foreach ($placeholderPhrases as $phrase): ?>
+                            <li><button type="button" data-home-suggestion="<?= esc($phrase); ?>"><?= esc($phrase); ?></button></li>
+                        <?php endforeach; ?>
+                    </ol>
+                    <p class="home-updates__note">Tap any stream to pre-fill the search canvas.</p>
+                </div>
             </div>
         </div>
     </section>

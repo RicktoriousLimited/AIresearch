@@ -22,11 +22,31 @@
   const resultsList = document.querySelector('[data-results]');
   const resultsMeta = document.querySelector('[data-results-meta]');
   const resultsEmpty = document.querySelector('[data-results-empty]');
+  const filterPanel = document.querySelector('[data-filter-panel]');
+  const filterGroups = document.querySelectorAll('[data-filter-group]');
+  const filterSummary = document.querySelector('[data-filter-summary]');
+  const metricNodes = document.querySelectorAll('[data-metric]');
+  const watchlistList = document.querySelector('[data-watchlist-list]');
+  const watchlistEmpty = document.querySelector('.news-search__watchlist-empty');
+  const watchlistHint = document.querySelector('.news-search__watchlist-hint');
+  const sourceList = document.querySelector('[data-source-list]');
+  const templateButtons = document.querySelectorAll('[data-search-template]');
+  const workspaceButtons = document.querySelectorAll('[data-workspace-action]');
 
+  const initialEntityNames = collectNames(initialEntities);
   const defaultTrending = collectNames(initialEntities.concat(initialTop));
 
   let debounceTimer = null;
   let currentRequestId = 0;
+  const filterState = {};
+  const metricsMap = {};
+
+  metricNodes.forEach((node) => {
+    const key = node.dataset.metric;
+    if (key) {
+      metricsMap[key] = node;
+    }
+  });
 
   const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 
@@ -162,6 +182,141 @@
       }
       return endpoint.includes('?') ? `${endpoint}&${query}` : `${endpoint}?${query}`;
     }
+  }
+
+  function getFilterParams() {
+    return {
+      timeframe: filterState.timeframe || '',
+      signal: filterState.signal || '',
+      sentiment: filterState.sentiment || '',
+    };
+  }
+
+  function updateFilterSummary() {
+    if (!filterSummary) {
+      return;
+    }
+
+    const parts = [];
+    filterGroups.forEach((group) => {
+      const active = group.querySelector('.news-filter__chip.is-active');
+      if (active) {
+        parts.push(active.textContent.trim());
+      }
+    });
+
+    if (parts.length > 0) {
+      filterSummary.textContent = `Filtering ${parts.join(' · ')}`;
+    } else {
+      filterSummary.textContent = '';
+    }
+  }
+
+  function renderWatchlist(entities) {
+    if (!watchlistList) {
+      return;
+    }
+
+    const names = collectNames(Array.isArray(entities) ? entities : []).slice(0, 8);
+    watchlistList.innerHTML = '';
+
+    if (names.length === 0) {
+      if (watchlistEmpty) {
+        watchlistEmpty.hidden = false;
+      }
+      if (watchlistHint) {
+        watchlistHint.hidden = true;
+      }
+      return;
+    }
+
+    names.forEach((name) => {
+      const li = document.createElement('li');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.searchTemplate = name;
+      button.textContent = name;
+      button.addEventListener('click', () => {
+        if (input) {
+          input.value = name;
+          input.focus();
+        }
+        performSearch(name);
+      });
+      li.appendChild(button);
+      watchlistList.appendChild(li);
+    });
+
+    if (watchlistEmpty) {
+      watchlistEmpty.hidden = true;
+    }
+    if (watchlistHint) {
+      watchlistHint.hidden = false;
+    }
+  }
+
+  function renderSources(sources) {
+    if (!sourceList) {
+      return;
+    }
+
+    sourceList.innerHTML = '';
+    const list = Array.isArray(sources) ? sources.slice(0, 5) : [];
+
+    list.forEach((item) => {
+      if (!item || typeof item !== 'object') {
+        return;
+      }
+      const title = item.title && typeof item.title === 'string' ? item.title.trim() : '';
+      const url = item.url && typeof item.url === 'string' ? item.url.trim() : '';
+      const host = extractHost(url);
+      const label = title || host || 'Source';
+      const timestamp = item.last_seen || item.fetched_at || '';
+      const li = document.createElement('li');
+      const name = document.createElement('span');
+      name.className = 'news-sidecard__source-title';
+      name.title = label;
+      name.textContent = label;
+      li.appendChild(name);
+      if (timestamp) {
+        const meta = document.createElement('span');
+        meta.className = 'news-sidecard__source-meta';
+        const formatted = formatDate(timestamp);
+        meta.textContent = formatted || timestamp;
+        li.appendChild(meta);
+      }
+      sourceList.appendChild(li);
+    });
+  }
+
+  function updateToolbar(report, fallbackSources, entities) {
+    const highlights = report && Array.isArray(report.highlights) ? report.highlights.length : 0;
+    const docs = report && typeof report.document_count === 'number' ? report.document_count : 0;
+    const names = collectNames(Array.isArray(entities) ? entities : []);
+    const updatedAt = report && typeof report.generated_at === 'string' ? report.generated_at : '';
+
+    if (metricsMap.highlights) {
+      metricsMap.highlights.textContent = formatNumber(highlights);
+    }
+    if (metricsMap.sources) {
+      metricsMap.sources.textContent = formatNumber(docs);
+    }
+    if (metricsMap.entities) {
+      const count = names.length > 0 ? names.length : initialEntityNames.length;
+      metricsMap.entities.textContent = formatNumber(count);
+    }
+    if (metricsMap.updated) {
+      if (updatedAt) {
+        const formatted = formatDate(updatedAt);
+        const relative = formatRelative(updatedAt);
+        metricsMap.updated.textContent = formatted ? (relative ? `${formatted} (${relative})` : formatted) : updatedAt;
+      } else {
+        metricsMap.updated.textContent = 'Not yet generated';
+      }
+    }
+
+    renderSources(fallbackSources);
+    renderWatchlist(names.length > 0 ? names : initialEntityNames);
   }
 
   function setStatus(message, tone = 'info') {
@@ -515,11 +670,11 @@
     return 'Request failed.';
   }
 
-  async function fetchSearch(query) {
+  async function fetchSearch(query, options = {}) {
     if (!searchEndpoint) {
       return null;
     }
-    const url = buildUrl(searchEndpoint, { action: 'search', limit: 24, q: query });
+    const url = buildUrl(searchEndpoint, { action: 'search', limit: 24, q: query, ...options });
     const response = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!response.ok) {
       throw new Error(`Search request failed (${response.status})`);
@@ -535,11 +690,11 @@
     return search;
   }
 
-  async function fetchReport(query) {
+  async function fetchReport(query, options = {}) {
     if (!reportEndpoint) {
       return null;
     }
-    const url = buildUrl(reportEndpoint, { action: 'report', limit: 6, q: query });
+    const url = buildUrl(reportEndpoint, { action: 'report', limit: 6, q: query, ...options });
     const response = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!response.ok) {
       throw new Error(`Unable to generate briefing (${response.status})`);
@@ -562,14 +717,15 @@
     }
 
     const trimmed = typeof query === 'string' ? query.trim() : '';
+    const filterParams = getFilterParams();
     const requestId = ++currentRequestId;
 
     setLoading(true);
     setStatus(trimmed ? `Searching for “${trimmed}”…` : 'Loading the latest coverage…', 'info');
 
     try {
-      const searchPromise = searchEndpoint ? fetchSearch(trimmed) : Promise.resolve(null);
-      const reportPromise = reportEndpoint ? fetchReport(trimmed) : Promise.resolve(null);
+      const searchPromise = searchEndpoint ? fetchSearch(trimmed, filterParams) : Promise.resolve(null);
+      const reportPromise = reportEndpoint ? fetchReport(trimmed, filterParams) : Promise.resolve(null);
       const [searchOutcome, reportOutcome] = await Promise.allSettled([searchPromise, reportPromise]);
 
       if (requestId !== currentRequestId) {
@@ -604,7 +760,9 @@
         }
       }
 
+      let entityList = initialEntities;
       if (searchData && Array.isArray(searchData.entities)) {
+        entityList = searchData.entities;
         renderTrending(searchData.entities);
       } else if (!searchData && trimmed === '') {
         renderTrending(initialEntities);
@@ -614,6 +772,7 @@
 
       renderBrief(reportData);
       renderResults(reportData, fallbackSources);
+      updateToolbar(reportData, fallbackSources, entityList);
 
       const hasHighlights = reportData && Array.isArray(reportData.highlights) && reportData.highlights.length > 0;
       const hasFallback = !hasHighlights && Array.isArray(fallbackSources) && fallbackSources.length > 0;
@@ -672,10 +831,95 @@
     }
   }
 
+  function attachTemplates() {
+    templateButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const value = button.getAttribute('data-search-template') || button.textContent || '';
+        const query = value.trim();
+        if (!query) {
+          return;
+        }
+        if (input) {
+          input.value = query;
+          input.focus();
+        }
+        performSearch(query);
+      });
+    });
+  }
+
+  function attachWorkspaceActions() {
+    workspaceButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const action = button.getAttribute('data-workspace-action');
+        let message = '';
+        if (action === 'export') {
+          message = 'Export briefing: use the CLI or API to generate decks with citations.';
+        } else if (action === 'share') {
+          message = 'Share briefing: copy the URL or schedule an update from the workspace.';
+        }
+        if (message) {
+          setStatus(message, 'info');
+        }
+      });
+    });
+  }
+
+  function initialiseFilters() {
+    if (!filterPanel || filterGroups.length === 0) {
+      updateFilterSummary();
+      return;
+    }
+
+    filterGroups.forEach((group) => {
+      const key = group.getAttribute('data-filter-group');
+      if (!key) {
+        return;
+      }
+      const chips = group.querySelectorAll('[data-filter-value]');
+      if (chips.length === 0) {
+        return;
+      }
+      let activeChip = null;
+      chips.forEach((chip) => {
+        const value = chip.getAttribute('data-filter-value') || '';
+        if (chip.hasAttribute('data-filter-default') && !activeChip) {
+          activeChip = chip;
+        }
+        chip.addEventListener('click', () => {
+          if (chip.classList.contains('is-active')) {
+            return;
+          }
+          chips.forEach((btn) => btn.classList.remove('is-active'));
+          chip.classList.add('is-active');
+          filterState[key] = value;
+          updateFilterSummary();
+          if (debounceTimer) {
+            clearTimeout(debounceTimer);
+            debounceTimer = null;
+          }
+          performSearch(input ? input.value : '');
+        });
+      });
+      if (!activeChip) {
+        activeChip = chips[0];
+        activeChip.classList.add('is-active');
+      }
+      const activeValue = activeChip.getAttribute('data-filter-value') || '';
+      filterState[key] = activeValue;
+    });
+
+    updateFilterSummary();
+  }
+
   function bootstrap() {
     renderBrief(initialReport);
     renderResults(initialReport, initialSources);
     renderTrending(initialEntities);
+    updateToolbar(initialReport, initialSources, initialEntities);
+    initialiseFilters();
+    attachTemplates();
+    attachWorkspaceActions();
     bindEvents();
   }
 
