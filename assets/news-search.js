@@ -511,19 +511,37 @@
             const card = document.createElement('article');
             card.className = 'news-card';
 
-            if (typeof result.thumbnail === 'string' && result.thumbnail.trim() !== '') {
-                const media = document.createElement('div');
-                media.className = 'news-card__media';
+            const body = document.createElement('div');
+            body.className = 'news-card__content';
+            card.appendChild(body);
+
+            const normaliseImage = (value) => {
+                if (typeof value !== 'string') {
+                    return '';
+                }
+                const trimmed = value.trim();
+                return trimmed;
+            };
+
+            let imageUrl = normaliseImage(result.image_url);
+            if (!imageUrl) {
+                imageUrl = normaliseImage(result.thumbnail);
+            }
+            if (imageUrl) {
+                const mediaLink = document.createElement('a');
+                mediaLink.className = 'news-card__media';
+                mediaLink.href = result.url || '#';
+                mediaLink.target = '_blank';
+                mediaLink.rel = 'noopener';
                 const img = document.createElement('img');
-                img.src = result.thumbnail;
+                img.src = imageUrl;
                 img.alt = '';
                 img.loading = 'lazy';
-                media.appendChild(img);
-                card.appendChild(media);
+                mediaLink.appendChild(img);
+                card.appendChild(mediaLink);
+            } else {
+                card.classList.add('news-card--no-image');
             }
-
-            const body = document.createElement('div');
-            body.className = 'news-card__body';
 
             const qualityPill = document.createElement('span');
             qualityPill.className = 'news-card__quality';
@@ -533,7 +551,6 @@
             const label = typeof result.quality_label === 'string' ? result.quality_label : 'Quality';
             const score = typeof result.quality_score === 'number' ? result.quality_score.toFixed(1) : '0.0';
             qualityPill.textContent = `${label} · ${score}`;
-            body.appendChild(qualityPill);
 
             const title = document.createElement('h3');
             title.className = 'news-card__title';
@@ -563,37 +580,50 @@
 
             const meta = document.createElement('div');
             meta.className = 'news-card__meta';
-            const sourceDomain = result.source_domain || '';
-            const siteName = result.source_site_name || '';
+            const metaItems = [];
+            const sourceDomain = typeof result.source_domain === 'string' ? result.source_domain.trim() : '';
+            const siteName = typeof result.source_site_name === 'string' ? result.source_site_name.trim() : '';
             if (sourceDomain || siteName) {
-                const source = document.createElement('span');
-                source.className = 'news-card__source';
-                const label = siteName && siteName !== sourceDomain
-                    ? `${siteName} · ${sourceDomain}`.trim().replace(/\s+·\s+$/, '')
-                    : (siteName || sourceDomain);
-                source.textContent = label;
-                meta.appendChild(source);
+                const sameLabel = siteName && sourceDomain && siteName.toLowerCase() === sourceDomain.toLowerCase();
+                const labelText = siteName
+                    ? sameLabel ? siteName : `${siteName} · ${sourceDomain}`.trim().replace(/\s+·$/, '')
+                    : sourceDomain;
+                metaItems.push(labelText);
             }
-            const publishedLabel = formatDateTime(result.source_published_at);
-            if (publishedLabel) {
-                const published = document.createElement('span');
-                published.textContent = `published ${publishedLabel}`;
-                meta.appendChild(published);
+            const publishedRelative = relativeTime(result.source_published_at);
+            const publishedAbsolute = formatDateTime(result.source_published_at);
+            if (publishedRelative) {
+                metaItems.push(`Published ${publishedRelative}`);
+            } else if (publishedAbsolute) {
+                metaItems.push(`Published ${publishedAbsolute}`);
             }
-            if (result.fetched_at) {
-                const time = document.createElement('span');
-                time.textContent = relativeTime(result.fetched_at);
-                meta.appendChild(time);
+            const lastChecked = typeof result.last_checked_at === 'string' ? result.last_checked_at : '';
+            const fetchedAt = typeof result.fetched_at === 'string' ? result.fetched_at : '';
+            let updatedRelative = '';
+            if (lastChecked) {
+                updatedRelative = relativeTime(lastChecked) || '';
             }
-            if (result.last_checked_at && result.last_checked_at !== result.fetched_at) {
-                const checkedRelative = relativeTime(result.last_checked_at);
-                if (checkedRelative) {
-                    const checked = document.createElement('span');
-                    checked.textContent = `checked ${checkedRelative}`;
-                    meta.appendChild(checked);
-                }
+            if (!updatedRelative && fetchedAt) {
+                updatedRelative = relativeTime(fetchedAt) || '';
             }
-            body.appendChild(meta);
+            if (updatedRelative) {
+                metaItems.push(`Updated ${updatedRelative}`);
+            }
+
+            metaItems.forEach((item) => {
+                const span = document.createElement('span');
+                span.textContent = item;
+                meta.appendChild(span);
+            });
+
+            if (meta.childNodes.length) {
+                body.appendChild(meta);
+            }
+
+            const footer = document.createElement('div');
+            footer.className = 'news-card__footer';
+            footer.appendChild(qualityPill);
+            body.appendChild(footer);
 
             const flags = document.createElement('div');
             flags.className = 'news-card__flags';
@@ -734,14 +764,19 @@
             }
 
             if (Array.isArray(result.topics) && result.topics.length) {
-                const topicsWrapper = document.createElement('div');
-                topicsWrapper.className = 'news-card__topics';
-                result.topics.forEach((topic) => {
-                    const labelEl = document.createElement('span');
-                    labelEl.textContent = topic;
-                    topicsWrapper.appendChild(labelEl);
-                });
-                body.appendChild(topicsWrapper);
+                const topics = result.topics
+                    .map((topic) => (typeof topic === 'string' ? topic.trim() : ''))
+                    .filter((topic) => topic);
+                if (topics.length) {
+                    const topicsWrapper = document.createElement('div');
+                    topicsWrapper.className = 'news-card__topics';
+                    topics.slice(0, 4).forEach((topic) => {
+                        const labelEl = document.createElement('span');
+                        labelEl.textContent = topic;
+                        topicsWrapper.appendChild(labelEl);
+                    });
+                    footer.appendChild(topicsWrapper);
+                }
             }
 
             if (Array.isArray(result.quality_reasons) && result.quality_reasons.length) {
@@ -755,8 +790,6 @@
                 body.appendChild(reasons);
             }
 
-            const footer = document.createElement('div');
-            footer.className = 'news-card__footer';
             if (Array.isArray(result.recommended_sources) && result.recommended_sources.length) {
                 const links = document.createElement('div');
                 links.className = 'news-card__links';
@@ -775,9 +808,6 @@
                 });
                 footer.appendChild(links);
             }
-            body.appendChild(footer);
-
-            card.appendChild(body);
             resultsEl.appendChild(card);
         });
     }
