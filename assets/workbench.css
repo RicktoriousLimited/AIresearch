@@ -747,6 +747,63 @@ textarea:focus {
 
 .report-output {
     min-height: 18rem;
+    position: relative;
+    overflow: hidden;
+}
+
+.report-output .report-results {
+    transition: opacity 0.2s ease, filter 0.2s ease;
+    will-change: opacity, filter;
+}
+
+.report-output.is-loading .report-results {
+    opacity: 0.4;
+    filter: blur(1px);
+}
+
+.report-output.is-loading [data-report-empty] {
+    opacity: 0.65;
+}
+
+.report-skeleton {
+    position: absolute;
+    inset: 0;
+    display: none;
+    pointer-events: none;
+    padding: 1.5rem;
+    background: linear-gradient(90deg, rgba(30, 41, 59, 0), rgba(30, 41, 59, 0.55), rgba(30, 41, 59, 0));
+    background-size: 200% 100%;
+    animation: report-skeleton-shimmer 1.6s linear infinite;
+    gap: 0.75rem;
+    flex-direction: column;
+}
+
+.report-skeleton__line {
+    height: 0.85rem;
+    border-radius: 999px;
+    background: rgba(148, 163, 184, 0.25);
+}
+
+.report-skeleton__line--heading {
+    height: 1.2rem;
+    width: 55%;
+}
+
+.report-skeleton__line--short {
+    width: 35%;
+}
+
+.report-output.is-loading .report-skeleton {
+    display: flex;
+}
+
+@keyframes report-skeleton-shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 .report-results {

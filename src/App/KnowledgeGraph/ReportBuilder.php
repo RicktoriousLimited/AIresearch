@@ -19,6 +19,7 @@ use function is_numeric;
 use function is_string;
 use function mb_strlen;
 use function mb_substr;
+use function preg_replace;
 use function preg_split;
 use function similar_text;
 use function sort;
@@ -32,6 +33,10 @@ use function usort;
  */
 final class ReportBuilder
 {
+    private const SIMILARITY_TEXT_LIMIT = 6000;
+
+    private const TEXT_SIMILARITY_THRESHOLD = 0.05;
+
     private GraphRepository $repository;
 
     private TextRefiner $refiner;
@@ -441,6 +446,7 @@ final class ReportBuilder
                 'characters' => isset($source['characters']) ? (int) $source['characters'] : mb_strlen($content),
                 'fetched_at' => isset($source['fetched_at']) && is_string($source['fetched_at']) ? $source['fetched_at'] : null,
                 'analysis' => $analysis,
+                'similarity_text' => $this->prepareSimilarityText($analysis),
                 'summary' => isset($analysis['rewritten']) && is_string($analysis['rewritten']) && trim($analysis['rewritten']) !== ''
                     ? (string) $analysis['rewritten']
                     : ((isset($analysis['cleaned']) && is_string($analysis['cleaned'])) ? (string) $analysis['cleaned'] : ''),
@@ -452,6 +458,53 @@ final class ReportBuilder
         }
 
         return $records;
+    }
+
+    /**
+     * @param array<string, mixed> $analysis
+     */
+    private function prepareSimilarityText(array $analysis): string
+    {
+        $segments = [];
+
+        if (isset($analysis['rewritten']) && is_string($analysis['rewritten'])) {
+            $rewritten = trim($analysis['rewritten']);
+            if ($rewritten !== '') {
+                $segments[] = $rewritten;
+            }
+        }
+
+        if (isset($analysis['cleaned']) && is_string($analysis['cleaned'])) {
+            $cleaned = trim($analysis['cleaned']);
+            if ($cleaned !== '') {
+                $segments[] = $cleaned;
+            }
+        }
+
+        if ($segments === []) {
+            return '';
+        }
+
+        $text = trim(implode("\n", $segments));
+        if ($text === '') {
+            return '';
+        }
+
+        $normalized = strtolower($text);
+        $normalized = preg_replace('/\s+/u', ' ', $normalized);
+        if (is_string($normalized)) {
+            $text = trim($normalized);
+        }
+
+        if ($text === '') {
+            return '';
+        }
+
+        if (mb_strlen($text) > self::SIMILARITY_TEXT_LIMIT) {
+            $text = mb_substr($text, 0, self::SIMILARITY_TEXT_LIMIT);
+        }
+
+        return $text;
     }
 
     /**
@@ -475,19 +528,22 @@ final class ReportBuilder
                 $left = $records[$i];
                 $right = $records[$j];
 
-                $shared = array_values(array_intersect($left['keywords'], $right['keywords']));
-                $union = array_values(array_unique(array_merge($left['keywords'], $right['keywords'])));
+                $leftKeywords = $left['keywords'];
+                $rightKeywords = $right['keywords'];
+
+                $shared = array_values(array_intersect($leftKeywords, $rightKeywords));
+                $union = array_values(array_unique(array_merge($leftKeywords, $rightKeywords)));
                 $jaccard = $union !== [] ? count($shared) / count($union) : 0.0;
 
                 $textScore = 0.0;
-                $leftText = isset($left['analysis']['cleaned']) && is_string($left['analysis']['cleaned'])
-                    ? strtolower($left['analysis']['cleaned'])
+                $leftText = isset($left['similarity_text']) && is_string($left['similarity_text'])
+                    ? $left['similarity_text']
                     : '';
-                $rightText = isset($right['analysis']['cleaned']) && is_string($right['analysis']['cleaned'])
-                    ? strtolower($right['analysis']['cleaned'])
+                $rightText = isset($right['similarity_text']) && is_string($right['similarity_text'])
+                    ? $right['similarity_text']
                     : '';
 
-                if ($leftText !== '' && $rightText !== '') {
+                if ($leftText !== '' && $rightText !== '' && ($shared !== [] || $jaccard >= self::TEXT_SIMILARITY_THRESHOLD)) {
                     similar_text($leftText, $rightText, $percent);
                     $textScore = $percent / 100.0;
                 }
