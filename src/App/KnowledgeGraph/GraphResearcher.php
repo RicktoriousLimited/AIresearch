@@ -24,6 +24,7 @@ use function similar_text;
 use function str_contains;
 use function str_starts_with;
 use function soundex;
+use function sprintf;
 use function strtolower;
 use function strlen;
 use function trim;
@@ -41,6 +42,21 @@ final class GraphResearcher
      * @var array<string, mixed>|null
      */
     private ?array $snapshotCache = null;
+
+    /**
+     * @var array{entities: array<string, string>, synonyms: array<string, array<int, string>>}|null
+     */
+    private ?array $entityIndexCache = null;
+
+    /**
+     * @var array<string, string>
+     */
+    private array $normalisedNameCache = [];
+
+    /**
+     * @var array<string, array<int, string>>
+     */
+    private array $tokenCache = [];
 
     public function __construct(?GraphRepository $repository = null)
     {
@@ -89,6 +105,10 @@ final class GraphResearcher
             'summary' => is_array($graph['summary'] ?? null) ? $graph['summary'] : [],
             'cross_references' => $this->normaliseCrossReferences($graph['cross_references'] ?? []),
         ];
+
+        $this->entityIndexCache = null;
+        $this->normalisedNameCache = [];
+        $this->tokenCache = [];
 
         return $this->snapshotCache;
     }
@@ -264,11 +284,28 @@ final class GraphResearcher
         $entities = array_slice($entities, 0, $limit);
 
         foreach ($entities as &$entityMatch) {
-            $summary = $this->summariseEntity($entityMatch['entity'], 6);
+            $entityName = $entityMatch['entity'];
+            $summary = null;
+
+            if (isset($references[$entityName]) && is_array($references[$entityName])) {
+                $summary = $this->summariseKnownEntity($entityName, $references[$entityName], 6);
+            }
+
+            if ($summary === null) {
+                $summary = $this->summariseEntity($entityName, 6);
+            }
+
+            $summary = is_array($summary) ? $summary : [];
+
             $entityMatch['summary'] = $summary;
-            $entityMatch['eligible'] = $summary['eligible'] ?? false;
-            $entityMatch['fact_count'] = $summary['fact_count'] ?? 0;
-            $entityMatch['synonyms'] = $summary['synonyms'] ?? [];
+            $entityMatch['eligible'] = isset($summary['eligible']) ? (bool) $summary['eligible'] : false;
+            $entityMatch['fact_count'] = isset($summary['fact_count']) ? (int) $summary['fact_count'] : 0;
+            $entityMatch['synonyms'] = isset($summary['synonyms']) && is_array($summary['synonyms'])
+                ? array_values($summary['synonyms'])
+                : [];
+            $entityMatch['facts'] = isset($summary['fact_descriptions']) && is_array($summary['fact_descriptions'])
+                ? array_slice($summary['fact_descriptions'], 0, 6)
+                : [];
         }
         unset($entityMatch);
 
@@ -310,7 +347,7 @@ final class GraphResearcher
             return null;
         }
 
-        $index = $this->buildEntityIndex($references);
+        $index = $this->entityIndex($references);
 
         $match = $index['entities'][$needle] ?? null;
         if ($match === null && isset($index['synonyms'][$needle])) {
@@ -331,12 +368,27 @@ final class GraphResearcher
             return null;
         }
 
+        return $this->summariseKnownEntity($match, $payload, $factLimit);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>|null
+     */
+    private function summariseKnownEntity(string $entity, array $payload, int $factLimit = 12): ?array
+    {
+        $entity = trim($entity);
+        if ($entity === '') {
+            return null;
+        }
+
         $facts = [];
         $rawFacts = is_array($payload['facts'] ?? null) ? $payload['facts'] : [];
         foreach ($rawFacts as $fact) {
             if (!is_array($fact)) {
                 continue;
             }
+
             $facts[] = [
                 'direction' => (string) ($fact['direction'] ?? ''),
                 'relation' => (string) ($fact['relation'] ?? ''),
@@ -368,14 +420,18 @@ final class GraphResearcher
         $synonyms = is_array($payload['synonyms'] ?? null) ? array_values($payload['synonyms']) : [];
         $context = is_array($payload['context'] ?? null) ? $payload['context'] : [];
 
+        $limitedFacts = $factLimit > 0 ? array_slice($facts, 0, $factLimit) : $facts;
+        $factDescriptions = $this->buildFactDescriptions($entity, $limitedFacts);
+
         return [
-            'entity' => $match,
+            'entity' => $entity,
             'score' => $this->floatValue($ranking['score'] ?? 0.0),
             'eligible' => (bool) ($ranking['eligible'] ?? false),
             'synonyms' => $synonyms,
             'signals' => $this->normaliseSignals($signals),
             'support' => $this->normaliseSupport($support),
-            'facts' => $factLimit > 0 ? array_slice($facts, 0, $factLimit) : $facts,
+            'facts' => $limitedFacts,
+            'fact_descriptions' => $factDescriptions,
             'fact_count' => count($facts),
             'relation_counts' => $relationCounts,
             'counterpart_counts' => $counterpartCounts,
@@ -387,6 +443,77 @@ final class GraphResearcher
     }
 
     /**
+     * @param array<int, array{direction: string, relation: string, counterpart: string}> $facts
+     * @return array<int, string>
+     */
+    private function buildFactDescriptions(string $entity, array $facts): array
+    {
+        $entity = trim($entity);
+        if ($entity === '') {
+            return [];
+        }
+
+        $descriptions = [];
+        $seen = [];
+
+        foreach ($facts as $fact) {
+            if (!is_array($fact)) {
+                continue;
+            }
+
+            $description = $this->formatFactDescription($entity, $fact);
+            if ($description === '') {
+                continue;
+            }
+
+            if (isset($seen[$description])) {
+                continue;
+            }
+
+            $seen[$description] = true;
+            $descriptions[] = $description;
+        }
+
+        return $descriptions;
+    }
+
+    /**
+     * @param array<string, string> $fact
+     */
+    private function formatFactDescription(string $entity, array $fact): string
+    {
+        $direction = strtolower(trim((string) ($fact['direction'] ?? '')));
+        $relation = trim((string) ($fact['relation'] ?? ''));
+        $counterpart = trim((string) ($fact['counterpart'] ?? ''));
+
+        if ($relation === '' && $counterpart === '') {
+            return '';
+        }
+
+        $text = '';
+
+        if ($direction === 'incoming') {
+            if ($counterpart !== '' && $relation !== '') {
+                $text = sprintf('Receives “%s” from %s.', $relation, $counterpart);
+            } elseif ($counterpart !== '') {
+                $text = sprintf('Connected to %s.', $counterpart);
+            } elseif ($relation !== '') {
+                $text = sprintf('Receives relation “%s”.', $relation);
+            }
+        } else {
+            if ($counterpart !== '' && $relation !== '') {
+                $text = sprintf('Links to %s via “%s”.', $counterpart, $relation);
+            } elseif ($relation !== '') {
+                $text = sprintf('Links via “%s”.', $relation);
+            } elseif ($counterpart !== '') {
+                $text = sprintf('Connected to %s.', $counterpart);
+            }
+        }
+
+        return trim($text);
+    }
+
+    /**
      * @return array<int, array<string, mixed>>
      */
     private function buildDefaultEntitySummaries(int $limit): array
@@ -395,6 +522,7 @@ final class GraphResearcher
 
         foreach ($this->listTopEntities($limit) as $entityRow) {
             $summary = $this->summariseEntity($entityRow['entity'], 6);
+            $summary = is_array($summary) ? $summary : [];
 
             $rows[] = [
                 'entity' => $entityRow['entity'],
@@ -402,13 +530,33 @@ final class GraphResearcher
                 'eligible' => $entityRow['eligible'],
                 'fact_count' => $entityRow['fact_count'],
                 'synonym_count' => $entityRow['synonym_count'],
-                'synonyms' => $summary['synonyms'] ?? [],
+                'synonyms' => isset($summary['synonyms']) && is_array($summary['synonyms'])
+                    ? array_values($summary['synonyms'])
+                    : [],
+                'facts' => isset($summary['fact_descriptions']) && is_array($summary['fact_descriptions'])
+                    ? array_slice($summary['fact_descriptions'], 0, 6)
+                    : [],
                 'summary' => $summary,
                 'signals' => ['ranking' => $entityRow['score']],
             ];
         }
 
         return $rows;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $references
+     * @return array{entities: array<string, string>, synonyms: array<string, array<int, string>>}
+     */
+    private function entityIndex(array $references): array
+    {
+        if ($this->entityIndexCache !== null) {
+            return $this->entityIndexCache;
+        }
+
+        $this->entityIndexCache = $this->buildEntityIndex($references);
+
+        return $this->entityIndexCache;
     }
 
     /**
@@ -979,13 +1127,21 @@ final class GraphResearcher
      */
     private function tokenize(string $value): array
     {
-        $value = trim($value);
-        if ($value === '') {
+        if (isset($this->tokenCache[$value])) {
+            return $this->tokenCache[$value];
+        }
+
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            $this->tokenCache[$value] = [];
+
             return [];
         }
 
-        $parts = preg_split('/[\s-]+/u', $value);
+        $parts = preg_split('/[\s-]+/u', $trimmed);
         if (!is_array($parts)) {
+            $this->tokenCache[$value] = [];
+
             return [];
         }
 
@@ -999,7 +1155,10 @@ final class GraphResearcher
             $tokens[] = $part;
         }
 
-        return array_values(array_unique($tokens));
+        $unique = array_values(array_unique($tokens));
+        $this->tokenCache[$value] = $unique;
+
+        return $unique;
     }
 
     /**
@@ -1253,22 +1412,35 @@ final class GraphResearcher
 
     private function normaliseName(string $value): string
     {
-        $value = strtolower(trim($value));
-        if ($value === '') {
+        if (isset($this->normalisedNameCache[$value])) {
+            return $this->normalisedNameCache[$value];
+        }
+
+        $normalised = strtolower(trim($value));
+        if ($normalised === '') {
+            $this->normalisedNameCache[$value] = '';
+
             return '';
         }
 
-        $value = preg_replace('/[^a-z0-9\s-]+/u', '', $value);
-        if (!is_string($value)) {
+        $normalised = preg_replace('/[^a-z0-9\s-]+/u', '', $normalised);
+        if (!is_string($normalised)) {
+            $this->normalisedNameCache[$value] = '';
+
             return '';
         }
 
-        $value = preg_replace('/\s+/u', ' ', $value);
-        if (!is_string($value)) {
+        $normalised = preg_replace('/\s+/u', ' ', $normalised);
+        if (!is_string($normalised)) {
+            $this->normalisedNameCache[$value] = '';
+
             return '';
         }
 
-        return trim($value);
+        $normalised = trim($normalised);
+        $this->normalisedNameCache[$value] = $normalised;
+
+        return $normalised;
     }
 }
 
