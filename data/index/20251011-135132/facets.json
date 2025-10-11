@@ -1,0 +1,20 @@
+{
+    "source": {
+        "Reuters": 2,
+        "Bloomberg": 2,
+        "FT": 1,
+        "AP": 1,
+        "TechCrunch": 1,
+        "WSJ": 1,
+        "Politico": 1,
+        "CNN": 1
+    },
+    "lang": {
+        "en": 10
+    },
+    "date": {
+        "last24h": 0,
+        "last7d": 0,
+        "last30d": 0
+    }
+}
