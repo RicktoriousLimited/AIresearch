@@ -45,6 +45,7 @@
   const resultsMeta = document.querySelector('[data-results-meta]');
   const resultsEmpty = document.querySelector('[data-results-empty]');
   const filterPanel = document.querySelector('[data-filter-panel]');
+  const filterToggle = document.querySelector('[data-filter-toggle]');
   const filterGroups = document.querySelectorAll('[data-filter-group]');
   const filterSummary = document.querySelector('[data-filter-summary]');
   const metricNodes = document.querySelectorAll('[data-metric]');
@@ -214,6 +215,24 @@
     };
   }
 
+  function setFilterPanel(open) {
+    if (!filterPanel) {
+      return;
+    }
+
+    if (open) {
+      filterPanel.hidden = false;
+      filterPanel.classList.add('is-open');
+    } else {
+      filterPanel.hidden = true;
+      filterPanel.classList.remove('is-open');
+    }
+
+    if (filterToggle) {
+      filterToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+  }
+
   function updateFilterSummary() {
     if (!filterSummary) {
       return;
@@ -231,6 +250,12 @@
       filterSummary.textContent = `Filtering ${parts.join(' · ')}`;
     } else {
       filterSummary.textContent = '';
+    }
+
+    if (filterToggle) {
+      filterToggle.setAttribute('aria-label', parts.length > 0
+        ? `Refine filters (currently ${parts.join(' · ')})`
+        : 'Refine filters');
     }
   }
 
@@ -1383,6 +1408,16 @@
             debounceTimer = null;
           }
           performSearch(input ? input.value : '');
+          if (filterToggle) {
+            setFilterPanel(false);
+            if (typeof filterToggle.focus === 'function') {
+              try {
+                filterToggle.focus({ preventScroll: true });
+              } catch (error) {
+                filterToggle.focus();
+              }
+            }
+          }
         });
       });
       if (!activeChip) {
@@ -1394,6 +1429,24 @@
     });
 
     updateFilterSummary();
+    setFilterPanel(false);
+  }
+
+  function attachFilterToggle() {
+    if (!filterToggle) {
+      return;
+    }
+
+    filterToggle.addEventListener('click', () => {
+      if (!filterPanel) {
+        return;
+      }
+      const isOpen = !filterPanel.hidden;
+      setFilterPanel(!isOpen);
+      if (!isOpen) {
+        filterPanel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
   }
 
   function bootstrap() {
@@ -1403,6 +1456,7 @@
     renderTrending(initialEntities);
     updateToolbar(initialReport, initialSources, initialEntities);
     initialiseFilters();
+    attachFilterToggle();
     attachTemplates();
     attachWorkspaceActions();
     bindEvents();
