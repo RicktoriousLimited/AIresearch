@@ -16,6 +16,15 @@
     const topicsListEl = root.querySelector('[data-news-topics-list]');
     const resultsEl = root.querySelector('[data-news-results]');
     const statsEl = root.querySelector('[data-news-stats]');
+    const insightsSection = root.querySelector('[data-news-insights]');
+    const recencySummaryEl = root.querySelector('[data-news-recency-summary]');
+    const recencyListEl = root.querySelector('[data-news-recency]');
+    const qualitySummaryEl = root.querySelector('[data-news-quality-summary]');
+    const qualityListEl = root.querySelector('[data-news-quality]');
+    const contentSummaryEl = root.querySelector('[data-news-content-summary]');
+    const contentListEl = root.querySelector('[data-news-content]');
+    const ingestSummaryEl = root.querySelector('[data-news-ingest-summary]');
+    const ingestListEl = root.querySelector('[data-news-ingest]');
     const discoverySection = root.querySelector('[data-news-discovery]');
     const discoveryStatusEl = root.querySelector('[data-news-discovery-status]');
     const discoveryTreeEl = root.querySelector('[data-news-discovery-tree]');
@@ -83,6 +92,17 @@
         } catch (error) {
             return date.toISOString();
         }
+    }
+
+    function formatPercent(value) {
+        if (typeof value !== 'number' || Number.isNaN(value)) {
+            return '0%';
+        }
+
+        const clamped = Math.min(Math.max(value, 0), 1);
+        const precision = clamped >= 0.1 ? 0 : 1;
+
+        return `${(clamped * 100).toFixed(precision)}%`;
     }
 
     function clearChildren(node) {
@@ -370,6 +390,121 @@
             return `${domain} (${avg.toFixed(1)})`;
         }).join(' · ');
         statsEl.textContent = `Top sources: ${top}`;
+    }
+
+    function renderFacetList(listEl, items, emptyMessage) {
+        if (!listEl) {
+            return;
+        }
+
+        clearChildren(listEl);
+
+        const normalised = Array.isArray(items)
+            ? items.filter((item) => item && typeof item === 'object' && Number(item.count) > 0)
+            : [];
+
+        if (!normalised.length) {
+            const li = document.createElement('li');
+            li.className = 'news-insight-card__empty';
+            li.textContent = emptyMessage;
+            listEl.appendChild(li);
+            return;
+        }
+
+        normalised.forEach((item) => {
+            const li = document.createElement('li');
+
+            const label = document.createElement('span');
+            label.className = 'label';
+            label.textContent = typeof item.label === 'string' && item.label ? item.label : 'Unknown';
+            li.appendChild(label);
+
+            const value = document.createElement('span');
+            value.className = 'value';
+            const count = Number(item.count || 0);
+            const share = Number.isFinite(Number(item.share)) ? Number(item.share) : 0;
+            value.textContent = `${count.toLocaleString()} · ${formatPercent(share)}`;
+            li.appendChild(value);
+
+            listEl.appendChild(li);
+        });
+    }
+
+    function renderInsights(meta) {
+        if (!insightsSection) {
+            return;
+        }
+
+        const facets = meta && meta.facets && typeof meta.facets === 'object' ? meta.facets : {};
+        const recency = Array.isArray(facets.recency) ? facets.recency : [];
+        const quality = Array.isArray(facets.quality) ? facets.quality : [];
+        const content = Array.isArray(facets.content_types) ? facets.content_types : [];
+        const ingestion = Array.isArray(facets.ingestion) ? facets.ingestion : [];
+
+        const fallbackRecency = 'Fresh coverage metrics will appear once crawls complete.';
+        const fallbackQuality = 'Awaiting quality signals from the latest crawl.';
+        const fallbackContent = 'Content mix pending enrichment.';
+        const fallbackIngestion = 'Ingestion progress will update as documents are processed.';
+
+        if (recencySummaryEl) {
+            if (recency.length && recency[0] && typeof recency[0] === 'object') {
+                const share = Number(recency[0].share || 0);
+                const label = typeof recency[0].label === 'string' ? recency[0].label.toLowerCase() : 'recent periods';
+                recencySummaryEl.textContent = `${formatPercent(share)} of coverage from ${label}`;
+            } else {
+                recencySummaryEl.textContent = fallbackRecency;
+            }
+        }
+
+        if (qualitySummaryEl) {
+            if (quality.length && quality[0] && typeof quality[0] === 'object') {
+                const share = Number(quality[0].share || 0);
+                const label = typeof quality[0].label === 'string' ? quality[0].label.toLowerCase() : 'top buckets';
+                qualitySummaryEl.textContent = `${formatPercent(share)} of stories score ${label}`;
+            } else {
+                qualitySummaryEl.textContent = fallbackQuality;
+            }
+        }
+
+        if (contentSummaryEl) {
+            if (content.length && content[0] && typeof content[0] === 'object') {
+                const share = Number(content[0].share || 0);
+                const label = typeof content[0].label === 'string' ? content[0].label.toLowerCase() : 'this format';
+                contentSummaryEl.textContent = `${formatPercent(share)} of stories are ${label}`;
+            } else {
+                contentSummaryEl.textContent = fallbackContent;
+            }
+        }
+
+        if (ingestSummaryEl) {
+            const totals = ingestion.reduce(
+                (acc, row) => {
+                    const count = Number(row && typeof row === 'object' ? row.count : 0);
+                    const label = typeof row.label === 'string' ? row.label.toLowerCase() : '';
+                    acc.total += Number.isFinite(count) ? count : 0;
+                    if (label.includes('captured') || label.includes('ingest')) {
+                        acc.captured += Number.isFinite(count) ? count : 0;
+                    }
+                    return acc;
+                },
+                { total: 0, captured: 0 }
+            );
+
+            if (totals.total > 0) {
+                ingestSummaryEl.textContent = `${formatPercent(totals.captured / totals.total)} of results already enriched`;
+            } else {
+                ingestSummaryEl.textContent = fallbackIngestion;
+            }
+        }
+
+        renderFacetList(recencyListEl, recency, 'Recency distribution will populate after the next crawl.');
+        renderFacetList(qualityListEl, quality, 'Quality buckets appear once headlines are scored.');
+        renderFacetList(contentListEl, content, 'We will classify formats as new sources arrive.');
+        renderFacetList(ingestListEl, ingestion, 'Ingestion progress will update as documents are processed.');
+
+        if (insightsSection) {
+            insightsSection.removeAttribute('hidden');
+        }
     }
 
     function renderDiscovery(snapshot) {
@@ -838,6 +973,7 @@
                 renderStatus(payload.meta);
                 renderTopics(payload.meta);
                 renderStats(payload.meta);
+                renderInsights(payload.meta);
                 renderResults(payload);
                 renderDiscovery(payload.discovery || (payload.meta && payload.meta.discovery));
             })
