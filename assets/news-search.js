@@ -17,6 +17,7 @@
     const resultsEl = root.querySelector('[data-news-results]');
     const statsEl = root.querySelector('[data-news-stats]');
     const insightsSection = root.querySelector('[data-news-insights]');
+    const contextEl = root.querySelector('[data-news-context]');
     const recencySummaryEl = root.querySelector('[data-news-recency-summary]');
     const recencyListEl = root.querySelector('[data-news-recency]');
     const qualitySummaryEl = root.querySelector('[data-news-quality-summary]');
@@ -33,6 +34,50 @@
 
     let controller = null;
     let continueController = null;
+    let lastQuery = null;
+
+    const initialQueryAttr = root.getAttribute('data-initial-query') || '';
+
+    function normaliseQuery(value) {
+        if (typeof value !== 'string') {
+            return '';
+        }
+
+        return value.trim().replace(/\s+/g, ' ');
+    }
+
+    function updateContext(query) {
+        if (!contextEl) {
+            return;
+        }
+
+        if (query) {
+            contextEl.textContent = `Tracking coverage for “${query}”.`;
+        } else {
+            contextEl.textContent = 'Start with a topic, organisation, or event to see live intelligence.';
+        }
+    }
+
+    function updateLocation(query) {
+        if (typeof window === 'undefined' || !window.history || !window.history.replaceState) {
+            return;
+        }
+
+        const url = new URL(window.location.href);
+        if (query) {
+            url.searchParams.set('q', query);
+        } else {
+            url.searchParams.delete('q');
+        }
+
+        window.history.replaceState({}, '', url.toString());
+    }
+
+    const initialQuery = normaliseQuery(initialQueryAttr);
+    if (input && initialQuery && !input.value) {
+        input.value = initialQuery;
+    }
+    updateContext(initialQuery);
 
     function relativeTime(iso) {
         if (!iso) {
@@ -366,10 +411,7 @@
             chip.className = 'news-search__chip';
             chip.textContent = topicName;
             chip.addEventListener('click', () => {
-                if (input) {
-                    input.value = topicName;
-                }
-                fetchResults();
+                fetchResults({ query: topicName, force: true });
             });
             topicsListEl.appendChild(chip);
         });
@@ -947,12 +989,33 @@
         });
     }
 
-    function fetchResults() {
+    function fetchResults(options = {}) {
         if (!input) {
             return;
         }
+
+        const query = normaliseQuery(
+            Object.prototype.hasOwnProperty.call(options, 'query') ? options.query : input.value
+        );
+
+        if (input.value !== query) {
+            input.value = query;
+        }
+
+        if (options.updateLocation !== false) {
+            updateLocation(query);
+        }
+
+        updateContext(query);
+
+        if (!options.force && lastQuery !== null && query === lastQuery) {
+            return;
+        }
+
+        lastQuery = query;
+
         const params = new URLSearchParams({
-            q: input.value.trim(),
+            q: query,
             limit: '24',
         });
 
@@ -984,6 +1047,7 @@
                 if (statusEl) {
                     statusEl.textContent = 'Unable to load news intelligence. Please retry.';
                 }
+                lastQuery = null;
             })
             .finally(() => {
                 root.removeAttribute('data-state');
@@ -993,7 +1057,7 @@
     if (form) {
         form.addEventListener('submit', (event) => {
             event.preventDefault();
-            fetchResults();
+            fetchResults({ force: true });
         });
     }
 
@@ -1057,7 +1121,7 @@
                 }
 
                 setTimeout(() => {
-                    fetchResults();
+                    fetchResults({ force: true, updateLocation: false });
                 }, 250);
             })
             .catch((error) => {
@@ -1088,5 +1152,5 @@
         });
     }
 
-    fetchResults();
+    fetchResults({ updateLocation: false });
 })();
