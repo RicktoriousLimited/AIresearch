@@ -10,6 +10,7 @@ use App\KnowledgeGraph\GraphResearcher;
 use App\KnowledgeGraph\ResearchService;
 use App\News\NewsSearchService;
 use App\Web\PathResolver;
+use App\Web\SiteLayout;
 
 function esc(string $value): string
 {
@@ -34,6 +35,13 @@ $searchPath = PathResolver::url($assetBase, 'search.php');
 $graphPath = PathResolver::url($assetBase, 'knowledge-graph.php');
 $docsPath = PathResolver::url($assetBase, 'docs');
 $apiPath = PathResolver::url($assetBase, 'api');
+
+$navigationPaths = [
+    'home' => $homePath,
+    'search' => $searchPath,
+    'graph' => $graphPath,
+    'docs' => $docsPath,
+];
 
 $repository = new GraphRepository();
 $researcher = new GraphResearcher($repository);
@@ -353,18 +361,8 @@ $formatRelative = static function (?string $value) use ($formatDate): ?string {
     <link rel="stylesheet" href="<?= esc($stylesPath . '?v=' . $stylesVersion) ?>">
 </head>
 <body class="site site--home site--news">
-<header class="site-header">
-    <div class="site-header__inner">
-        <a class="site-brand" href="<?= esc($homePath) ?>">AIresearch</a>
-        <nav class="site-nav" aria-label="Primary navigation">
-            <a class="site-nav__link site-nav__link--active" href="<?= esc($homePath) ?>">Home</a>
-            <a class="site-nav__link" href="<?= esc($searchPath) ?>">News search</a>
-            <a class="site-nav__link" href="<?= esc($graphPath) ?>">Knowledge graph</a>
-            <a class="site-nav__link" href="<?= esc($docsPath) ?>">Docs</a>
-        </nav>
-    </div>
-</header>
-<main class="news-home" id="main">
+<?php SiteLayout::renderHeader($navigationPaths, 'home'); ?>
+<main class="site-main news-home" id="main">
     <section class="news-home__hero">
         <div class="news-home__hero-grid">
             <div class="news-home__lead">
@@ -652,6 +650,7 @@ $formatRelative = static function (?string $value) use ($formatDate): ?string {
         </div>
     </section>
 </main>
+<?php SiteLayout::renderFooter($navigationPaths); ?>
 <script src="<?= esc($autocompleteScriptPath . '?v=' . $autocompleteScriptVersion) ?>" defer></script>
 <script src="<?= esc($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
 </body>

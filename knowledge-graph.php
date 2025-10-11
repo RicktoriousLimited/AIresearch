@@ -10,6 +10,7 @@ use App\KnowledgeGraph\GraphResearcher;
 use App\KnowledgeGraph\ResearchService;
 use App\News\NewsSearchService;
 use App\Web\PathResolver;
+use App\Web\SiteLayout;
 
 $paths = PathResolver::resolve();
 $basePath = $paths['basePath'];
@@ -25,6 +26,13 @@ $graphPath = PathResolver::url($assetBase, 'knowledge-graph.php');
 $docsPath = PathResolver::url($assetBase, 'docs');
 $apiPath = PathResolver::url($assetBase, 'api/research.php');
 $scriptPath = PathResolver::url($assetBase, 'assets/knowledge-graph.js');
+
+$navigationPaths = [
+    'home' => $homePath,
+    'search' => $searchPath,
+    'graph' => $graphPath,
+    'docs' => $docsPath,
+];
 
 $stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
 $themeVersion = file_exists(__DIR__ . '/assets/theme.css') ? (string) filemtime(__DIR__ . '/assets/theme.css') : (string) time();
@@ -158,24 +166,13 @@ if (!is_string($initialJson)) {
     <link rel="stylesheet" href="<?= $escape($stylesPath . '?v=' . $stylesVersion) ?>">
     <link rel="stylesheet" href="<?= $escape($researchStylesPath . '?v=' . $researchStylesVersion) ?>">
 </head>
-<body class="knowledge-page">
-<header class="site-header site-header--compact">
-    <div class="shell header-shell header-shell--compact">
-        <a class="brand" href="<?= $escape($homePath) ?>">AIresearch</a>
-        <nav class="primary-nav" aria-label="Primary">
-            <a href="<?= $escape($homePath) ?>" class="primary-nav__link">Home</a>
-            <a href="<?= $escape($searchPath) ?>" class="primary-nav__link">Autopilot search</a>
-            <a href="<?= $escape($graphPath) ?>" class="primary-nav__link primary-nav__link--active">Knowledge graph</a>
-            <a href="<?= $escape($docsPath) ?>" class="primary-nav__link">Documentation</a>
-        </nav>
-        <div class="header-actions">
-            <a class="button primary" href="<?= $escape($searchPath) ?>">Launch search</a>
-        </div>
-    </div>
-</header>
-<main class="graph-main">
+<body class="site site--graph">
+<?php SiteLayout::renderHeader($navigationPaths, 'graph', [
+    ['label' => 'Launch search', 'href' => $searchPath],
+]); ?>
+<main class="site-main graph-main">
     <section class="graph-hero">
-        <div class="shell">
+        <div class="site-container">
             <div class="graph-hero__content">
                 <div>
                     <p class="eyebrow">Live intelligence workspace</p>
@@ -199,7 +196,7 @@ if (!is_string($initialJson)) {
             </div>
         </div>
     </section>
-    <div class="shell graph-shell">
+    <div class="graph-shell site-container">
         <section class="panel">
             <header class="panel-header">
                 <div>
@@ -471,12 +468,11 @@ if (!is_string($initialJson)) {
             </div>
         </section>
     </div>
-</main>
-<footer class="site-footer">
-    <div class="shell">
+    <section class="graph-note site-container" aria-label="Knowledge graph storage">
         <p>Knowledge graph snapshots are stored at <code><?= $escape($repository->path()) ?></code>. Scrape additional URLs from the <a href="<?= $escape($homePath) ?>">Data Preparation Studio</a>.</p>
-    </div>
-</footer>
+    </section>
+</main>
+<?php SiteLayout::renderFooter($navigationPaths, 'Unified knowledge graph powering AIresearch intelligence.'); ?>
 <script>
     window.AIKnowledgeGraph = <?= $initialJson ?>;
 </script>
