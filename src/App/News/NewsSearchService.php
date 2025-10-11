@@ -18,6 +18,7 @@ use function array_values;
 use function array_unique;
 use function arsort;
 use function count;
+use function filter_var;
 use function implode;
 use function is_array;
 use function is_string;
@@ -37,6 +38,7 @@ use function ucfirst;
 use function usort;
 
 use const DATE_ATOM;
+use const FILTER_VALIDATE_URL;
 use const PHP_URL_HOST;
 
 final class NewsSearchService
@@ -230,6 +232,7 @@ final class NewsSearchService
             'source_language',
             'source_published_at',
             'thumbnail',
+            'image_url',
             'meta_description',
             'content_type',
             'fetched_at',
@@ -481,6 +484,7 @@ final class NewsSearchService
         }
 
         $quality = $this->estimateGraphQualityScore($source);
+        $imageUrl = $this->extractImageUrl($source);
 
         return [
             'title' => $title,
@@ -499,7 +503,8 @@ final class NewsSearchService
             'source_site_name' => $siteName,
             'source_language' => (string) ($source['language'] ?? ''),
             'source_published_at' => (string) ($source['published_at'] ?? ''),
-            'thumbnail' => (string) ($source['thumbnail'] ?? ''),
+            'thumbnail' => $imageUrl,
+            'image_url' => $imageUrl,
             'meta_description' => (string) ($source['meta_description'] ?? ''),
             'recommended_sources' => [],
             'content_type' => 'article',
@@ -754,6 +759,7 @@ final class NewsSearchService
         }
 
         $contentType = $this->normaliseContentType((string) ($entry['content_type'] ?? 'page'), $entry, $topics);
+        $imageUrl = $this->extractImageUrl($entry);
 
         return [
             'title' => (string) ($entry['title'] ?? $entry['url'] ?? ''),
@@ -772,7 +778,8 @@ final class NewsSearchService
             'source_site_name' => (string) ($entry['site_name'] ?? $entry['source_site_name'] ?? ''),
             'source_language' => (string) ($entry['source_language'] ?? ''),
             'source_published_at' => (string) ($entry['source_published_at'] ?? $entry['published_at'] ?? ''),
-            'thumbnail' => (string) ($entry['thumbnail'] ?? ''),
+            'thumbnail' => $imageUrl,
+            'image_url' => $imageUrl,
             'meta_description' => (string) ($entry['meta_description'] ?? ''),
             'recommended_sources' => $recommended,
             'content_type' => $contentType,
@@ -782,6 +789,41 @@ final class NewsSearchService
             'changes' => $this->formatChangeSummary($entry['changes'] ?? null),
             'versions' => $this->formatVersions($entry['versions'] ?? null),
         ];
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     */
+    private function extractImageUrl(array $entry): string
+    {
+        $candidates = ['image_url', 'thumbnail', 'image', 'hero_image', 'cover_image', 'og_image', 'meta_image'];
+
+        foreach ($candidates as $field) {
+            if (!isset($entry[$field]) || !is_string($entry[$field])) {
+                continue;
+            }
+
+            $normalised = $this->normaliseImageUrl($entry[$field]);
+            if ($normalised !== '') {
+                return $normalised;
+            }
+        }
+
+        return '';
+    }
+
+    private function normaliseImageUrl(?string $value): string
+    {
+        if ($value === null) {
+            return '';
+        }
+
+        $candidate = trim($value);
+        if ($candidate === '' || filter_var($candidate, FILTER_VALIDATE_URL) === false) {
+            return '';
+        }
+
+        return $candidate;
     }
 
     /**

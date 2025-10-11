@@ -206,31 +206,134 @@ $discoveryStatusText = sprintf('Tracking %s page%s · %s pending', number_format
 </header>
 <main class="news-search" id="main">
     <div class="news-search__shell" data-news-app data-news-endpoint="<?= esc($newsEndpoint) ?>">
-        <section class="news-search__hero">
-            <div class="news-search__hero-grid">
-                <div class="news-search__hero-main">
-                    <p class="news-search__eyebrow">Live headline monitor</p>
-                    <h1 class="news-search__title">Discover trusted coverage in seconds</h1>
-                    <p class="news-search__lead">Query the continuously updating news graph, score sources by authority, and trigger fresh crawls when gaps appear.</p>
-                    <form class="news-search__form" data-news-search-form role="search">
-                        <label class="visually-hidden" for="news-query">Search the latest headlines</label>
-                        <input id="news-query" name="q" type="search" placeholder="Search companies, themes, or breaking events" autocomplete="off" spellcheck="false" data-news-query>
-                        <button type="submit" class="news-search__submit">Search</button>
-                    </form>
-                    <p class="news-search__status" role="status" data-news-status><?= esc($initialStatus) ?></p>
-                    <p class="news-search__stats" data-news-stats><?= esc($statsSummary) ?></p>
+        <section class="news-search__masthead">
+            <div class="news-search__masthead-intro">
+                <p class="news-search__eyebrow">Live headline monitor</p>
+                <h1 class="news-search__title">Discover trusted coverage in seconds</h1>
+                <p class="news-search__lead">Query the continuously updating news graph, score sources by authority, and trigger fresh crawls when gaps appear.</p>
+            </div>
+            <form class="news-search__form" data-news-search-form role="search">
+                <label class="visually-hidden" for="news-query">Search the latest headlines</label>
+                <input id="news-query" name="q" type="search" placeholder="Search companies, themes, or breaking events" autocomplete="off" spellcheck="false" data-news-query>
+                <button type="submit" class="news-search__submit">Search</button>
+            </form>
+            <div class="news-search__masthead-meta">
+                <p class="news-search__status" role="status" data-news-status><?= esc($initialStatus) ?></p>
+                <p class="news-search__stats" data-news-stats><?= esc($statsSummary) ?></p>
+            </div>
+        </section>
+
+        <div class="news-search__layout">
+            <section class="news-search__results" aria-label="News results">
+                <div class="news-search__list" data-news-results>
+                <?php if ($initialResults === []): ?>
+                    <div class="news-empty">No stories indexed yet. Run a crawl from the discovery console to populate the feed.</div>
+                <?php else: ?>
+                    <?php foreach ($initialResults as $result): ?>
+                        <?php
+                        if (!is_array($result)) {
+                            continue;
+                        }
+                        $resultUrl = isset($result['url']) ? (string) $result['url'] : '';
+                        if ($resultUrl === '') {
+                            continue;
+                        }
+                        $resultTitle = trim((string) ($result['title'] ?? $resultUrl));
+                        if ($resultTitle === '') {
+                            $resultTitle = $resultUrl;
+                        }
+                        $resultSummary = trim((string) ($result['summary'] ?? $result['preview'] ?? ''));
+                        if ($resultSummary !== '' && mb_strlen($resultSummary) > 260) {
+                            $resultSummary = rtrim(mb_substr($resultSummary, 0, 260)) . '…';
+                        }
+                        $resultQuality = isset($result['quality_score']) ? number_format((float) $result['quality_score'], 1) : '0.0';
+                        $resultLabel = isset($result['quality_label']) ? (string) $result['quality_label'] : 'Quality';
+                        $resultDomain = isset($result['source_domain']) ? (string) $result['source_domain'] : '';
+                        $resultSiteName = isset($result['source_site_name']) ? trim((string) $result['source_site_name']) : '';
+                        $resultRelative = $formatRelative($result['last_checked_at'] ?? $result['fetched_at'] ?? null);
+                        $resultPublishedRelative = $formatRelative($result['source_published_at'] ?? null);
+                        $resultPublishedAbsolute = $formatDate($result['source_published_at'] ?? null);
+                        $resultPublished = $resultPublishedRelative ?? $resultPublishedAbsolute;
+                        $resultTopics = isset($result['topics']) && is_array($result['topics'])
+                            ? array_slice(array_filter(array_map(static fn($topic) => is_string($topic) ? trim($topic) : '', $result['topics'])), 0, 4)
+                            : [];
+                        $resultIngest = !empty($result['ingest']);
+                        $resultImage = '';
+                        if (isset($result['image_url']) && is_string($result['image_url'])) {
+                            $resultImage = trim($result['image_url']);
+                        }
+                        if ($resultImage === '' && isset($result['thumbnail']) && is_string($result['thumbnail'])) {
+                            $resultImage = trim($result['thumbnail']);
+                        }
+                        $metaItems = [];
+                        if ($resultSiteName !== '' || $resultDomain !== '') {
+                            $sourceLabel = $resultSiteName !== '' ? $resultSiteName : $resultDomain;
+                            if ($resultSiteName !== '' && $resultDomain !== '' && mb_strtolower($resultSiteName) !== mb_strtolower($resultDomain)) {
+                                $sourceLabel .= ' · ' . $resultDomain;
+                            }
+                            $metaItems[] = $sourceLabel;
+                        }
+                        if ($resultPublished !== null) {
+                            $metaItems[] = 'Published ' . $resultPublished;
+                        }
+                        if ($resultRelative !== null) {
+                            $metaItems[] = 'Updated ' . $resultRelative;
+                        }
+                        $cardClasses = 'news-card';
+                        if ($resultImage === '') {
+                            $cardClasses .= ' news-card--no-image';
+                        }
+                        ?>
+                        <article class="<?= esc($cardClasses) ?>">
+                            <div class="news-card__content">
+                                <?php if ($metaItems !== []): ?>
+                                    <div class="news-card__meta">
+                                        <?php foreach ($metaItems as $item): ?>
+                                            <span><?= esc($item) ?></span>
+                                        <?php endforeach; ?>
+                                    </div>
+                                <?php endif; ?>
+                                <h3 class="news-card__title">
+                                    <a href="<?= esc($resultUrl) ?>" target="_blank" rel="noopener">
+                                        <?= esc($resultTitle) ?>
+                                    </a>
+                                </h3>
+                                <?php if ($resultSummary !== ''): ?>
+                                    <p class="news-card__summary"><?= esc($resultSummary) ?></p>
+                                <?php endif; ?>
+                                <div class="news-card__footer">
+                                    <span class="news-card__quality"<?= $resultIngest ? ' data-ingest="yes"' : '' ?>><?= esc($resultLabel) ?> · <?= esc($resultQuality) ?></span>
+                                    <?php if ($resultTopics !== []): ?>
+                                        <div class="news-card__topics">
+                                            <?php foreach ($resultTopics as $topic): ?>
+                                                <span><?= esc($topic) ?></span>
+                                            <?php endforeach; ?>
+                                        </div>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                            <?php if ($resultImage !== ''): ?>
+                                <a class="news-card__media" href="<?= esc($resultUrl) ?>" target="_blank" rel="noopener">
+                                    <img src="<?= esc($resultImage) ?>" alt="" loading="lazy">
+                                </a>
+                            <?php endif; ?>
+                        </article>
+                    <?php endforeach; ?>
+                <?php endif; ?>
                 </div>
-                <aside class="news-search__hero-side">
-                    <div class="news-search__topics" data-news-topics<?= $trendingTopics === [] ? ' hidden' : '' ?>>
+            </section>
+            <aside class="news-search__sidebar">
+                <div class="news-sidebar__stack">
+                    <section class="news-sidebar-card news-search__topics" data-news-topics<?= $trendingTopics === [] ? ' hidden' : '' ?>>
                         <h2>Trending topics</h2>
                         <div class="news-search__topics-list" data-news-topics-list>
                             <?php foreach ($trendingTopics as $topic): ?>
                                 <button type="button" class="news-search__chip"><?= esc($topic) ?></button>
                             <?php endforeach; ?>
                         </div>
-                    </div>
-                    <section class="news-discovery news-discovery--inline" data-news-discovery<?= $discoverySeeds === [] ? ' hidden' : '' ?>>
-                        <header>
+                    </section>
+                    <section class="news-sidebar-card news-discovery" data-news-discovery<?= $discoverySeeds === [] ? ' hidden' : '' ?>>
+                        <header class="news-discovery__header">
                             <h2>Discovery map</h2>
                             <p data-news-discovery-status><?= esc($discoveryStatusText) ?></p>
                         </header>
@@ -268,73 +371,9 @@ $discoveryStatusText = sprintf('Tracking %s page%s · %s pending', number_format
                             <p class="news-discovery__hint" data-news-continue-status><?= $discoveryRecommendedCount === 0 ? 'No queued pages right now.' : '' ?></p>
                         </div>
                     </section>
-                </aside>
-            </div>
-        </section>
-
-        <section class="news-search__results" aria-label="News results">
-            <div class="news-search__results-grid" data-news-results>
-                <?php if ($initialResults === []): ?>
-                    <div class="news-empty">No stories indexed yet. Run a crawl from the discovery console to populate the feed.</div>
-                <?php else: ?>
-                    <?php foreach ($initialResults as $result): ?>
-                        <?php
-                        if (!is_array($result)) {
-                            continue;
-                        }
-                        $resultUrl = isset($result['url']) ? (string) $result['url'] : '';
-                        if ($resultUrl === '') {
-                            continue;
-                        }
-                        $resultTitle = trim((string) ($result['title'] ?? $resultUrl));
-                        if ($resultTitle === '') {
-                            $resultTitle = $resultUrl;
-                        }
-                        $resultSummary = trim((string) ($result['summary'] ?? $result['preview'] ?? ''));
-                        if ($resultSummary !== '' && mb_strlen($resultSummary) > 260) {
-                            $resultSummary = rtrim(mb_substr($resultSummary, 0, 260)) . '…';
-                        }
-                        $resultQuality = isset($result['quality_score']) ? number_format((float) $result['quality_score'], 1) : '0.0';
-                        $resultLabel = isset($result['quality_label']) ? (string) $result['quality_label'] : 'Quality';
-                        $resultDomain = isset($result['source_domain']) ? (string) $result['source_domain'] : '';
-                        $resultRelative = $formatRelative($result['last_checked_at'] ?? $result['fetched_at'] ?? null);
-                        $resultTopics = isset($result['topics']) && is_array($result['topics'])
-                            ? array_slice(array_filter(array_map(static fn($topic) => is_string($topic) ? trim($topic) : '', $result['topics'])), 0, 4)
-                            : [];
-                        $resultIngest = !empty($result['ingest']);
-                        ?>
-                        <article class="news-card">
-                            <div class="news-card__body">
-                                <span class="news-card__quality"<?= $resultIngest ? ' data-ingest="yes"' : '' ?>><?= esc($resultLabel) ?> · <?= esc($resultQuality) ?></span>
-                                <h3 class="news-card__title">
-                                    <a href="<?= esc($resultUrl) ?>" target="_blank" rel="noopener">
-                                        <?= esc($resultTitle) ?>
-                                    </a>
-                                </h3>
-                                <?php if ($resultSummary !== ''): ?>
-                                    <p class="news-card__summary"><?= esc($resultSummary) ?></p>
-                                <?php endif; ?>
-                                <div class="news-card__meta">
-                                    <?php if ($resultDomain !== ''): ?>
-                                        <span class="news-card__source"><?= esc($resultDomain) ?></span>
-                                    <?php endif; ?>
-                                    <?php if ($resultRelative !== null): ?>
-                                        <span class="news-card__time"><?= esc($resultRelative) ?></span>
-                                    <?php endif; ?>
-                                </div>
-                                <?php if ($resultTopics !== []): ?>
-                                    <div class="news-card__topics">
-                                        <?php foreach ($resultTopics as $topic): ?>
-                                            <span><?= esc($topic) ?></span>
-                                        <?php endforeach; ?>
-                                    </div>
-                                <?php endif; ?>
-                            </div>
-                        </article>
-                    <?php endforeach; ?>
-                <?php endif; ?>
-            </div>
-        </section>
+                </div>
+            </aside>
+        </div>
     </div>
 </main>
 <script src="<?= esc($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
