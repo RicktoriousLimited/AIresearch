@@ -98,11 +98,45 @@ $crawler = new HiddenCrawler($crawlerStorage, null, null, new ResearchService())
 
 try {
     $results = $crawler->crawl($targets, $depth, $autoInterval, $autoStart, $refreshAfter);
-    $json = json_encode([
-        'success' => true,
-        'count' => count($results),
-        'message' => 'Crawler processed ' . count($results) . ' page(s).',
-    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    $processedCount = 0;
+    $failedCount = 0;
+    $failedDetails = [];
+
+    foreach ($results as $result) {
+        if (!is_array($result)) {
+            continue;
+        }
+
+        $errorMessage = (string) ($result['error'] ?? '');
+        if ($errorMessage !== '') {
+            $failedCount++;
+            $failedDetails[] = [
+                'url' => (string) ($result['url'] ?? ''),
+                'error' => $errorMessage,
+            ];
+            continue;
+        }
+
+        $processedCount++;
+    }
+
+    $message = 'Crawler processed ' . $processedCount . ' page(s).';
+    if ($failedCount > 0) {
+        $message .= ' ' . $failedCount . ' page(s) failed.';
+    }
+
+    $payload = [
+        'success' => $failedCount === 0,
+        'count' => $processedCount,
+        'failed' => $failedCount,
+        'message' => $message,
+    ];
+
+    if ($failedDetails !== []) {
+        $payload['errors'] = $failedDetails;
+    }
+
+    $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     if (!is_string($json)) {
         throw new RuntimeException('Failed to encode crawler response.');
     }
