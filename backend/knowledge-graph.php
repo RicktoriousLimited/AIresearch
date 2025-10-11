@@ -18,7 +18,7 @@ $heroDigest = $state['heroDigest'];
 $graphCoverageSignals = $state['graphCoverageSignals'];
 $graphTimeline = $state['graphTimeline'];
 $spotlight = $state['spotlight'];
-$trendingTopics = array_slice($state['trendingTopics'], 0, 6);
+$trendingTopics = array_slice($state['trendingTopics'], 0, 4);
 $hasGraph = (bool) $state['hasGraph'];
 $initialJson = $state['initialJson'];
 $autocompleteJson = $state['autocompleteJson'];
@@ -33,19 +33,19 @@ $graphRepositoryPath = (string) ($initialState['paths']['graph'] ?? '');
 $graphIntegrations = [
     [
         'title' => 'Insight overview',
-        'description' => 'Dive into entity discovery, relation density, and supporting evidence curated from recent crawls.',
+        'description' => 'Review coverage, entity growth, and supporting evidence in one glance.',
         'href' => $overviewPath,
         'action' => 'Open overview',
     ],
     [
         'title' => 'Autopilot briefs',
-        'description' => 'Compose instant research briefs that fuse citations, highlights, and unique insights from the graph.',
+        'description' => 'Spin up graph-backed briefs with curated citations and highlights.',
         'href' => $autopilotPath,
         'action' => 'Launch brief builder',
     ],
     [
         'title' => 'Research console',
-        'description' => 'Run guided crawls, manage ingestion jobs, and review recommended leads in the operations console.',
+        'description' => 'Monitor crawls, ingest fresh sources, and prioritise new leads.',
         'href' => $researchPath,
         'action' => 'Visit console',
     ],
@@ -54,19 +54,19 @@ $graphIntegrations = [
 $siteIntegrations = [
     [
         'title' => 'Search workspace',
-        'description' => 'Query the knowledge base, autocomplete trending topics, and compare graph-backed sources side-by-side.',
+        'description' => 'Query the graph, autocomplete trending topics, and compare sources side-by-side.',
         'href' => $state['searchPath'],
         'action' => 'Launch search',
     ],
     [
         'title' => 'Data preparation studio',
-        'description' => 'Scrape fresh URLs, clean content, and push structured data directly into the shared knowledge graph.',
+        'description' => 'Scrape fresh URLs, clean content, and push structured data into the graph.',
         'href' => $state['homePath'],
         'action' => 'Open studio',
     ],
     [
         'title' => 'Graph documentation',
-        'description' => 'Review API endpoints, schema guidance, and automation workflows that extend the knowledge graph.',
+        'description' => 'Review API endpoints, schema guidance, and automation workflows.',
         'href' => $state['docsPath'],
         'action' => 'Read docs',
     ],
@@ -93,10 +93,10 @@ $siteIntegrations = [
     <section class="graph-hero">
         <div class="site-container">
             <div class="graph-hero__content">
-                <div>
-                    <p class="eyebrow">Unified intelligence workspace</p>
-                    <h1>Explore the knowledge graph hub</h1>
-                    <p class="lead">Track the freshest entities, relationships, and supporting sources powering AIresearch experiences. Jump into a focused workspace or run a quick search below.</p>
+                <div class="graph-hero__intro">
+                    <p class="eyebrow">Knowledge graph</p>
+                    <h1>Focus on what matters</h1>
+                    <p class="lead">Search the shared graph or jump straight into the workspace that keeps you moving.</p>
                     <?php if ($heroDigest !== []): ?>
                         <ul class="graph-hero__metrics">
                             <?php foreach ($heroDigest as $metric): ?>
@@ -111,7 +111,7 @@ $siteIntegrations = [
                         </ul>
                     <?php endif; ?>
                 </div>
-                <div class="graph-hero__aside">
+                <aside class="graph-hero__aside" aria-label="Search the knowledge graph">
                     <form class="graph-search" data-graph-search data-autocomplete-container>
                         <label class="visually-hidden" for="graph-search-input">Search the knowledge graph</label>
                         <input
@@ -126,14 +126,8 @@ $siteIntegrations = [
                         >
                         <button type="submit" class="button primary">Search</button>
                     </form>
-                    <nav class="graph-subnav" aria-label="Knowledge graph sections">
-                        <ul class="graph-subnav__list">
-                            <li><a class="graph-subnav__link" href="<?= $escape($overviewPath) ?>">Graph overview</a></li>
-                            <li><a class="graph-subnav__link" href="<?= $escape($autopilotPath) ?>">Autopilot brief</a></li>
-                            <li><a class="graph-subnav__link" href="<?= $escape($researchPath) ?>">Research console</a></li>
-                        </ul>
-                    </nav>
-                </div>
+                    <p class="graph-hero__hint">Press return to open the overview with your results.</p>
+                </aside>
             </div>
         </div>
     </section>
@@ -141,13 +135,13 @@ $siteIntegrations = [
         <section class="panel">
             <header class="panel-header">
                 <div>
-                    <h2>Choose a focused workspace</h2>
-                    <p class="panel-subtitle">Each workspace pairs the shared graph with dedicated tooling for analysis, briefing, or ingestion.</p>
+                    <h2>Pick a workspace</h2>
+                    <p class="panel-subtitle">Stay streamlined with the three core views of the graph.</p>
                 </div>
             </header>
             <div class="grid graph-hub-grid">
                 <?php foreach ($graphIntegrations as $card): ?>
-                    <article class="card span-2">
+                    <article class="card">
                         <h3><?= $escape($card['title']) ?></h3>
                         <p class="card-subtle"><?= $escape($card['description']) ?></p>
                         <a class="button ghost" href="<?= $escape($card['href']) ?>"><?= $escape($card['action']) ?></a>
@@ -155,123 +149,31 @@ $siteIntegrations = [
                 <?php endforeach; ?>
             </div>
         </section>
-        <section class="graph-suggestions" data-graph-suggestions<?= $trendingTopics === [] ? ' hidden' : '' ?>>
-            <div class="graph-suggestions__header">
-                <h2>Jump-start discovery</h2>
-                <p>Run a graph search with analyst-tested prompts that surface dense entity clusters.</p>
-            </div>
-            <div class="graph-suggestions__chips">
-                <?php foreach ($trendingTopics as $topic): ?>
-                    <button type="button" class="graph-suggestions__chip" data-graph-suggestion data-query="<?= $escape($topic) ?>"><?= $escape($topic) ?></button>
-                <?php endforeach; ?>
-            </div>
-        </section>
-        <section class="panel graph-analytics">
-            <header class="panel-header">
-                <div>
-                    <h2>Graph analytics snapshot</h2>
-                    <p class="panel-subtitle">A quick readout of ingestion velocity, coverage health, and a spotlight fact.</p>
-                </div>
-            </header>
-            <div class="graph-analytics__grid">
-                <article class="card span-3">
-                    <h3>Ingestion activity</h3>
-                    <p class="card-subtle">Recent daily merges into the shared graph.</p>
-                    <?php $timelineMaxCount = 0; foreach ($graphTimeline as $bucket) { $timelineMaxCount = max($timelineMaxCount, (int) ($bucket['count'] ?? 0)); } ?>
-                    <ol class="graph-timeline" data-graph-timeline<?= $graphTimeline === [] ? ' hidden' : '' ?>>
-                        <?php foreach ($graphTimeline as $bucket): ?>
-                            <?php
-                            $bucketCount = (int) ($bucket['count'] ?? 0);
-                            $bucketLabel = (string) ($bucket['label'] ?? $bucket['date'] ?? '');
-                            $timelineWidth = $timelineMaxCount > 0 ? (int) round(($bucketCount / $timelineMaxCount) * 100) : 0;
-                            ?>
-                            <li>
-                                <span class="graph-timeline__date"><?= $escape($bucketLabel) ?></span>
-                                <span class="graph-timeline__meter"><span style="--meter-width: <?= $escape((string) $timelineWidth) ?>%;"></span></span>
-                                <span class="graph-timeline__value"><?= $escape($formatNumber($bucketCount)) ?></span>
-                            </li>
-                        <?php endforeach; ?>
-                    </ol>
-                    <p class="card-subtle" data-graph-timeline-empty<?= $graphTimeline !== [] ? ' hidden' : '' ?>>No crawl history yet. Kick off a crawl to populate the activity timeline.</p>
-                </article>
-                <article class="card span-2">
-                    <h3>Coverage signals</h3>
-                    <p class="card-subtle">Quality indicators that surface as the graph expands.</p>
-                    <ul class="stat-list" data-graph-coverage<?= $graphCoverageSignals === [] ? ' hidden' : '' ?>>
-                        <?php foreach ($graphCoverageSignals as $signal): ?>
-                            <?php
-                            $signalLabel = (string) ($signal['label'] ?? '');
-                            $signalValue = (string) ($signal['value'] ?? '');
-                            $signalHint = (string) ($signal['hint'] ?? '');
-                            if ($signalLabel === '' || $signalValue === '') {
-                                continue;
-                            }
-                            ?>
-                            <li>
-                                <div class="stat-list__row">
-                                    <span class="stat-list__label"><?= $escape($signalLabel) ?></span>
-                                    <span class="stat-list__value"><?= $escape($signalValue) ?></span>
-                                </div>
-                                <?php if ($signalHint !== ''): ?>
-                                    <p class="stat-list__hint"><?= $escape($signalHint) ?></p>
-                                <?php endif; ?>
-                            </li>
-                        <?php endforeach; ?>
-                    </ul>
-                    <p class="card-subtle" data-graph-coverage-empty<?= $graphCoverageSignals !== [] ? ' hidden' : '' ?>>Coverage signals will appear after the first ingestion.</p>
-                </article>
-                <article class="card span-3">
-                    <h3>Graph spotlight</h3>
-                    <p class="card-subtle">A headline fact and supporting source selected from the freshest crawl.</p>
-                    <div class="graph-spotlight" data-graph-spotlight>
-                        <?php if ($spotlight !== null): ?>
-                            <?php
-                            $spotlightSubject = (string) ($spotlight['subject'] ?? '');
-                            $spotlightRelation = (string) ($spotlight['relation'] ?? '');
-                            $spotlightObject = (string) ($spotlight['object'] ?? '');
-                            $spotlightTitle = (string) ($spotlight['source_title'] ?? '');
-                            $spotlightUrl = (string) ($spotlight['source_url'] ?? '');
-                            $spotlightPreview = (string) ($spotlight['source_preview'] ?? '');
-                            $spotlightFetched = isset($spotlight['fetched_at']) && is_string($spotlight['fetched_at'])
-                                ? ($formatDate($spotlight['fetched_at']) ?? $spotlight['fetched_at'])
-                                : null;
-                            ?>
-                            <div class="graph-spotlight__triple">
-                                <span class="graph-spotlight__subject"><?= $escape($spotlightSubject) ?></span>
-                                <span class="graph-spotlight__relation"><?= $escape($spotlightRelation) ?></span>
-                                <span class="graph-spotlight__object"><?= $escape($spotlightObject) ?></span>
-                            </div>
-                            <?php if ($spotlightPreview !== ''): ?>
-                                <p class="graph-spotlight__preview"><?= $escape($spotlightPreview) ?></p>
-                            <?php endif; ?>
-                            <?php if ($spotlightTitle !== '' || $spotlightUrl !== ''): ?>
-                                <p class="graph-spotlight__source">Source:
-                                    <?php if ($spotlightUrl !== ''): ?>
-                                        <a href="<?= $escape($spotlightUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $escape($spotlightTitle !== '' ? $spotlightTitle : $spotlightUrl) ?></a>
-                                    <?php else: ?>
-                                        <?= $escape($spotlightTitle) ?>
-                                    <?php endif; ?>
-                                </p>
-                            <?php endif; ?>
-                            <?php if ($spotlightFetched !== null): ?>
-                                <p class="graph-spotlight__meta">Backed by <?= $escape($spotlightFetched) ?></p>
-                            <?php endif; ?>
-                        <?php endif; ?>
+        <?php if ($trendingTopics !== []): ?>
+            <section class="panel">
+                <div class="graph-suggestions" data-graph-suggestions>
+                    <div class="graph-suggestions__header">
+                        <h2>Try a suggested prompt</h2>
+                        <p>Start with a proven query to surface dense clusters.</p>
                     </div>
-                    <p class="card-subtle" data-graph-spotlight-empty<?= $spotlight !== null ? ' hidden' : '' ?>>Run a search to surface a headline fact from the graph.</p>
-                </article>
-            </div>
-        </section>
+                    <div class="graph-suggestions__chips">
+                        <?php foreach ($trendingTopics as $topic): ?>
+                            <button type="button" class="graph-suggestions__chip" data-graph-suggestion data-query="<?= $escape($topic) ?>"><?= $escape($topic) ?></button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </section>
+        <?php endif; ?>
         <section class="panel">
             <header class="panel-header">
                 <div>
-                    <h2>Where the graph shows up</h2>
-                    <p class="panel-subtitle">Cross-site features that plug into the shared intelligence layer.</p>
+                    <h2>Use the graph across the site</h2>
+                    <p class="panel-subtitle">Jump straight to the supporting tools.</p>
                 </div>
             </header>
             <div class="grid graph-hub-grid">
                 <?php foreach ($siteIntegrations as $card): ?>
-                    <article class="card span-2">
+                    <article class="card">
                         <h3><?= $escape($card['title']) ?></h3>
                         <p class="card-subtle"><?= $escape($card['description']) ?></p>
                         <a class="button ghost" href="<?= $escape($card['href']) ?>"><?= $escape($card['action']) ?></a>
@@ -282,7 +184,7 @@ $siteIntegrations = [
     </div>
     <section class="graph-note site-container" aria-label="Knowledge graph storage">
         <?php if ($graphRepositoryPath !== ''): ?>
-            <p>Knowledge graph snapshots are stored at <code><?= $escape($graphRepositoryPath) ?></code>. Scrape additional URLs from the <a href="<?= $escape($state['homePath']) ?>">Data Preparation Studio</a>.</p>
+            <p>Snapshots live at <code><?= $escape($graphRepositoryPath) ?></code>. Scrape extra URLs from the <a href="<?= $escape($state['homePath']) ?>">Data Preparation Studio</a> whenever you need more context.</p>
         <?php else: ?>
             <p>Scrape additional URLs from the <a href="<?= $escape($state['homePath']) ?>">Data Preparation Studio</a> to enrich the shared graph.</p>
         <?php endif; ?>
