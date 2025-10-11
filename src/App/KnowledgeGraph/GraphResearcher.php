@@ -22,6 +22,7 @@ use function preg_replace;
 use function preg_split;
 use function similar_text;
 use function str_contains;
+use function str_ends_with;
 use function str_starts_with;
 use function soundex;
 use function sprintf;
@@ -37,6 +38,166 @@ use function usort;
 final class GraphResearcher
 {
     private GraphRepository $repository;
+
+    private const STOP_WORDS = [
+        'a',
+        'about',
+        'above',
+        'after',
+        'again',
+        'against',
+        'all',
+        'almost',
+        'along',
+        'also',
+        'although',
+        'am',
+        'among',
+        'an',
+        'and',
+        'any',
+        'around',
+        'as',
+        'at',
+        'be',
+        'because',
+        'been',
+        'before',
+        'being',
+        'below',
+        'between',
+        'both',
+        'but',
+        'by',
+        'can',
+        'could',
+        'did',
+        'do',
+        'does',
+        'doing',
+        'done',
+        'during',
+        'each',
+        'either',
+        'else',
+        'ever',
+        'for',
+        'from',
+        'further',
+        'give',
+        'given',
+        'had',
+        'has',
+        'have',
+        'having',
+        'how',
+        'if',
+        'in',
+        'into',
+        'is',
+        'its',
+        'just',
+        'latest',
+        'like',
+        'made',
+        'make',
+        'makes',
+        'many',
+        'may',
+        'might',
+        'more',
+        'most',
+        'much',
+        'must',
+        'near',
+        'need',
+        'needed',
+        'needs',
+        'new',
+        'news',
+        'no',
+        'nor',
+        'not',
+        'now',
+        'of',
+        'off',
+        'on',
+        'once',
+        'one',
+        'only',
+        'onto',
+        'or',
+        'other',
+        'our',
+        'out',
+        'over',
+        'please',
+        'provide',
+        'recent',
+        'report',
+        'reports',
+        'said',
+        'say',
+        'says',
+        'see',
+        'should',
+        'show',
+        'since',
+        'so',
+        'some',
+        'such',
+        'tell',
+        'than',
+        'that',
+        'the',
+        'their',
+        'them',
+        'then',
+        'there',
+        'these',
+        'they',
+        'this',
+        'those',
+        'though',
+        'through',
+        'to',
+        'today',
+        'told',
+        'toward',
+        'towards',
+        'under',
+        'until',
+        'up',
+        'upon',
+        'use',
+        'used',
+        'using',
+        'very',
+        'via',
+        'want',
+        'wanted',
+        'wants',
+        'was',
+        'were',
+        'what',
+        'when',
+        'where',
+        'which',
+        'while',
+        'who',
+        'whom',
+        'why',
+        'will',
+        'with',
+        'within',
+        'without',
+        'would',
+    ];
+
+    /**
+     * @var array<string, bool>|null
+     */
+    private static ?array $stopWordLookup = null;
 
     /**
      * @var array<string, mixed>|null
@@ -874,7 +1035,17 @@ final class GraphResearcher
             return array_slice($sources, 0, $limit);
         }
 
-        $tokens = $this->tokenize($this->normaliseName($query));
+        $normalisedQuery = $this->normaliseName($query);
+        if ($normalisedQuery === '') {
+            return array_slice($sources, 0, $limit);
+        }
+
+        $tokens = $this->tokenize($normalisedQuery);
+        $focusedTokens = $this->focusTokens($tokens);
+        if ($focusedTokens !== []) {
+            $tokens = $focusedTokens;
+        }
+
         if ($tokens === []) {
             return array_slice($sources, 0, $limit);
         }
@@ -1023,29 +1194,35 @@ final class GraphResearcher
             return ['score' => 0.0, 'signals' => []];
         }
 
-        $normalNeedle = $this->normaliseName($query);
         $normalCandidate = $this->normaliseName($candidate);
-
-        if ($normalNeedle === '' || $normalCandidate === '') {
+        if ($normalCandidate === '') {
             return ['score' => 0.0, 'signals' => []];
         }
 
-        $lexical = $this->lexicalSimilarity($normalNeedle, $normalCandidate);
-        $overlap = $this->tokenOverlapScore($normalNeedle, $normalCandidate);
-        $phonetic = $this->phoneticSimilarity($query, $candidate);
-        $affinity = $this->affinityScore($normalNeedle, $normalCandidate);
+        $normalNeedle = $this->normaliseName($query);
+        $focusedNeedle = $this->focusQuery($query, $normalNeedle);
 
-        $score = ($lexical * 0.45) + ($overlap * 0.25) + ($phonetic * 0.2) + ($affinity * 0.1);
+        if ($normalNeedle === '') {
+            $normalNeedle = $focusedNeedle;
+        }
 
-        return [
-            'score' => max(0.0, min(1.0, $score)),
-            'signals' => $this->filterSignals([
-                'lexical' => $lexical,
-                'overlap' => $overlap,
-                'phonetic' => $phonetic,
-                'affinity' => $affinity,
-            ]),
-        ];
+        if ($normalNeedle === '') {
+            return ['score' => 0.0, 'signals' => []];
+        }
+
+        $best = $this->buildMatchScore($normalNeedle, $normalCandidate, trim($query), $candidate);
+
+        if ($focusedNeedle !== '' && $focusedNeedle !== $normalNeedle) {
+            $focused = $this->buildMatchScore($focusedNeedle, $normalCandidate, $focusedNeedle, $candidate);
+
+            if ($focused['score'] > $best['score']) {
+                $best = $focused;
+            } elseif ($focused['score'] === $best['score'] && $focused['signals'] !== []) {
+                $best['signals'] = $this->mergeSignals($best['signals'], $focused['signals']);
+            }
+        }
+
+        return $best;
     }
 
     private function lexicalSimilarity(string $left, string $right): float
@@ -1159,6 +1336,167 @@ final class GraphResearcher
         $this->tokenCache[$value] = $unique;
 
         return $unique;
+    }
+
+    /**
+     * @return array{score: float, signals: array<string, float>}
+     */
+    private function buildMatchScore(string $needle, string $candidate, string $phoneticNeedle, string $phoneticCandidate): array
+    {
+        $lexical = $this->lexicalSimilarity($needle, $candidate);
+        $overlap = $this->tokenOverlapScore($needle, $candidate);
+        $phonetic = $this->phoneticSimilarity($phoneticNeedle, $phoneticCandidate);
+        $affinity = $this->affinityScore($needle, $candidate);
+
+        $score = ($lexical * 0.45) + ($overlap * 0.25) + ($phonetic * 0.2) + ($affinity * 0.1);
+
+        return [
+            'score' => max(0.0, min(1.0, $score)),
+            'signals' => $this->filterSignals([
+                'lexical' => $lexical,
+                'overlap' => $overlap,
+                'phonetic' => $phonetic,
+                'affinity' => $affinity,
+            ]),
+        ];
+    }
+
+    /**
+     * @param array<string, float> $primary
+     * @param array<string, float> $secondary
+     * @return array<string, float>
+     */
+    private function mergeSignals(array $primary, array $secondary): array
+    {
+        $merged = $primary;
+
+        foreach ($secondary as $key => $value) {
+            if (!is_string($key)) {
+                continue;
+            }
+
+            if (!isset($merged[$key]) || $value > $merged[$key]) {
+                $merged[$key] = $value;
+            }
+        }
+
+        return $this->filterSignals($merged);
+    }
+
+    private function focusQuery(string $query, ?string $normalised = null): string
+    {
+        $normalised = $normalised ?? $this->normaliseName($query);
+        if ($normalised === '') {
+            return '';
+        }
+
+        $tokens = $this->tokenize($normalised);
+        if ($tokens === []) {
+            return $normalised;
+        }
+
+        $focused = $this->focusTokens($tokens);
+        if ($focused === []) {
+            return $normalised;
+        }
+
+        return implode(' ', $focused);
+    }
+
+    /**
+     * @param array<int, string> $tokens
+     * @return array<int, string>
+     */
+    private function focusTokens(array $tokens): array
+    {
+        if ($tokens === []) {
+            return [];
+        }
+
+        $lookup = $this->stopWordLookup();
+        $focused = [];
+
+        foreach ($tokens as $token) {
+            $token = trim((string) $token);
+            if ($token === '') {
+                continue;
+            }
+
+            if (isset($lookup[$token])) {
+                continue;
+            }
+
+            $stem = $this->stemToken($token);
+            if ($stem === '' || isset($lookup[$stem])) {
+                continue;
+            }
+
+            if (in_array($stem, $focused, true)) {
+                continue;
+            }
+
+            $focused[] = $stem;
+        }
+
+        return $focused;
+    }
+
+    private function stemToken(string $token): string
+    {
+        $token = trim($token);
+        if ($token === '') {
+            return '';
+        }
+
+        if (str_ends_with($token, "'s")) {
+            $token = substr($token, 0, -2);
+        }
+
+        $length = strlen($token);
+        if ($length <= 3) {
+            return $token;
+        }
+
+        if ($length > 4 && str_ends_with($token, 'ies')) {
+            return substr($token, 0, -3) . 'y';
+        }
+
+        foreach (['ing', 'ers', 'ied'] as $suffix) {
+            if ($length > 4 && str_ends_with($token, $suffix)) {
+                return substr($token, 0, -strlen($suffix));
+            }
+        }
+
+        foreach (['ed', 'es'] as $suffix) {
+            if ($length > 3 && str_ends_with($token, $suffix)) {
+                return substr($token, 0, -strlen($suffix));
+            }
+        }
+
+        if ($length > 3 && str_ends_with($token, 's')) {
+            return substr($token, 0, -1);
+        }
+
+        return $token;
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function stopWordLookup(): array
+    {
+        if (self::$stopWordLookup !== null) {
+            return self::$stopWordLookup;
+        }
+
+        $lookup = [];
+        foreach (self::STOP_WORDS as $word) {
+            $lookup[$word] = true;
+        }
+
+        self::$stopWordLookup = $lookup;
+
+        return $lookup;
     }
 
     /**

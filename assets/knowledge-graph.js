@@ -63,6 +63,7 @@
 
     const summaryCache = new Map();
     const reportCache = new Map();
+    const searchCache = new Map();
     let reportAbortController = null;
     let reportSkeleton = null;
     let reportLoadingTimer = null;
@@ -156,6 +157,48 @@
         }
 
         return parts.join(' · ');
+    }
+
+    function normaliseQueryKey(query) {
+        if (typeof query !== 'string') {
+            return '';
+        }
+
+        return query.trim().toLowerCase();
+    }
+
+    function cloneData(data) {
+        if (data === null || typeof data !== 'object') {
+            return data;
+        }
+
+        if (typeof structuredClone === 'function') {
+            try {
+                return structuredClone(data);
+            } catch (error) {
+                // Fallback to JSON approach
+            }
+        }
+
+        try {
+            return JSON.parse(JSON.stringify(data));
+        } catch (error) {
+            return data;
+        }
+    }
+
+    async function parseJsonResponse(response) {
+        const text = await response.text();
+        if (!text) {
+            return { parsed: null, raw: '' };
+        }
+
+        try {
+            return { parsed: JSON.parse(text), raw: text };
+        } catch (error) {
+            const snippet = text.replace(/\s+/g, ' ').trim().slice(0, 160);
+            throw new Error(snippet ? `Unexpected response format: ${snippet}` : 'Unexpected empty response from server.');
+        }
     }
 
     function toggleLoading(isLoading) {
@@ -1120,12 +1163,16 @@
                 headers: { Accept: 'application/json' },
             });
 
+            const { parsed } = await parseJsonResponse(response);
+
             if (!response.ok) {
-                throw new Error(`Unable to analyse document overlap (${response.status})`);
+                const errorMessage = parsed && parsed.error
+                    ? parsed.error
+                    : `Unable to analyse document overlap (${response.status})`;
+                throw new Error(errorMessage);
             }
 
-            const payload = await response.json();
-            const comparison = payload && payload.data && payload.data.comparison ? payload.data.comparison : null;
+            const comparison = parsed && parsed.data && parsed.data.comparison ? parsed.data.comparison : null;
             if (!comparison) {
                 throw new Error('Malformed document comparison payload.');
             }
@@ -1176,12 +1223,16 @@
                 signal: controller.signal,
             });
 
+            const { parsed } = await parseJsonResponse(response);
+
             if (!response.ok) {
-                throw new Error(`Unable to generate report (${response.status})`);
+                const errorMessage = parsed && parsed.error
+                    ? parsed.error
+                    : `Unable to generate report (${response.status})`;
+                throw new Error(errorMessage);
             }
 
-            const payload = await response.json();
-            const report = payload && payload.data && payload.data.report ? payload.data.report : null;
+            const report = parsed && parsed.data && parsed.data.report ? parsed.data.report : null;
             if (!report) {
                 throw new Error('Malformed report response.');
             }
@@ -1399,12 +1450,16 @@
                 headers: { Accept: 'application/json' },
             });
 
+            const { parsed } = await parseJsonResponse(response);
+
             if (!response.ok) {
-                throw new Error(`Unable to load entity summary (${response.status})`);
+                const errorMessage = parsed && parsed.error
+                    ? parsed.error
+                    : `Unable to load entity summary (${response.status})`;
+                throw new Error(errorMessage);
             }
 
-            const payload = await response.json();
-            const summary = payload && payload.data && payload.data.entity ? payload.data.entity : null;
+            const summary = parsed && parsed.data && parsed.data.entity ? parsed.data.entity : null;
             if (!summary) {
                 throw new Error('Entity summary not available.');
             }
@@ -1422,9 +1477,16 @@
             return;
         }
 
+        const queryKey = normaliseQueryKey(typeof search.query === 'string' ? search.query : '');
+        if (queryKey) {
+            searchCache.set(queryKey, cloneData(search));
+        }
+
         const summary = search.summary || {};
         const sources = Array.isArray(search.sources) ? search.sources : [];
         const updatedAt = search.updated_at || null;
+
+        const skipFollowups = Boolean(options.skipFollowups);
 
         renderMetrics(summary, sources, updatedAt);
         renderEntities(search.entities || []);
@@ -1452,7 +1514,7 @@
             loadEntitySummary(search.entities[0].entity, search.entities[0].summary || null, search.entities[0]);
         }
 
-        if (!options.fromInitial) {
+        if (!options.fromInitial && !skipFollowups) {
             currentReportQuery = search.query || currentReportQuery;
             generateReport(currentReportQuery);
             loadDocumentComparison();
@@ -1503,19 +1565,14 @@
                 headers: { Accept: 'application/json' },
             });
 
+            const { parsed } = await parseJsonResponse(response);
+
             if (!response.ok) {
                 return;
             }
 
-            let payload = null;
-            try {
-                payload = await response.json();
-            } catch (parseError) {
-                payload = null;
-            }
-
-            if (payload && payload.data && Array.isArray(payload.data.entities)) {
-                renderTopEntities(payload.data.entities);
+            if (parsed && parsed.data && Array.isArray(parsed.data.entities)) {
+                renderTopEntities(parsed.data.entities);
             }
         } catch (error) {
             // Silent failure; recommendations are non-critical.
@@ -1527,24 +1584,38 @@
             return;
         }
 
+        const trimmedQuery = typeof query === 'string' ? query.trim() : '';
+        const cacheKey = normaliseQueryKey(trimmedQuery);
+
+        if (cacheKey && searchCache.has(cacheKey)) {
+            const cachedResult = cloneData(searchCache.get(cacheKey));
+            if (cachedResult) {
+                renderSearchResult(cachedResult, { skipFollowups: true });
+            }
+        }
+
         toggleLoading(true);
 
         try {
             const url = new URL(searchEndpoint, window.location.origin);
             url.searchParams.set('action', 'search');
-            url.searchParams.set('q', query);
+            url.searchParams.set('q', trimmedQuery);
             url.searchParams.set('limit', '18');
 
             const response = await fetch(url.toString(), {
                 headers: { Accept: 'application/json' },
             });
 
+            const { parsed } = await parseJsonResponse(response);
+
             if (!response.ok) {
-                throw new Error(`Search failed (${response.status})`);
+                const errorMessage = parsed && parsed.error
+                    ? parsed.error
+                    : `Search failed (${response.status})`;
+                throw new Error(errorMessage);
             }
 
-            const payload = await response.json();
-            const searchResult = payload && payload.data && payload.data.search ? payload.data.search : null;
+            const searchResult = parsed && parsed.data && parsed.data.search ? parsed.data.search : null;
             if (!searchResult) {
                 throw new Error('Malformed response from search endpoint.');
             }
@@ -1593,19 +1664,19 @@
                 }),
             });
 
-            let payload = null;
+            let parsed = null;
             try {
-                payload = await response.json();
+                ({ parsed } = await parseJsonResponse(response));
             } catch (parseError) {
-                payload = null;
+                throw new Error(parseError instanceof Error ? parseError.message : 'Unexpected crawl response.');
             }
 
             if (!response.ok) {
-                const errorMessage = payload && payload.error ? payload.error : `Crawl failed (${response.status})`;
+                const errorMessage = parsed && parsed.error ? parsed.error : `Crawl failed (${response.status})`;
                 throw new Error(errorMessage);
             }
 
-            const data = payload && payload.data ? payload.data : null;
+            const data = parsed && parsed.data ? parsed.data : null;
             if (!data) {
                 throw new Error('Malformed crawl response.');
             }
@@ -1645,19 +1716,19 @@
                 body: JSON.stringify({ action: 'refresh' }),
             });
 
-            let payload = null;
+            let parsed = null;
             try {
-                payload = await response.json();
+                ({ parsed } = await parseJsonResponse(response));
             } catch (parseError) {
-                payload = null;
+                throw new Error(parseError instanceof Error ? parseError.message : 'Unexpected refresh response.');
             }
 
             if (!response.ok) {
-                const errorMessage = payload && payload.error ? payload.error : `Refresh failed (${response.status})`;
+                const errorMessage = parsed && parsed.error ? parsed.error : `Refresh failed (${response.status})`;
                 throw new Error(errorMessage);
             }
 
-            const data = payload && payload.data ? payload.data : null;
+            const data = parsed && parsed.data ? parsed.data : null;
             if (!data) {
                 throw new Error('Malformed refresh response.');
             }
