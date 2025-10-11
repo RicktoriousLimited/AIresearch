@@ -27,10 +27,7 @@ $homePath = PathResolver::url($assetBase, 'index.php');
 $searchPath = PathResolver::url($assetBase, 'search.php');
 $graphPath = PathResolver::url($assetBase, 'knowledge-graph.php');
 $docsPath = PathResolver::url($assetBase, 'docs');
-$getStartedPath = PathResolver::url($assetBase, 'docs/guides/getting-started.md');
 $apiPath = PathResolver::url($assetBase, 'api');
-$researchCliPath = PathResolver::url($assetBase, 'research.php');
-$healthPath = PathResolver::url($assetBase, 'health.php');
 
 $repository = new GraphRepository();
 $researcher = new GraphResearcher($repository);
@@ -38,7 +35,6 @@ $service = new ResearchService($repository);
 
 $initialSearch = $researcher->searchGraph('', 18);
 $topEntities = $service->listTopEntities(12);
-
 $summary = isset($initialSearch['summary']) && is_array($initialSearch['summary']) ? $initialSearch['summary'] : [];
 $sources = isset($initialSearch['sources']) && is_array($initialSearch['sources']) ? $initialSearch['sources'] : [];
 $updatedAt = isset($initialSearch['updated_at']) && is_string($initialSearch['updated_at']) ? $initialSearch['updated_at'] : null;
@@ -66,17 +62,41 @@ $formatDate = static function (?string $value): ?string {
 };
 
 $documentsProcessed = $formatNumber($summary['documents_processed'] ?? 0);
-$sourcesTracked = $formatNumber(count($sources));
 $triplesExtracted = $formatNumber($summary['triples'] ?? count($initialSearch['triples'] ?? []));
 $uniqueEntities = $formatNumber($summary['unique_entities'] ?? count($initialSearch['entities'] ?? []));
 $synonymGroups = $formatNumber($summary['synonym_groups'] ?? count($initialSearch['synonyms'] ?? []));
+$sourcesTracked = $formatNumber(count($sources));
 $updatedLabel = $formatDate($updatedAt) ?? $updatedAt;
-$homeStatus = sprintf(
-    'Tracking %s sources · %s documents analysed%s',
-    $sourcesTracked,
-    $documentsProcessed,
-    $updatedLabel !== null ? ' · Updated ' . $updatedLabel : ''
-);
+
+$coverageStats = [
+    [
+        'label' => 'Documents analysed',
+        'value' => $documentsProcessed,
+    ],
+    [
+        'label' => 'Knowledge graph triples',
+        'value' => $triplesExtracted,
+    ],
+    [
+        'label' => 'Unique entities indexed',
+        'value' => $uniqueEntities,
+    ],
+    [
+        'label' => 'Synonym groups linked',
+        'value' => $synonymGroups,
+    ],
+    [
+        'label' => 'Curated sources',
+        'value' => $sourcesTracked,
+    ],
+];
+
+if ($updatedLabel !== null) {
+    $coverageStats[] = [
+        'label' => 'Graph last updated',
+        'value' => $updatedLabel,
+    ];
+}
 
 $entityNames = [];
 foreach ($topEntities as $entityRow) {
@@ -93,9 +113,9 @@ foreach ($topEntities as $entityRow) {
 }
 
 $curatedQueries = [
+    'intelligent search for AI market shifts',
     'foundation model evaluation frameworks',
     'emerging biotech partnerships',
-    'autonomous vehicle safety breakthroughs',
     'climate risk scenario planning',
     'synthetic data governance policies',
     'quantum compute hardware vendors',
@@ -118,148 +138,33 @@ if (!is_string($placeholderJson)) {
     $placeholderJson = '[]';
 }
 
-$statGroups = [
-    [
-        'label' => 'Documents analysed',
-        'value' => $documentsProcessed,
-    ],
-    [
-        'label' => 'Knowledge triples',
-        'value' => $triplesExtracted,
-    ],
-    [
-        'label' => 'Entities indexed',
-        'value' => $uniqueEntities,
-    ],
-    [
-        'label' => 'Synonym groups',
-        'value' => $synonymGroups,
-    ],
-    [
-        'label' => 'Curated sources',
-        'value' => $sourcesTracked,
-    ],
-];
-
-if ($updatedLabel !== null) {
-    $statGroups[] = [
-        'label' => 'Last refreshed',
-        'value' => $updatedLabel,
-    ];
-}
-
 $featureHighlights = [
     [
-        'title' => 'Briefs grounded in citations',
-        'description' => 'Autopilot produces executive-ready narratives with inline citations and linked evidence for every claim.',
+        'title' => 'Intelligent ranking',
+        'description' => 'Entity-aware scoring blends graph context, synonym clusters, and fact density so the most relevant answers surface first.',
     ],
     [
-        'title' => 'Graph-native search',
-        'description' => 'Blend entity awareness, relation scoring, and semantic retrieval to answer complex research prompts quickly.',
+        'title' => 'Cited summaries',
+        'description' => 'Generate briefing-ready narratives grounded in traceable graph facts and linked source material.',
     ],
     [
-        'title' => 'Continuous signal tracking',
-        'description' => 'Monitor filings, posts, and analyst notes so your coverage area stays fresh without manual stitching.',
-    ],
-];
-
-$quickLinks = [
-    [
-        'label' => 'Run an Autopilot brief',
-        'href' => $searchPath,
-    ],
-    [
-        'label' => 'Explore the knowledge graph',
-        'href' => $graphPath,
-    ],
-    [
-        'label' => 'Read the documentation',
-        'href' => $docsPath,
+        'title' => 'Search your corpus',
+        'description' => 'Connect proprietary documents, filings, and research feeds to build a unified intelligence surface for the whole team.',
     ],
 ];
 
-$homeShortcuts = [
+$workflowSteps = [
     [
-        'title' => 'Benchmark competitors',
-        'description' => 'Line up product launches, pricing moves, and market traction across a peer set.',
-        'query' => 'competitive intelligence for vector database vendors',
+        'title' => 'Ask a question',
+        'description' => 'Start with a natural language question or a specific entity. Intelligent search instantly expands it with related terms.',
     ],
     [
-        'title' => 'Map funding momentum',
-        'description' => 'Surface the newest venture rounds, investor sentiment, and growth signals.',
-        'query' => 'latest funding momentum in applied robotics startups',
+        'title' => 'Review the facts',
+        'description' => 'See graph-backed facts, linked counterparties, and trending relationships before diving into raw sources.',
     ],
     [
-        'title' => 'Track regulatory shifts',
-        'description' => 'Follow policy updates, compliance milestones, and expert commentary.',
-        'query' => 'global AI safety regulation updates',
-    ],
-];
-
-$researchPlaybooks = [
-    [
-        'label' => 'Autonomous mobility safety heatmap',
-        'description' => 'Identify critical incidents, mitigation strategies, and regulatory deadlines.',
-        'query' => 'autonomous vehicle safety breakthroughs',
-    ],
-    [
-        'label' => 'Synthetic data supply chain scan',
-        'description' => 'Understand vendors, policies, and enterprise adoption signals.',
-        'query' => 'synthetic data governance policies',
-    ],
-    [
-        'label' => 'Enterprise CX benchmark pack',
-        'description' => 'Gather reference wins, sentiment drivers, and capability gaps.',
-        'query' => 'customer experience AI benchmarks',
-    ],
-    [
-        'label' => 'Climate resilience briefing',
-        'description' => 'Monitor transition risk disclosures and adaptation investments.',
-        'query' => 'climate risk scenario planning',
-    ],
-];
-
-$insightStreams = array_slice($entityNames, 0, 6);
-
-$workflowStages = [
-    [
-        'title' => 'Monitor signals',
-        'items' => [
-            'Entity change log with provenance',
-            'Policy and regulation digests',
-            'Funding and partnership heatmap',
-        ],
-    ],
-    [
-        'title' => 'Synthesize briefs',
-        'items' => [
-            'Narratives grounded in citations',
-            'Auto-generated charts and callouts',
-            'Exportable executive summaries',
-        ],
-    ],
-    [
-        'title' => 'Activate insights',
-        'items' => [
-            'Share playbooks with stakeholders',
-            'Push updates to Slack and email',
-            'Schedule refreshes and alerts',
-        ],
-    ],
-];
-
-$evidencePillars = [
-    [
-        'title' => 'Coverage spotlight',
-        'description' => 'See which domains, companies, or scientists are dominating the conversation right now.',
-    ],
-    [
-        'title' => 'Emerging questions',
-        'description' => 'AI surfaces the hard questions decision makers are asking so you can answer them first.',
-    ],
-    [
-        'title' => 'Source transparency',
-        'description' => 'Trace every claim back to filings, research papers, community posts, and analyst notes.',
+        'title' => 'Share insight',
+        'description' => 'Export findings to slides, share a live link, or pivot into the knowledge graph when you need to go deeper.',
     ],
 ];
 ?>
@@ -268,215 +173,117 @@ $evidencePillars = [
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AIresearch · Search the collective research graph</title>
-    <link rel="stylesheet" href="<?= esc($stylesPath . '?v=' . $stylesVersion); ?>">
+    <title>AIresearch Intelligent Search</title>
+    <link rel="stylesheet" href="<?= esc($stylesPath . '?v=' . $stylesVersion) ?>">
 </head>
-<body class="home-page">
-<header class="site-header site-header--compact">
-    <div class="shell header-shell header-shell--compact">
-        <a class="brand" href="<?= esc($homePath); ?>">AIresearch</a>
-        <nav class="primary-nav" aria-label="Primary">
-            <a href="<?= esc($searchPath); ?>" class="primary-nav__link">Autopilot search</a>
-            <a href="<?= esc($graphPath); ?>" class="primary-nav__link">Knowledge graph</a>
-            <a href="<?= esc($docsPath); ?>" class="primary-nav__link">Documentation</a>
+<body class="site site--home">
+<header class="site-header">
+    <div class="site-header__inner">
+        <a class="site-brand" href="<?= esc($homePath) ?>">AIresearch</a>
+        <nav class="site-nav" aria-label="Primary navigation">
+            <a class="site-nav__link site-nav__link--active" href="<?= esc($homePath) ?>">Home</a>
+            <a class="site-nav__link" href="<?= esc($searchPath) ?>">Intelligent search</a>
+            <a class="site-nav__link" href="<?= esc($graphPath) ?>">Knowledge graph</a>
+            <a class="site-nav__link" href="<?= esc($docsPath) ?>">Docs</a>
         </nav>
-        <div class="header-actions">
-            <a class="button primary" href="<?= esc($searchPath); ?>">Launch search</a>
-        </div>
     </div>
 </header>
-
-<main class="home-main home-main--search">
-    <section class="home-search" id="search">
-        <div class="shell home-search__shell">
-            <div class="home-search__grid">
-                <div class="home-search__column home-search__column--primary">
-                    <div class="home-search__brand">
-                        <p class="home-search__eyebrow">Autopilot workspace</p>
-                        <h1 class="home-search__title">Research autopilot for live intelligence</h1>
-                        <p class="home-search__lead">Blend live coverage with the shared knowledge graph to brief stakeholders in seconds.</p>
-                    </div>
-                    <div class="home-search__controls">
-                        <form class="search-form home-search__form" method="get" action="<?= esc($searchPath); ?>" role="search" data-home-search>
-                            <label class="visually-hidden" for="home-search-input">Search the AIresearch graph</label>
-                            <div class="search-form__field">
-                                <input id="home-search-input" name="q" type="search" placeholder="Try &ldquo;<?= esc($placeholderPhrases[0] ?? 'emerging AI research hubs'); ?>&rdquo;" autocomplete="off" spellcheck="false" data-home-search-input data-home-phrases='<?= esc($placeholderJson); ?>'>
-                                <button type="submit" class="button primary">Autopilot brief</button>
-                            </div>
-                        </form>
-                        <p class="home-search__status"><?= esc($homeStatus); ?></p>
-                    </div>
-                    <?php if ($trendingQueries !== []): ?>
-                    <div class="home-search__chips" data-home-trending>
-                        <span class="home-search__label">Popular queries</span>
-                        <div class="home-search__list">
-                            <?php foreach ($trendingQueries as $query): ?>
-                                <button type="button" class="chip" data-home-chip="<?= esc($query); ?>"><?= esc($query); ?></button>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                    <?php endif; ?>
-                    <div class="home-search__suggestions">
-                        <span class="home-search__label">Jump to a template</span>
-                        <div class="home-search__suggestion-list">
-                            <?php foreach ($researchPlaybooks as $playbook): ?>
-                                <button type="button" class="home-suggestion" data-home-suggestion="<?= esc($playbook['query']); ?>">
-                                    <span class="home-suggestion__name"><?= esc($playbook['label']); ?></span>
-                                    <span class="home-suggestion__description"><?= esc($playbook['description']); ?></span>
-                                </button>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                    <div class="home-search__links">
-                        <?php foreach ($quickLinks as $link): ?>
-                            <a class="home-search__link" href="<?= esc($link['href']); ?>"><?= esc($link['label']); ?></a>
+<main class="landing" id="main">
+    <section class="landing__hero">
+        <div class="landing__hero-content">
+            <p class="landing__eyebrow">Unified research workspace</p>
+            <h1 class="landing__title">Intelligent search built on your knowledge graph</h1>
+            <p class="landing__subtitle">Ask a question, explore the connected facts, and move from curiosity to confident decisions with a single search bar.</p>
+            <form class="landing__search" action="<?= esc($searchPath) ?>" method="get" role="search" data-home-search>
+                <label class="visually-hidden" for="home-query">Ask a research question</label>
+                <input
+                    id="home-query"
+                    name="q"
+                    type="search"
+                    placeholder="Search emerging topics, companies, or risks"
+                    autocomplete="off"
+                    spellcheck="false"
+                    data-home-search-input
+                    data-home-phrases='<?= esc($placeholderJson) ?>'
+                >
+                <button type="submit" class="landing__search-submit">Search</button>
+            </form>
+            <?php if ($trendingQueries !== []): ?>
+                <div class="landing__suggestions" data-home-suggestions>
+                    <span class="landing__suggestions-label">Suggested searches:</span>
+                    <div class="landing__chips">
+                        <?php foreach ($trendingQueries as $query): ?>
+                            <button type="button" class="chip" data-home-chip="<?= esc($query) ?>"><?= esc($query) ?></button>
                         <?php endforeach; ?>
                     </div>
                 </div>
-                <aside class="home-search__column home-search__column--secondary">
-                    <div class="home-panel">
-                        <h3 class="home-panel__title">Workspace shortcuts</h3>
-                        <ul class="home-shortcuts" data-home-shortcuts>
-                            <?php foreach ($homeShortcuts as $shortcut): ?>
-                                <li class="home-shortcut">
-                                    <button type="button" data-home-suggestion="<?= esc($shortcut['query']); ?>">
-                                        <span class="home-shortcut__title"><?= esc($shortcut['title']); ?></span>
-                                        <span class="home-shortcut__description"><?= esc($shortcut['description']); ?></span>
-                                    </button>
-                                </li>
-                            <?php endforeach; ?>
-                        </ul>
-                    </div>
-                    <div class="home-panel">
-                        <h3 class="home-panel__title">Trending insight streams</h3>
-                        <ul class="home-streams">
-                            <?php foreach ($insightStreams as $stream): ?>
-                                <li>
-                                    <button type="button" class="home-stream" data-home-suggestion="<?= esc($stream); ?>">
-                                        <span class="home-stream__name"><?= esc($stream); ?></span>
-                                        <span class="home-stream__meta">Follow live signals instantly</span>
-                                    </button>
-                                </li>
-                            <?php endforeach; ?>
-                        </ul>
-                    </div>
-                </aside>
-            </div>
+            <?php endif; ?>
         </div>
     </section>
 
-    <section class="home-intel">
-        <div class="shell home-intel__shell">
-            <div class="home-intel__grid" aria-live="polite">
-                <?php foreach ($statGroups as $stat): ?>
-                    <article class="home-intel__card">
-                        <span class="home-intel__label"><?= esc($stat['label']); ?></span>
-                        <span class="home-intel__value"><?= esc((string) $stat['value']); ?></span>
-                        <span class="home-intel__hint">Continuously refreshed from the research graph</span>
-                    </article>
-                <?php endforeach; ?>
-            </div>
+    <section class="feature-grid" aria-labelledby="feature-heading">
+        <div class="section-heading">
+            <h2 id="feature-heading">Why teams adopt intelligent search</h2>
+            <p>Every result blends semantic retrieval with graph-native reasoning so you can navigate complex research questions like a conventional search experience.</p>
+        </div>
+        <div class="feature-grid__items">
+            <?php foreach ($featureHighlights as $feature): ?>
+                <article class="feature-card">
+                    <h3 class="feature-card__title"><?= esc($feature['title']) ?></h3>
+                    <p class="feature-card__description"><?= esc($feature['description']) ?></p>
+                </article>
+            <?php endforeach; ?>
         </div>
     </section>
 
-    <section class="home-workflow">
-        <div class="shell home-workflow__shell">
-            <div class="home-workflow__intro">
-                <h2>Design your research autopilot</h2>
-                <p class="muted">Blend live monitoring, synthesis, and distribution without leaving the workspace.</p>
-            </div>
-            <div class="home-workflow__grid">
-                <?php foreach ($workflowStages as $stage): ?>
-                    <article class="home-workflow__stage">
-                        <h3><?= esc($stage['title']); ?></h3>
-                        <ul>
-                            <?php foreach ($stage['items'] as $item): ?>
-                                <li><?= esc($item); ?></li>
-                            <?php endforeach; ?>
-                        </ul>
-                    </article>
-                <?php endforeach; ?>
-            </div>
+    <section class="stats-grid" aria-labelledby="stats-heading">
+        <div class="section-heading">
+            <h2 id="stats-heading">Knowledge coverage at a glance</h2>
+            <p>Connect the crawler to your corpus and watch these totals update automatically.</p>
         </div>
-    </section>
-
-    <section class="home-updates">
-        <div class="shell home-updates__shell">
-            <div class="home-updates__grid">
-                <div class="home-updates__panel">
-                    <h2>Evidence board</h2>
-                    <p class="muted">Pin live streams, trigger alerts, and share reports from one place.</p>
-                    <ul class="home-updates__list">
-                        <?php foreach ($evidencePillars as $pillar): ?>
-                            <li>
-                                <span class="home-updates__item-title"><?= esc($pillar['title']); ?></span>
-                                <span class="home-updates__item-text"><?= esc($pillar['description']); ?></span>
-                            </li>
-                        <?php endforeach; ?>
-                    </ul>
+        <dl class="stats-grid__items">
+            <?php foreach ($coverageStats as $stat): ?>
+                <div class="stats-grid__item">
+                    <dt><?= esc($stat['label']) ?></dt>
+                    <dd><?= esc($stat['value']) ?></dd>
                 </div>
-                <div class="home-updates__panel home-updates__panel--streams">
-                    <h2>Active streams</h2>
-                    <ol class="home-updates__streams" data-home-trending-list>
-                        <?php foreach ($placeholderPhrases as $phrase): ?>
-                            <li><button type="button" data-home-suggestion="<?= esc($phrase); ?>"><?= esc($phrase); ?></button></li>
-                        <?php endforeach; ?>
-                    </ol>
-                    <p class="home-updates__note">Tap any stream to pre-fill the search canvas.</p>
-                </div>
-            </div>
+            <?php endforeach; ?>
+        </dl>
+    </section>
+
+    <section class="workflow" aria-labelledby="workflow-heading">
+        <div class="section-heading">
+            <h2 id="workflow-heading">From query to briefing in minutes</h2>
+            <p>Launch the search experience, inspect the facts, and hand stakeholders a narrative backed by citations.</p>
+        </div>
+        <ol class="workflow__steps">
+            <?php foreach ($workflowSteps as $index => $step): ?>
+                <li class="workflow__step">
+                    <span class="workflow__index">0<?= esc((string) ($index + 1)) ?></span>
+                    <div class="workflow__body">
+                        <h3><?= esc($step['title']) ?></h3>
+                        <p><?= esc($step['description']) ?></p>
+                    </div>
+                </li>
+            <?php endforeach; ?>
+        </ol>
+        <div class="workflow__actions">
+            <a class="button" href="<?= esc($searchPath) ?>">Open intelligent search</a>
+            <a class="button button--subtle" href="<?= esc($graphPath) ?>">Explore the knowledge graph</a>
         </div>
     </section>
 
-    <section class="home-highlights">
-        <div class="shell home-highlights__shell">
-            <h2>Why teams choose Autopilot</h2>
-            <div class="home-highlights__grid">
-                <?php foreach ($featureHighlights as $feature): ?>
-                    <article class="home-highlight">
-                        <h3><?= esc($feature['title']); ?></h3>
-                        <p><?= esc($feature['description']); ?></p>
-                    </article>
-                <?php endforeach; ?>
+    <section class="cta" aria-labelledby="cta-heading">
+        <div class="cta__content">
+            <h2 id="cta-heading">Ready to connect your own sources?</h2>
+            <p>Use the API to schedule crawls, stream updates, or push proprietary research. Intelligent search keeps everything discoverable.</p>
+            <div class="cta__actions">
+                <a class="button" href="<?= esc($docsPath) ?>">View API docs</a>
+                <a class="button button--subtle" href="<?= esc($apiPath) ?>">Browse endpoints</a>
             </div>
         </div>
     </section>
 </main>
-
-<footer class="site-footer">
-    <div class="shell footer-shell">
-        <div class="footer-brand">
-            <a href="<?= esc($homePath); ?>">AIresearch</a>
-            <p class="muted">Search, trace, and export the insights that matter. Built for research teams that demand transparent evidence.</p>
-        </div>
-        <div class="footer-links">
-            <div>
-                <h4>Platform</h4>
-                <ul>
-                    <li><a href="<?= esc($searchPath); ?>">Graph search</a></li>
-                    <li><a href="<?= esc($graphPath); ?>">Knowledge graph</a></li>
-                    <li><a href="<?= esc($researchCliPath); ?>">Research CLI</a></li>
-                </ul>
-            </div>
-            <div>
-                <h4>Resources</h4>
-                <ul>
-                    <li><a href="<?= esc($docsPath); ?>">Documentation</a></li>
-                    <li><a href="<?= esc($getStartedPath); ?>">Getting started</a></li>
-                    <li><a href="<?= esc($apiPath); ?>">API</a></li>
-                </ul>
-            </div>
-            <div>
-                <h4>Support</h4>
-                <ul>
-                    <li><a href="<?= esc($healthPath); ?>">System health</a></li>
-                    <li><a href="mailto:support@airesearch.local">Contact</a></li>
-                </ul>
-            </div>
-        </div>
-    </div>
-</footer>
-
-<script src="<?= esc($scriptPath . '?v=' . $scriptVersion); ?>" defer></script>
+<script src="<?= esc($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
 </body>
 </html>
