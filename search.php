@@ -43,6 +43,8 @@ $navigationPaths = [
     'docs' => $docsPath,
 ];
 
+$query = isset($_GET['q']) ? trim((string) $_GET['q']) : '';
+
 $initialResults = [];
 $initialMeta = [];
 $discoverySnapshot = [
@@ -56,7 +58,7 @@ try {
     $storage = __DIR__ . '/storage/backend/crawler-history.json';
     $crawler = new HiddenCrawler($storage);
     $newsService = new NewsSearchService($crawler, new GraphRepository());
-    $newsPayload = $newsService->search('', ['limit' => 24]);
+    $newsPayload = $newsService->search($query, ['limit' => 24]);
     if (is_array($newsPayload)) {
         $initialResults = isset($newsPayload['results']) && is_array($newsPayload['results']) ? $newsPayload['results'] : [];
         $initialMeta = isset($newsPayload['meta']) && is_array($newsPayload['meta']) ? $newsPayload['meta'] : [];
@@ -175,7 +177,9 @@ $formatPercent = static function (?float $value): string {
     return number_format($normalised * 100, $precision) . '%';
 };
 
-$initialStatus = 'Loading live coverage…';
+$initialStatus = $query !== ''
+    ? sprintf('Searching for “%s”…', $query)
+    : 'Loading live coverage…';
 if ($initialMeta !== []) {
     $totalMatches = isset($initialMeta['total_matches']) ? (int) $initialMeta['total_matches'] : count($initialResults);
     $highQuality = isset($initialMeta['high_quality']) ? (int) $initialMeta['high_quality'] : 0;
@@ -288,16 +292,36 @@ $contentSummary = $contentFacet === []
 <body class="site site--search search-page--news">
 <?php SiteLayout::renderHeader($navigationPaths, 'search'); ?>
 <main class="site-main news-search" id="main">
-    <div class="news-search__shell site-container" data-news-app data-news-endpoint="<?= esc($newsEndpoint) ?>">
+    <div
+        class="news-search__shell site-container"
+        data-news-app
+        data-news-endpoint="<?= esc($newsEndpoint) ?>"
+        data-initial-query="<?= esc($query) ?>"
+    >
         <section class="news-search__masthead">
             <div class="news-search__masthead-intro">
                 <p class="news-search__eyebrow">Live headline monitor</p>
                 <h1 class="news-search__title">Discover trusted coverage in seconds</h1>
                 <p class="news-search__lead">Query the continuously updating news graph, score sources by authority, and trigger fresh crawls when gaps appear.</p>
+                <p class="news-search__context" data-news-context><?= $query !== ''
+                    ? 'Tracking coverage for “' . esc($query) . '”.'
+                    : 'Start with a topic, organisation, or event to see live intelligence.'
+                ?></p>
             </div>
             <form class="news-search__form" data-news-search-form role="search" data-autocomplete-container>
                 <label class="visually-hidden" for="news-query">Search the latest headlines</label>
-                <input id="news-query" name="q" type="search" placeholder="Search companies, themes, or breaking events" autocomplete="off" spellcheck="false" data-news-query data-autocomplete data-autocomplete-source='<?= esc($autocompleteJson) ?>'>
+                <input
+                    id="news-query"
+                    name="q"
+                    type="search"
+                    placeholder="Search companies, themes, or breaking events"
+                    autocomplete="off"
+                    spellcheck="false"
+                    value="<?= esc($query) ?>"
+                    data-news-query
+                    data-autocomplete
+                    data-autocomplete-source='<?= esc($autocompleteJson) ?>'
+                >
                 <button type="submit" class="news-search__submit">Search</button>
             </form>
             <div class="news-search__masthead-meta">
