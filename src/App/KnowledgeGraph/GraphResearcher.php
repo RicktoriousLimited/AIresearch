@@ -308,6 +308,10 @@ final class GraphResearcher
             $score = $this->floatValue($ranking['score'] ?? 0.0);
             $eligible = (bool) ($ranking['eligible'] ?? false);
 
+            if (!$eligible) {
+                continue;
+            }
+
             $facts = is_array($payload['facts'] ?? null) ? $payload['facts'] : [];
             $synonyms = is_array($payload['synonyms'] ?? null) ? $payload['synonyms'] : [];
 
@@ -444,7 +448,9 @@ final class GraphResearcher
 
         $entities = array_slice($entities, 0, $limit);
 
-        foreach ($entities as &$entityMatch) {
+        $filteredEntities = [];
+
+        foreach ($entities as $entityMatch) {
             $entityName = $entityMatch['entity'];
             $summary = null;
 
@@ -458,8 +464,12 @@ final class GraphResearcher
 
             $summary = is_array($summary) ? $summary : [];
 
+            if (!isset($summary['eligible']) || $summary['eligible'] !== true) {
+                continue;
+            }
+
             $entityMatch['summary'] = $summary;
-            $entityMatch['eligible'] = isset($summary['eligible']) ? (bool) $summary['eligible'] : false;
+            $entityMatch['eligible'] = true;
             $entityMatch['fact_count'] = isset($summary['fact_count']) ? (int) $summary['fact_count'] : 0;
             $entityMatch['synonyms'] = isset($summary['synonyms']) && is_array($summary['synonyms'])
                 ? array_values($summary['synonyms'])
@@ -467,10 +477,11 @@ final class GraphResearcher
             $entityMatch['facts'] = isset($summary['fact_descriptions']) && is_array($summary['fact_descriptions'])
                 ? array_slice($summary['fact_descriptions'], 0, 6)
                 : [];
-        }
-        unset($entityMatch);
 
-        $result['entities'] = $entities;
+            $filteredEntities[] = $entityMatch;
+        }
+
+        $result['entities'] = $filteredEntities;
         $result['relations'] = $this->buildRelationMatches($query, $snapshot['relations'], $limit);
         $result['synonyms'] = $this->buildSynonymMatches($query, $snapshot['synonyms'], $limit);
         $result['triples'] = $this->buildTripleMatches($query, $snapshot['triples'], min(50, $limit * 4));
@@ -1612,10 +1623,18 @@ final class GraphResearcher
                 continue;
             }
 
+            $subject = trim((string) ($triple['subject'] ?? $triple[0] ?? ''));
+            $relation = trim((string) ($triple['relation'] ?? $triple[1] ?? ''));
+            $object = trim((string) ($triple['object'] ?? $triple[2] ?? ''));
+
+            if ($subject === '' || $relation === '' || $object === '') {
+                continue;
+            }
+
             $triples[] = [
-                'subject' => (string) ($triple['subject'] ?? $triple[0] ?? ''),
-                'relation' => (string) ($triple['relation'] ?? $triple[1] ?? ''),
-                'object' => (string) ($triple['object'] ?? $triple[2] ?? ''),
+                'subject' => $subject,
+                'relation' => $relation,
+                'object' => $object,
             ];
         }
 
@@ -1638,15 +1657,23 @@ final class GraphResearcher
                 continue;
             }
 
-            $entity = (string) ($pair['entity'] ?? '');
+            $entity = trim((string) ($pair['entity'] ?? ''));
+            if ($entity === '') {
+                continue;
+            }
             $synonyms = [];
 
             if (isset($pair['synonyms']) && is_array($pair['synonyms'])) {
                 foreach ($pair['synonyms'] as $synonym) {
-                    if (!is_string($synonym) || $synonym === '') {
+                    if (!is_string($synonym)) {
                         continue;
                     }
-                    $synonyms[] = $synonym;
+
+                    $normalisedSynonym = trim($synonym);
+                    if ($normalisedSynonym === '') {
+                        continue;
+                    }
+                    $synonyms[] = $normalisedSynonym;
                 }
             }
 
