@@ -195,7 +195,7 @@ $allSuggestions = array_values(array_filter(array_unique(array_map(static functi
     }
 
     return trim($value);
-}))));
+}, $allSuggestions))));
 $autocompleteJson = json_encode($allSuggestions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 if (!is_string($autocompleteJson)) {
     $autocompleteJson = '[]';

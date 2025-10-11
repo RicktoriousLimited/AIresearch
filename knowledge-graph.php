@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 require __DIR__ . '/src/App/bootstrap.php';
 
+use App\Crawler\HiddenCrawler;
 use App\KnowledgeGraph\GraphRepository;
 use App\KnowledgeGraph\GraphResearcher;
 use App\KnowledgeGraph\ResearchService;
+use App\News\NewsSearchService;
 use App\Web\PathResolver;
 
 $paths = PathResolver::resolve();
@@ -16,6 +18,7 @@ $assetBase = $paths['assetBase'];
 $stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
 $themePath = PathResolver::url($assetBase, 'assets/theme.css');
 $researchStylesPath = PathResolver::url($assetBase, 'assets/research.css');
+$autocompleteScriptPath = PathResolver::url($assetBase, 'assets/autocomplete.js');
 $homePath = PathResolver::url($assetBase, 'index.php');
 $searchPath = PathResolver::url($assetBase, 'search.php');
 $graphPath = PathResolver::url($assetBase, 'knowledge-graph.php');
@@ -26,6 +29,7 @@ $scriptPath = PathResolver::url($assetBase, 'assets/knowledge-graph.js');
 $stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
 $themeVersion = file_exists(__DIR__ . '/assets/theme.css') ? (string) filemtime(__DIR__ . '/assets/theme.css') : (string) time();
 $researchStylesVersion = file_exists(__DIR__ . '/assets/research.css') ? (string) filemtime(__DIR__ . '/assets/research.css') : (string) time();
+$autocompleteScriptVersion = file_exists(__DIR__ . '/assets/autocomplete.js') ? (string) filemtime(__DIR__ . '/assets/autocomplete.js') : (string) time();
 $scriptVersion = file_exists(__DIR__ . '/assets/knowledge-graph.js') ? (string) filemtime(__DIR__ . '/assets/knowledge-graph.js') : (string) time();
 
 $repository = new GraphRepository();
@@ -43,6 +47,59 @@ $synonymGroups = isset($initialSearch['synonyms']) && is_array($initialSearch['s
 $triples = isset($initialSearch['triples']) && is_array($initialSearch['triples']) ? $initialSearch['triples'] : [];
 
 $hasGraph = $entities !== [] || $relations !== [] || $triples !== [];
+
+$trendingTopics = [];
+
+try {
+    $storage = __DIR__ . '/storage/backend/crawler-history.json';
+    $crawler = new HiddenCrawler($storage);
+    $newsService = new NewsSearchService($crawler, $repository);
+    $newsPayload = $newsService->search('', ['limit' => 24]);
+    if (is_array($newsPayload)) {
+        $meta = isset($newsPayload['meta']) && is_array($newsPayload['meta']) ? $newsPayload['meta'] : [];
+
+        $topics = [];
+        if (isset($meta['topics']) && is_array($meta['topics'])) {
+            foreach ($meta['topics'] as $topicRow) {
+                if (!is_array($topicRow)) {
+                    continue;
+                }
+
+                $topicName = isset($topicRow['topic']) ? (string) $topicRow['topic'] : '';
+                if ($topicName !== '') {
+                    $topics[] = $topicName;
+                }
+            }
+        }
+
+        $suggestedQueries = [];
+        if (isset($meta['suggested_queries']) && is_array($meta['suggested_queries'])) {
+            foreach ($meta['suggested_queries'] as $query) {
+                if (!is_string($query)) {
+                    continue;
+                }
+
+                $value = trim($query);
+                if ($value !== '') {
+                    $suggestedQueries[] = $value;
+                }
+            }
+        }
+
+        $trendingTopics = array_values(array_unique(array_filter(array_merge(
+            $suggestedQueries,
+            $topics
+        ), static fn(string $value): bool => trim($value) !== '')));
+        $trendingTopics = array_slice($trendingTopics, 0, 12);
+    }
+} catch (Throwable) {
+    $trendingTopics = [];
+}
+
+$autocompleteJson = json_encode($trendingTopics, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+if (!is_string($autocompleteJson)) {
+    $autocompleteJson = '[]';
+}
 
 $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES);
 $formatNumber = static function ($value): string {
@@ -82,6 +139,7 @@ $initialState = [
         'search' => $initialSearch,
         'hasGraph' => $hasGraph,
         'top' => $topEntities,
+        'suggestions' => $trendingTopics,
     ],
 ];
 
@@ -124,9 +182,18 @@ if (!is_string($initialJson)) {
                     <h1>Explore the unified knowledge graph</h1>
                     <p class="lead">Monitor the latest entities, relationship triples, and curated sources powering Autopilot briefs. Use the controls below to search, refresh crawls, and orchestrate new ingestion runs.</p>
                 </div>
-                <form class="graph-search" data-graph-search>
+                <form class="graph-search" data-graph-search data-autocomplete-container>
                     <label class="visually-hidden" for="graph-search-input">Search the knowledge graph</label>
-                    <input id="graph-search-input" name="q" type="search" placeholder="Search people, organisations, relations&hellip;" autocomplete="off" spellcheck="false">
+                    <input
+                        id="graph-search-input"
+                        name="q"
+                        type="search"
+                        placeholder="Search people, organisations, relations&hellip;"
+                        autocomplete="off"
+                        spellcheck="false"
+                        data-autocomplete
+                        data-autocomplete-source='<?= $escape($autocompleteJson) ?>'
+                    >
                     <button type="submit" class="button primary">Search</button>
                 </form>
             </div>
@@ -413,6 +480,7 @@ if (!is_string($initialJson)) {
 <script>
     window.AIKnowledgeGraph = <?= $initialJson ?>;
 </script>
+<script src="<?= $escape($autocompleteScriptPath . '?v=' . $autocompleteScriptVersion) ?>" defer></script>
 <script src="<?= $escape($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
 </body>
 </html>
