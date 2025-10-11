@@ -13,8 +13,18 @@ require __DIR__ . '/src/App/bootstrap.php';
 
 return (static function (): array {
     $paths = PathResolver::resolve();
-    $basePath = $paths['basePath'];
     $assetBase = $paths['assetBase'];
+
+    if ($assetBase !== '') {
+        $normalizedAssetBase = (string) preg_replace('~/backend$~', '', $assetBase);
+        $assetBase = rtrim($normalizedAssetBase, '/');
+    }
+
+    if ($assetBase === '/') {
+        $assetBase = '';
+    }
+
+    $paths['assetBase'] = $assetBase;
 
     $stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
     $themePath = PathResolver::url($assetBase, 'assets/theme.css');
