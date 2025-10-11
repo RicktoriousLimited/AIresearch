@@ -98,25 +98,6 @@ $curatedQueries = [
     'biotech clinical trial updates',
 ];
 
-$allSuggestions = array_merge(
-    $curatedQueries,
-    $newsSuggestedQueries,
-    $newsTopics,
-    $entityNames,
-    $trendingQueries
-);
-$allSuggestions = array_values(array_filter(array_unique(array_map(static function ($value) {
-    if (!is_string($value)) {
-        return '';
-    }
-
-    return trim($value);
-}))));
-$autocompleteJson = json_encode($allSuggestions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-if (!is_string($autocompleteJson)) {
-    $autocompleteJson = '[]';
-}
-
 $newsResults = [];
 $newsMeta = [];
 $discoverySnapshot = [
@@ -125,6 +106,9 @@ $discoverySnapshot = [
     'pending' => 0,
     'recommended' => [],
 ];
+$newsTopics = [];
+$newsSuggestedQueries = [];
+$trendingQueries = [];
 
 try {
     $crawlerStorage = __DIR__ . '/storage/backend/crawler-history.json';
@@ -151,7 +135,6 @@ try {
     ];
 }
 
-$newsTopics = [];
 if (isset($newsMeta['topics']) && is_array($newsMeta['topics'])) {
     foreach ($newsMeta['topics'] as $topicRow) {
         if (!is_array($topicRow)) {
@@ -165,7 +148,6 @@ if (isset($newsMeta['topics']) && is_array($newsMeta['topics'])) {
     }
 }
 
-$newsSuggestedQueries = [];
 if (isset($newsMeta['suggested_queries']) && is_array($newsMeta['suggested_queries'])) {
     foreach ($newsMeta['suggested_queries'] as $suggested) {
         if (!is_string($suggested)) {
@@ -179,7 +161,6 @@ if (isset($newsMeta['suggested_queries']) && is_array($newsMeta['suggested_queri
     }
 }
 
-$trendingQueries = [];
 foreach ($newsSuggestedQueries as $query) {
     $trendingQueries[] = $query;
 }
@@ -199,6 +180,25 @@ $placeholderPhrases = $trendingQueries !== [] ? $trendingQueries : $curatedQueri
 $placeholderJson = json_encode($placeholderPhrases, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 if (!is_string($placeholderJson)) {
     $placeholderJson = '[]';
+}
+
+$allSuggestions = array_merge(
+    $curatedQueries,
+    $newsSuggestedQueries,
+    $newsTopics,
+    $entityNames,
+    $trendingQueries
+);
+$allSuggestions = array_values(array_filter(array_unique(array_map(static function ($value) {
+    if (!is_string($value)) {
+        return '';
+    }
+
+    return trim($value);
+}))));
+$autocompleteJson = json_encode($allSuggestions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+if (!is_string($autocompleteJson)) {
+    $autocompleteJson = '[]';
 }
 
 $topStories = array_slice($newsResults, 0, 4);
