@@ -291,6 +291,8 @@ final class HiddenCrawler
 
     private const MAX_TRACKED_TASKS = 120;
 
+    private const MAX_SCHEDULE_HISTORY = 20;
+
     public function __construct(
         string $storagePath,
         ?ScraperInterface $scraper = null,
@@ -347,7 +349,7 @@ final class HiddenCrawler
         $queue = $this->initialiseQueueTasks($queue, $tasks);
 
         if ($refreshAfterMinutes > 0) {
-            $refreshQueue = $this->buildRefreshQueue($historyEntries, $refreshAfterMinutes, $seen, $tasks);
+            $refreshQueue = $this->buildRefreshQueue($historyEntries, $refreshAfterMinutes, $seen, $tasks, $discoveryLedger);
             if ($refreshQueue !== []) {
                 $queue = array_merge($queue, $refreshQueue);
                 $this->sortQueueByPriority($queue);
@@ -1345,6 +1347,7 @@ final class HiddenCrawler
             }
 
             $this->registerDiscovery($ledger, $normalised, $parentUrl, false);
+            $this->registerSchedule($ledger, $normalised, 'discovery', null, null);
 
             $key = $this->queueKey($normalised);
             if (isset($seen[$key])) {
@@ -1405,6 +1408,9 @@ final class HiddenCrawler
 
             if ($queue[$index]['seed']) {
                 $this->registerDiscovery($ledger, (string) $item['url'], null, true);
+                $this->registerSchedule($ledger, (string) $item['url'], 'seed', null, null);
+            } else {
+                $this->registerSchedule($ledger, (string) $item['url'], 'queued', null, null);
             }
         }
 
@@ -1542,8 +1548,13 @@ final class HiddenCrawler
      *
      * @return array<int, array<string, mixed>>
      */
-    private function buildRefreshQueue(array $entries, int $refreshAfterMinutes, array &$seen, array &$tasks): array
-    {
+    private function buildRefreshQueue(
+        array $entries,
+        int $refreshAfterMinutes,
+        array &$seen,
+        array &$tasks,
+        array &$ledger
+    ): array {
         $refreshAfterMinutes = max(0, $refreshAfterMinutes);
         if ($refreshAfterMinutes === 0) {
             return [];
@@ -1589,6 +1600,8 @@ final class HiddenCrawler
             ], $tasks, false, true);
 
             $seen[$key] = true;
+
+            $this->registerSchedule($ledger, $url, 'refresh', $refreshAfterMinutes, null);
         }
 
         if ($queue !== []) {
@@ -1651,6 +1664,193 @@ final class HiddenCrawler
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    private function defaultScheduleState(): array
+    {
+        return [
+            'history' => [],
+            'last_scheduled_at' => null,
+            'next_due_at' => null,
+            'total_runs' => 0,
+        ];
+    }
+
+    private function registerSchedule(
+        array &$ledger,
+        string $url,
+        string $reason,
+        ?int $intervalMinutes,
+        ?string $dueAt
+    ): void {
+        $url = trim($url);
+        if ($url === '') {
+            return;
+        }
+
+        $key = $this->queueKey($url);
+        if ($key === '') {
+            return;
+        }
+
+        if (!isset($ledger[$key])) {
+            $ledger[$key] = [
+                'url' => $url,
+                'seed' => false,
+                'first_seen_at' => date(DATE_ATOM),
+                'last_seen_at' => date(DATE_ATOM),
+                'sources' => [],
+                'schedule' => $this->defaultScheduleState(),
+            ];
+        }
+
+        if (!isset($ledger[$key]['schedule']) || !is_array($ledger[$key]['schedule'])) {
+            $ledger[$key]['schedule'] = $this->defaultScheduleState();
+        } else {
+            $ledger[$key]['schedule'] = $this->normaliseSchedule($ledger[$key]['schedule']);
+        }
+
+        $intervalMinutes = $intervalMinutes !== null ? max(0, $intervalMinutes) : null;
+        $timestamp = date(DATE_ATOM);
+        $computedDueAt = $dueAt;
+
+        if ($computedDueAt === null && $intervalMinutes !== null && $intervalMinutes > 0) {
+            try {
+                $computedDueAt = (new DateTimeImmutable($timestamp))
+                    ->add(new DateInterval('PT' . $intervalMinutes . 'M'))
+                    ->format(DATE_ATOM);
+            } catch (Throwable $exception) {
+                $computedDueAt = null;
+            }
+        }
+
+        $history = is_array($ledger[$key]['schedule']['history'] ?? null)
+            ? $ledger[$key]['schedule']['history']
+            : [];
+
+        $history[] = [
+            'queued_at' => $timestamp,
+            'due_at' => $computedDueAt,
+            'reason' => $reason,
+            'interval_minutes' => $intervalMinutes,
+        ];
+
+        if (count($history) > self::MAX_SCHEDULE_HISTORY) {
+            $history = array_slice($history, -self::MAX_SCHEDULE_HISTORY);
+        }
+
+        $ledger[$key]['schedule']['history'] = $history;
+        $ledger[$key]['schedule']['last_scheduled_at'] = $timestamp;
+        if ($computedDueAt !== null) {
+            $ledger[$key]['schedule']['next_due_at'] = $computedDueAt;
+        } elseif (!isset($ledger[$key]['schedule']['next_due_at'])) {
+            $ledger[$key]['schedule']['next_due_at'] = null;
+        }
+
+        $ledger[$key]['schedule']['total_runs'] = (int) ($ledger[$key]['schedule']['total_runs'] ?? 0) + 1;
+    }
+
+    /**
+     * @param mixed $schedule
+     *
+     * @return array<string, mixed>
+     */
+    private function normaliseSchedule($schedule): array
+    {
+        $state = $this->defaultScheduleState();
+
+        if (!is_array($schedule)) {
+            return $state;
+        }
+
+        $state['last_scheduled_at'] = isset($schedule['last_scheduled_at']) && (string) $schedule['last_scheduled_at'] !== ''
+            ? (string) $schedule['last_scheduled_at']
+            : null;
+        $state['next_due_at'] = isset($schedule['next_due_at']) && (string) $schedule['next_due_at'] !== ''
+            ? (string) $schedule['next_due_at']
+            : null;
+        $state['total_runs'] = isset($schedule['total_runs'])
+            ? max(0, (int) $schedule['total_runs'])
+            : 0;
+
+        $history = [];
+        $rawHistory = is_array($schedule['history'] ?? null) ? $schedule['history'] : [];
+        foreach ($rawHistory as $event) {
+            if (!is_array($event)) {
+                continue;
+            }
+
+            $queuedAt = (string) ($event['queued_at'] ?? '');
+            if ($queuedAt === '') {
+                continue;
+            }
+
+            $intervalRaw = $event['interval_minutes'] ?? null;
+            $interval = $intervalRaw === null ? null : (int) $intervalRaw;
+            $dueRaw = $event['due_at'] ?? null;
+            $dueAt = is_string($dueRaw) && $dueRaw !== '' ? $dueRaw : null;
+
+            $history[] = [
+                'queued_at' => $queuedAt,
+                'due_at' => $dueAt,
+                'reason' => (string) ($event['reason'] ?? ''),
+                'interval_minutes' => $interval,
+            ];
+        }
+
+        if ($history !== []) {
+            usort($history, static function (array $left, array $right): int {
+                return (string) ($left['queued_at'] ?? '') <=> (string) ($right['queued_at'] ?? '');
+            });
+        }
+
+        if (count($history) > self::MAX_SCHEDULE_HISTORY) {
+            $history = array_slice($history, -self::MAX_SCHEDULE_HISTORY);
+        }
+
+        $state['history'] = $history;
+        if ($state['total_runs'] === 0) {
+            $state['total_runs'] = count($history);
+        }
+
+        return $state;
+    }
+
+    /**
+     * @param array<string, mixed> $schedule
+     *
+     * @return array<string, mixed>
+     */
+    private function summariseSchedule(array $schedule): array
+    {
+        $normalised = $this->normaliseSchedule($schedule);
+
+        $history = [];
+        $events = array_reverse($normalised['history']);
+        foreach ($events as $event) {
+            if (!is_array($event)) {
+                continue;
+            }
+
+            $history[] = [
+                'queued_at' => (string) ($event['queued_at'] ?? ''),
+                'due_at' => isset($event['due_at']) && $event['due_at'] !== null ? (string) $event['due_at'] : '',
+                'reason' => (string) ($event['reason'] ?? ''),
+                'interval_minutes' => isset($event['interval_minutes']) && $event['interval_minutes'] !== null
+                    ? (int) $event['interval_minutes']
+                    : null,
+            ];
+        }
+
+        return [
+            'total_runs' => (int) ($normalised['total_runs'] ?? count($history)),
+            'last_scheduled_at' => (string) ($normalised['last_scheduled_at'] ?? ''),
+            'next_due_at' => (string) ($normalised['next_due_at'] ?? ''),
+            'history' => $history,
+        ];
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $entries
      *
      * @return array<string, array<string, mixed>>
@@ -1682,6 +1882,7 @@ final class HiddenCrawler
                 'first_seen_at' => $firstSeen,
                 'last_seen_at' => $lastSeen,
                 'sources' => [],
+                'schedule' => $this->normaliseSchedule($discovery['schedule'] ?? []),
             ];
 
             $sources = is_array($discovery['sources'] ?? null) ? $discovery['sources'] : [];
@@ -1706,6 +1907,10 @@ final class HiddenCrawler
                     'count' => (int) ($source['count'] ?? 1),
                     'last_seen_at' => (string) ($source['last_seen_at'] ?? $lastSeen),
                 ];
+            }
+
+            if (!isset($ledger[$key]['schedule'])) {
+                $ledger[$key]['schedule'] = $this->defaultScheduleState();
             }
         }
 
@@ -1733,6 +1938,7 @@ final class HiddenCrawler
                 'first_seen_at' => $timestamp,
                 'last_seen_at' => $timestamp,
                 'sources' => [],
+                'schedule' => $this->defaultScheduleState(),
             ];
         } else {
             if (!isset($ledger[$key]['url']) || $ledger[$key]['url'] === '') {
@@ -1747,6 +1953,12 @@ final class HiddenCrawler
             );
             if ($seed) {
                 $ledger[$key]['seed'] = true;
+            }
+
+            if (!isset($ledger[$key]['schedule']) || !is_array($ledger[$key]['schedule'])) {
+                $ledger[$key]['schedule'] = $this->defaultScheduleState();
+            } else {
+                $ledger[$key]['schedule'] = $this->normaliseSchedule($ledger[$key]['schedule']);
             }
         }
 
@@ -1949,6 +2161,7 @@ final class HiddenCrawler
             'sources' => array_slice($sources, 0, 20),
             'total_sources' => $totalReferences,
             'unique_source_domains' => count($uniqueDomains),
+            'schedule' => $this->summariseSchedule($ledgerEntry['schedule'] ?? []),
         ];
     }
 
@@ -2906,6 +3119,19 @@ final class HiddenCrawler
                 'sources' => [],
                 'total_sources' => 0,
                 'unique_source_domains' => 0,
+                'schedule' => [
+                    'total_runs' => 0,
+                    'last_scheduled_at' => '',
+                    'next_due_at' => '',
+                    'history' => [],
+                ],
+            ];
+        } elseif (!isset($entry['discovery']['schedule']) || !is_array($entry['discovery']['schedule'])) {
+            $entry['discovery']['schedule'] = [
+                'total_runs' => 0,
+                'last_scheduled_at' => '',
+                'next_due_at' => '',
+                'history' => [],
             ];
         }
 
