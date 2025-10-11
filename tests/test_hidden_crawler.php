@@ -36,6 +36,17 @@ class FlakyScraper implements ScraperInterface
     }
 }
 
+class LinkedScraper implements ScraperInterface
+{
+    public function scrape(string $url): ScrapeResult
+    {
+        $links = str_contains($url, 'start-linked') ? ['https://example.com/child-page'] : [];
+        $text = 'Signal Ledger follows discovery links.';
+
+        return new ScrapeResult($url, 'Linked page', $text, [$text], $links);
+    }
+}
+
 $storage = sys_get_temp_dir() . '/crawler_history_' . bin2hex(random_bytes(4)) . '.json';
 $crawler = new HiddenCrawler($storage, new StubScraper(), new TextRefiner());
 
@@ -88,6 +99,21 @@ if ((int) ($firstHistory['revision'] ?? 0) !== 1) {
     throw new RuntimeException('History should reflect the latest revision.');
 }
 
+$firstSchedule = $firstHistory['discovery']['schedule'] ?? null;
+if (!is_array($firstSchedule) || (int) ($firstSchedule['total_runs'] ?? 0) < 1) {
+    throw new RuntimeException('Seed entries should record at least one scheduled run.');
+}
+
+$firstScheduleHistory = $firstSchedule['history'] ?? [];
+if (!is_array($firstScheduleHistory) || $firstScheduleHistory === []) {
+    throw new RuntimeException('Seed schedule history should include the initial run.');
+}
+
+$firstScheduleEvent = $firstScheduleHistory[0];
+if (($firstScheduleEvent['reason'] ?? '') !== 'seed') {
+    throw new RuntimeException('Seed schedule should track the seed scheduling reason.');
+}
+
 $secondResult = $crawler->crawl(['https://example.com?utm_source=twitter']);
 if (count($secondResult) !== 1) {
     throw new RuntimeException('Expected a single crawl result on second run.');
@@ -116,6 +142,7 @@ $historyEntry = $historyAfterSecond[0];
 if (!empty($historyEntry['versions'])) {
     throw new RuntimeException('No archived versions should be stored when nothing changed.');
 }
+
 
 $crawlerScraper = new StubScraper();
 $crawlerScraper->text = 'Signal Ledger now tracks AI and venture funding sentiment across markets.';
@@ -196,6 +223,46 @@ if (count($flakySuccesses) !== 1) {
     throw new RuntimeException('Successful crawls should be returned alongside failures.');
 }
 
+$linkedStorage = sys_get_temp_dir() . '/crawler_history_' . bin2hex(random_bytes(4)) . '.json';
+$linkedCrawler = new HiddenCrawler($linkedStorage, new LinkedScraper(), new TextRefiner());
+$linkedCrawler->crawl(['https://example.com/start-linked'], 2, 1);
+$linkedHistory = $linkedCrawler->history();
+$linkedChild = null;
+foreach ($linkedHistory as $entry) {
+    if (!is_array($entry)) {
+        continue;
+    }
+
+    $url = (string) ($entry['url'] ?? '');
+    if (str_contains($url, 'child-page')) {
+        $linkedChild = $entry;
+        break;
+    }
+}
+
+if (!is_array($linkedChild)) {
+    throw new RuntimeException('Discovered pages should be recorded in crawler history.');
+}
+
+$linkedSchedule = $linkedChild['discovery']['schedule'] ?? null;
+if (!is_array($linkedSchedule) || (int) ($linkedSchedule['total_runs'] ?? 0) < 1) {
+    throw new RuntimeException('Discovered pages should include schedule metadata.');
+}
+
+$linkedEvents = $linkedSchedule['history'] ?? [];
+if (!is_array($linkedEvents) || $linkedEvents === []) {
+    throw new RuntimeException('Discovered schedule history should retain recent events.');
+}
+
+$latestLinkedEvent = $linkedEvents[0];
+if (($latestLinkedEvent['reason'] ?? '') !== 'discovery') {
+    throw new RuntimeException('Discovered schedule should flag discovery events.');
+}
+
+if (($latestLinkedEvent['queued_at'] ?? '') === '') {
+    throw new RuntimeException('Schedule events should capture the queued timestamp.');
+}
+
 unlink($flakyStorage);
 $flakyProgress = preg_replace('/\.json$/', '.progress.json', $flakyStorage);
 if (!is_string($flakyProgress)) {
@@ -221,6 +288,15 @@ if (!is_string($meaninglessProgress)) {
 }
 if (file_exists($meaninglessProgress)) {
     unlink($meaninglessProgress);
+}
+
+unlink($linkedStorage);
+$linkedProgress = preg_replace('/\.json$/', '.progress.json', $linkedStorage);
+if (!is_string($linkedProgress)) {
+    $linkedProgress = $linkedStorage . '.progress.json';
+}
+if (file_exists($linkedProgress)) {
+    unlink($linkedProgress);
 }
 
 echo "HiddenCrawler tests passed\n";
