@@ -289,6 +289,8 @@ final class HiddenCrawler
 
     private string $progressPath;
 
+    private const MAX_TRACKED_TASKS = 120;
+
     public function __construct(
         string $storagePath,
         ?ScraperInterface $scraper = null,
@@ -324,10 +326,16 @@ final class HiddenCrawler
      *
      * @return array<int, array<string, mixed>>
      */
-    public function crawl(array $targets, int $maxDepth = 0, int $autoInterval = 0, bool $autoStart = false): array
-    {
+    public function crawl(
+        array $targets,
+        int $maxDepth = 0,
+        int $autoInterval = 0,
+        bool $autoStart = false,
+        int $refreshAfterMinutes = 0
+    ): array {
         $maxDepth = max(0, $maxDepth);
         $autoInterval = max(0, $autoInterval);
+        $refreshAfterMinutes = max(0, $refreshAfterMinutes);
 
         [$queue, $seen, $seedUrls] = $this->buildQueue($targets);
 
@@ -335,6 +343,17 @@ final class HiddenCrawler
         $history = $this->indexHistoryByUrl($historyEntries);
         $discoveryLedger = $this->initialiseDiscoveryLedger($historyEntries);
         $queue = $this->initialiseQueueDiscovery($queue, $discoveryLedger);
+        $tasks = [];
+        $queue = $this->initialiseQueueTasks($queue, $tasks);
+
+        if ($refreshAfterMinutes > 0) {
+            $refreshQueue = $this->buildRefreshQueue($historyEntries, $refreshAfterMinutes, $seen, $tasks);
+            if ($refreshQueue !== []) {
+                $queue = array_merge($queue, $refreshQueue);
+                $this->sortQueueByPriority($queue);
+            }
+        }
+
         $processedKeys = [];
 
         $startedAt = date(DATE_ATOM);
@@ -351,11 +370,15 @@ final class HiddenCrawler
             'depth' => $maxDepth,
             'auto_interval' => $autoInterval,
             'auto_start' => $autoStart,
+            'refresh_after' => $refreshAfterMinutes,
         ];
         $progress['auto_interval'] = $autoInterval;
         $progress['auto_start'] = $autoStart;
+        $progress['refresh_after'] = $refreshAfterMinutes;
         $progress['errors'] = [];
         $progress['last_result'] = null;
+        $progress['tasks'] = array_values($tasks);
+        $progress['task_totals'] = $this->summariseTaskTotals($tasks);
         $this->writeProgress($progress);
 
         if ($queue === []) {
@@ -383,6 +406,22 @@ final class HiddenCrawler
             $processed++;
             $currentUrl = (string) ($current['url'] ?? '');
             $currentDepth = (int) ($current['depth'] ?? 0);
+            $currentTaskId = (string) ($current['task_id'] ?? $this->registerTask(
+                $tasks,
+                $currentUrl,
+                $currentDepth,
+                !empty($current['seed']),
+                !empty($current['refresh'])
+            ));
+
+            if (isset($tasks[$currentTaskId])) {
+                $tasks[$currentTaskId]['status'] = 'running';
+                $tasks[$currentTaskId]['started_at'] = date(DATE_ATOM);
+                $tasks[$currentTaskId]['finished_at'] = null;
+                $tasks[$currentTaskId]['error'] = null;
+                $tasks[$currentTaskId]['attempts'] = (int) ($tasks[$currentTaskId]['attempts'] ?? 0) + 1;
+            }
+            $this->enforceTaskLimit($tasks);
 
             $this->registerDiscovery($discoveryLedger, $currentUrl, null, !empty($current['seed']));
 
@@ -393,6 +432,8 @@ final class HiddenCrawler
             $progress['processed'] = $processed - 1;
             $progress['queued'] = count($queue) + 1;
             $progress['last_updated_at'] = date(DATE_ATOM);
+            $progress['tasks'] = array_values($tasks);
+            $progress['task_totals'] = $this->summariseTaskTotals($tasks);
             $this->writeProgress($progress);
 
             [$history, $result, $scraped] = $this->crawlUrl($currentUrl, $history);
@@ -416,6 +457,21 @@ final class HiddenCrawler
             $seen[$processedKey] = true;
             $processedKeys[] = $processedKey;
             $lastProcessedKey = $processedKey;
+
+            if (isset($tasks[$currentTaskId])) {
+                $tasks[$currentTaskId]['status'] = isset($result['error']) ? 'failed' : 'completed';
+                $tasks[$currentTaskId]['finished_at'] = date(DATE_ATOM);
+                $tasks[$currentTaskId]['error'] = isset($result['error']) ? (string) $result['error'] : null;
+                if (isset($result['title']) && is_string($result['title'])) {
+                    $tasks[$currentTaskId]['title'] = (string) $result['title'];
+                }
+                if ($scraped instanceof ScrapeResult) {
+                    $tasks[$currentTaskId]['characters'] = $scraped->characterCount();
+                } elseif (isset($result['character_count'])) {
+                    $tasks[$currentTaskId]['characters'] = (int) $result['character_count'];
+                }
+            }
+            $this->enforceTaskLimit($tasks);
 
             $progress['processed'] = $processed;
             $progress['queued'] = count($queue);
@@ -453,7 +509,8 @@ final class HiddenCrawler
                     $currentDepth + 1,
                     $parentDomain,
                     $currentUrl,
-                    $discoveryLedger
+                    $discoveryLedger,
+                    $tasks
                 );
                 if ($added > 0) {
                     $discoveredTotal += $added;
@@ -465,6 +522,8 @@ final class HiddenCrawler
             }
 
             $progress['last_updated_at'] = date(DATE_ATOM);
+            $progress['tasks'] = array_values($tasks);
+            $progress['task_totals'] = $this->summariseTaskTotals($tasks);
             $this->writeProgress($progress);
         }
 
@@ -497,6 +556,8 @@ final class HiddenCrawler
         $progress['queued'] = 0;
         $progress['next_run_due_at'] = $this->computeNextRunAt($autoInterval, $autoStart, $finishedAt);
         $progress['last_updated_at'] = $finishedAt;
+        $progress['tasks'] = array_values($tasks);
+        $progress['task_totals'] = $this->summariseTaskTotals($tasks);
         $this->writeProgress($progress);
 
         return $entries;
@@ -1079,12 +1140,16 @@ final class HiddenCrawler
             'errors' => [],
             'auto_interval' => 0,
             'auto_start' => false,
+            'refresh_after' => 0,
             'options' => [
                 'depth' => 0,
                 'auto_interval' => 0,
                 'auto_start' => false,
+                'refresh_after' => 0,
             ],
             'next_run_due_at' => null,
+            'tasks' => [],
+            'task_totals' => $this->defaultTaskTotals(),
         ];
     }
 
@@ -1117,6 +1182,31 @@ final class HiddenCrawler
         $decoded = json_decode($contents, true);
         if (!is_array($decoded)) {
             return $this->defaultProgressState();
+        }
+
+        if (!isset($decoded['tasks']) || !is_array($decoded['tasks'])) {
+            $decoded['tasks'] = [];
+        }
+
+        if (!isset($decoded['task_totals']) || !is_array($decoded['task_totals'])) {
+            $decoded['task_totals'] = $this->defaultTaskTotals();
+        } else {
+            $decoded['task_totals'] = array_merge($this->defaultTaskTotals(), $decoded['task_totals']);
+        }
+
+        if (!isset($decoded['refresh_after'])) {
+            $decoded['refresh_after'] = (int) ($decoded['options']['refresh_after'] ?? 0);
+        }
+
+        if (!isset($decoded['options']) || !is_array($decoded['options'])) {
+            $decoded['options'] = [
+                'depth' => 0,
+                'auto_interval' => 0,
+                'auto_start' => false,
+                'refresh_after' => (int) $decoded['refresh_after'],
+            ];
+        } elseif (!isset($decoded['options']['refresh_after'])) {
+            $decoded['options']['refresh_after'] = (int) $decoded['refresh_after'];
         }
 
         return $decoded;
@@ -1223,7 +1313,8 @@ final class HiddenCrawler
         int $depth,
         string $parentDomain,
         string $parentUrl,
-        array &$ledger
+        array &$ledger,
+        array &$tasks
     ): int {
         $depth = max(0, $depth);
 
@@ -1260,12 +1351,12 @@ final class HiddenCrawler
                 continue;
             }
 
-            $queue[] = [
+            $queue[] = $this->attachTaskMetadata([
                 'url' => $normalised,
                 'depth' => $depth,
                 'priority' => $priority,
                 'seed' => false,
-            ];
+            ], $tasks, false, false);
             $seen[$key] = true;
             $added++;
 
@@ -1276,6 +1367,7 @@ final class HiddenCrawler
 
         if ($added > 0) {
             $this->sortQueueByPriority($queue);
+            $this->enforceTaskLimit($tasks);
         }
 
         return $added;
@@ -1303,6 +1395,245 @@ final class HiddenCrawler
         }
 
         return $queue;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $queue
+     * @param array<string, array<string, mixed>> $tasks
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function initialiseQueueTasks(array $queue, array &$tasks): array
+    {
+        foreach ($queue as $index => $item) {
+            if (!is_array($item) || !isset($item['url'])) {
+                continue;
+            }
+
+            $queue[$index] = $this->attachTaskMetadata(
+                $item,
+                $tasks,
+                !empty($item['seed']),
+                !empty($item['refresh'])
+            );
+        }
+
+        $this->enforceTaskLimit($tasks);
+
+        return $queue;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $tasks
+     *
+     * @return array<string, mixed>
+     */
+    private function attachTaskMetadata(array $item, array &$tasks, bool $seed, bool $refresh): array
+    {
+        $url = isset($item['url']) ? (string) $item['url'] : '';
+        if ($url === '') {
+            return $item;
+        }
+
+        $depth = (int) ($item['depth'] ?? 0);
+        $taskId = $this->registerTask($tasks, $url, $depth, $seed, $refresh);
+        $item['task_id'] = $taskId;
+
+        if ($refresh) {
+            $item['refresh'] = true;
+        }
+
+        return $item;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $tasks
+     */
+    private function enforceTaskLimit(array &$tasks): void
+    {
+        if (count($tasks) <= self::MAX_TRACKED_TASKS) {
+            return;
+        }
+
+        $items = array_values($tasks);
+        usort($items, static function (array $left, array $right): int {
+            $order = ['running' => 0, 'queued' => 1, 'failed' => 2, 'completed' => 3];
+            $leftStatus = (string) ($left['status'] ?? 'queued');
+            $rightStatus = (string) ($right['status'] ?? 'queued');
+            $leftOrder = $order[$leftStatus] ?? 4;
+            $rightOrder = $order[$rightStatus] ?? 4;
+
+            if ($leftOrder === $rightOrder) {
+                $leftTime = (string) ($left['queued_at'] ?? '');
+                $rightTime = (string) ($right['queued_at'] ?? '');
+
+                return $rightTime <=> $leftTime;
+            }
+
+            return $leftOrder <=> $rightOrder;
+        });
+
+        $items = array_slice($items, 0, self::MAX_TRACKED_TASKS);
+        $trimmed = [];
+        foreach ($items as $item) {
+            if (!isset($item['id'])) {
+                continue;
+            }
+
+            $trimmed[(string) $item['id']] = $item;
+        }
+
+        $tasks = $trimmed;
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $tasks
+     */
+    private function registerTask(array &$tasks, string $url, int $depth, bool $seed, bool $refresh): string
+    {
+        $taskId = hash('sha1', mb_strtolower(trim($url)) . '|' . $depth);
+
+        if (!isset($tasks[$taskId])) {
+            $tasks[$taskId] = [
+                'id' => $taskId,
+                'url' => $url,
+                'depth' => $depth,
+                'seed' => $seed,
+                'refresh' => $refresh,
+                'status' => 'queued',
+                'queued_at' => date(DATE_ATOM),
+                'started_at' => null,
+                'finished_at' => null,
+                'error' => null,
+                'attempts' => 0,
+            ];
+        } else {
+            if ($seed && empty($tasks[$taskId]['seed'])) {
+                $tasks[$taskId]['seed'] = true;
+            }
+            if ($refresh && empty($tasks[$taskId]['refresh'])) {
+                $tasks[$taskId]['refresh'] = true;
+            }
+        }
+
+        $this->enforceTaskLimit($tasks);
+
+        return $taskId;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $entries
+     * @param array<string, bool> $seen
+     * @param array<string, array<string, mixed>> $tasks
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildRefreshQueue(array $entries, int $refreshAfterMinutes, array &$seen, array &$tasks): array
+    {
+        $refreshAfterMinutes = max(0, $refreshAfterMinutes);
+        if ($refreshAfterMinutes === 0) {
+            return [];
+        }
+
+        try {
+            $cutoff = (new DateTimeImmutable())->sub(new DateInterval('PT' . $refreshAfterMinutes . 'M'));
+        } catch (Throwable $exception) {
+            return [];
+        }
+
+        $queue = [];
+
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $url = (string) ($entry['normalized_url'] ?? $entry['canonical_url'] ?? $entry['url'] ?? '');
+            if ($url === '') {
+                continue;
+            }
+
+            $key = $this->queueKey($url);
+            if ($key === '' || isset($seen[$key])) {
+                continue;
+            }
+
+            $lastSeen = $this->parseDateTime((string) ($entry['last_checked_at'] ?? $entry['fetched_at'] ?? ''));
+            if ($lastSeen === null || $lastSeen > $cutoff) {
+                continue;
+            }
+
+            $domain = $this->extractDomain($url);
+            $priority = $this->baseScoreForDomain($domain) + 0.15;
+
+            $queue[] = $this->attachTaskMetadata([
+                'url' => $url,
+                'depth' => 0,
+                'priority' => $priority,
+                'seed' => false,
+                'refresh' => true,
+            ], $tasks, false, true);
+
+            $seen[$key] = true;
+        }
+
+        if ($queue !== []) {
+            $this->sortQueueByPriority($queue);
+        }
+
+        return $queue;
+    }
+
+    private function parseDateTime(string $value): ?DateTimeImmutable
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return null;
+        }
+
+        try {
+            return new DateTimeImmutable($trimmed);
+        } catch (Throwable $exception) {
+            return null;
+        }
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $tasks
+     *
+     * @return array<string, int>
+     */
+    private function summariseTaskTotals(array $tasks): array
+    {
+        $totals = $this->defaultTaskTotals();
+
+        foreach ($tasks as $task) {
+            if (!is_array($task)) {
+                continue;
+            }
+
+            $status = (string) ($task['status'] ?? 'queued');
+            if (!isset($totals[$status])) {
+                continue;
+            }
+
+            $totals[$status]++;
+        }
+
+        return $totals;
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function defaultTaskTotals(): array
+    {
+        return [
+            'queued' => 0,
+            'running' => 0,
+            'completed' => 0,
+            'failed' => 0,
+        ];
     }
 
     /**

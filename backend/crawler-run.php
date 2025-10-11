@@ -84,17 +84,20 @@ $autoInterval = max(0, $autoInterval);
 $autoStart = isset($payload['auto_start'])
     ? in_array(strtolower((string) $payload['auto_start']), ['1', 'true', 'yes', 'on'], true)
     : (bool) ($_SESSION['backend_auto_start'] ?? false);
+$refreshAfter = isset($payload['refresh_after']) ? (int) $payload['refresh_after'] : (int) ($_SESSION['backend_refresh_after'] ?? 0);
+$refreshAfter = max(0, $refreshAfter);
 
 $_SESSION['backend_urls'] = implode("\n", $targets);
 $_SESSION['backend_depth'] = $depth;
 $_SESSION['backend_auto_interval'] = $autoInterval;
 $_SESSION['backend_auto_start'] = $autoStart;
+$_SESSION['backend_refresh_after'] = $refreshAfter;
 
 $crawlerStorage = __DIR__ . '/../storage/backend/crawler-history.json';
 $crawler = new HiddenCrawler($crawlerStorage, null, null, new ResearchService());
 
 try {
-    $results = $crawler->crawl($targets, $depth, $autoInterval, $autoStart);
+    $results = $crawler->crawl($targets, $depth, $autoInterval, $autoStart, $refreshAfter);
     $json = json_encode([
         'success' => true,
         'count' => count($results),

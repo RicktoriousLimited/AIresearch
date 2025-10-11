@@ -46,6 +46,7 @@ $generatedOtp = null;
 $autoInterval = (int) ($_SESSION['backend_auto_interval'] ?? 0);
 $depth = (int) ($_SESSION['backend_depth'] ?? 0);
 $autoStart = isset($_SESSION['backend_auto_start']) ? (bool) $_SESSION['backend_auto_start'] : false;
+$refreshAfter = (int) ($_SESSION['backend_refresh_after'] ?? 0);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $autoInterval = max(0, (int) ($_POST['auto_interval'] ?? $autoInterval));
@@ -53,11 +54,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $autoStart = isset($_POST['auto_start'])
         ? in_array(strtolower((string) $_POST['auto_start']), ['1', 'true', 'yes', 'on'], true)
         : false;
+    $refreshAfter = max(0, (int) ($_POST['refresh_after'] ?? $refreshAfter));
 }
 
 $_SESSION['backend_auto_interval'] = $autoInterval;
 $_SESSION['backend_depth'] = $depth;
 $_SESSION['backend_auto_start'] = $autoStart;
+$_SESSION['backend_refresh_after'] = $refreshAfter;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
@@ -135,7 +138,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             try {
-                $results = $crawler->crawl($targets, $depth, $autoInterval, $autoStart);
+                $results = $crawler->crawl($targets, $depth, $autoInterval, $autoStart, $refreshAfter);
                 $messages[] = 'Crawler fetched ' . count($results) . ' page(s).';
             } catch (Throwable $exception) {
                 $errors[] = 'Crawler failed: ' . $exception->getMessage();
@@ -151,9 +154,13 @@ $progressJson = json_encode($progress, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_A
 if (!is_string($progressJson)) {
     $progressJson = '{}';
 }
+$refreshAfter = isset($progress['refresh_after'])
+    ? max(0, (int) $progress['refresh_after'])
+    : $refreshAfter;
 $urlsDefault = trim((string) ($_POST['urls'] ?? $_SESSION['backend_urls'] ?? "https://news.ycombinator.com\nhttps://www.bbc.com/news\nhttps://techcrunch.com"));
 $_SESSION['backend_urls'] = $urlsDefault;
 $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
+$refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfter));
 
 ?>
 <!DOCTYPE html>
@@ -212,6 +219,18 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
         .progress-last-result .error-text { color: #fecaca; }
         .progress-errors { margin-top: 0.85rem; padding-left: 1.2rem; color: #fecaca; font-size: 0.85rem; }
         .progress-errors li { margin-bottom: 0.3rem; }
+        .task-list { margin-top: 1.25rem; border-top: 1px solid rgba(148, 163, 184, 0.2); padding-top: 1rem; }
+        .task-list h3 { margin: 0 0 0.5rem; font-size: 1rem; color: #cbd5f5; }
+        .task-items { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.75rem; }
+        .task-item { background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 12px; padding: 0.75rem; }
+        .task-item strong { display: block; margin-bottom: 0.35rem; font-size: 0.95rem; color: #e2e8f0; word-break: break-word; }
+        .task-meta { display: flex; flex-wrap: wrap; gap: 0.65rem; font-size: 0.75rem; color: rgba(203, 213, 225, 0.8); }
+        .task-status { display: inline-flex; align-items: center; padding: 0.25rem 0.6rem; border-radius: 999px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid transparent; }
+        .task-status[data-state="queued"] { background: rgba(99, 102, 241, 0.2); border-color: rgba(99, 102, 241, 0.45); color: #c7d2fe; }
+        .task-status[data-state="running"] { background: rgba(16, 185, 129, 0.2); border-color: rgba(16, 185, 129, 0.45); color: #6ee7b7; }
+        .task-status[data-state="completed"] { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.45); color: #93c5fd; }
+        .task-status[data-state="failed"] { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.45); color: #fecaca; }
+        .task-meta span { display: inline-flex; align-items: center; gap: 0.25rem; }
         .topic-chip { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 999px; background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.3); font-size: 0.75rem; }
         .quality-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem; margin: 0.6rem 0; }
         .quality-pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.8rem; border-radius: 999px; font-weight: 600; font-size: 0.85rem; background: rgba(99, 102, 241, 0.18); border: 1px solid rgba(129, 140, 248, 0.45); color: #c7d2fe; }
@@ -344,13 +363,17 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
                     <label for="crawl_depth">Link depth</label>
                     <input id="crawl_depth" name="depth" type="number" min="0" max="6" value="<?= esc((string) $depth); ?>">
                 </div>
+                <div>
+                    <label for="refresh_after">Refresh pages older than (minutes)</label>
+                    <input id="refresh_after" name="refresh_after" type="number" min="0" value="<?= esc((string) $refreshAfter); ?>">
+                </div>
                 <label class="auto-start-toggle" for="auto_start">
                     <input id="auto_start" name="auto_start" type="checkbox" value="1" <?= $autoStart ? 'checked' : ''; ?>>
                     Auto-start the next run when scheduled
                 </label>
                 <button type="submit">Run crawl now</button>
             </div>
-            <p class="muted" style="margin-top: 0.5rem;">Set the auto-refresh interval to keep the crawler running while this tab remains open. Increase the link depth to explore trusted links discovered on each page.</p>
+            <p class="muted" style="margin-top: 0.5rem;">Set the auto-refresh interval to keep the crawler running while this tab remains open. Increase the link depth to explore trusted links discovered on each page. Use the refresh field to automatically revisit pages that have gone stale.</p>
         </form>
     </section>
 
@@ -369,6 +392,8 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
             $nextRunDue = (string) ($progress['next_run_due_at'] ?? '');
             $lastResult = is_array($progress['last_result'] ?? null) ? $progress['last_result'] : null;
             $progressErrors = is_array($progress['errors'] ?? null) ? $progress['errors'] : [];
+            $taskTotalsRaw = is_array($progress['task_totals'] ?? null) ? $progress['task_totals'] : [];
+            $taskTotals = array_merge(['queued' => 0, 'running' => 0, 'completed' => 0, 'failed' => 0], $taskTotalsRaw);
         ?>
         <div class="status-pill" data-state="<?= esc($normalizedStatus); ?>" id="progress-status-pill">
             <span></span>
@@ -387,6 +412,10 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
             <div>
                 <dt>Discovered</dt>
                 <dd id="progress-discovered"><?= esc((string) $discoveredCount); ?></dd>
+            </div>
+            <div>
+                <dt>Tasks</dt>
+                <dd id="progress-task-summary"><?= esc((string) $taskTotals['queued']); ?> queued · <?= esc((string) $taskTotals['running']); ?> running</dd>
             </div>
             <div>
                 <dt>Last run</dt>
@@ -418,6 +447,11 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
                 <?php endforeach; ?>
             <?php endif; ?>
         </ul>
+        <div class="task-list" id="progress-task-container">
+            <h3>Task queue</h3>
+            <p class="muted" id="progress-task-empty">Tasks will appear here as the crawler runs.</p>
+            <ul class="task-items" id="progress-task-items"></ul>
+        </div>
     </section>
 
     <section class="card">
@@ -749,6 +783,9 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
     const lastIngestEl = document.getElementById('progress-last-ingest');
     const lastErrorEl = document.getElementById('progress-last-error');
     const errorsEl = document.getElementById('progress-errors');
+    const taskSummaryEl = document.getElementById('progress-task-summary');
+    const taskListEl = document.getElementById('progress-task-items');
+    const taskEmptyEl = document.getElementById('progress-task-empty');
     const form = document.getElementById('crawler-form');
     const runButton = form ? form.querySelector('button[type="submit"]') : null;
 
@@ -886,6 +923,123 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
         });
     }
 
+    function renderTaskSummary(totals) {
+        if (!taskSummaryEl) {
+            return;
+        }
+        const defaults = { queued: 0, running: 0, completed: 0, failed: 0 };
+        const merged = Object.assign({}, defaults, (totals && typeof totals === 'object') ? totals : {});
+        taskSummaryEl.textContent = merged.queued + ' queued · ' + merged.running + ' running';
+    }
+
+    function renderTasks(tasks) {
+        if (!taskListEl || !taskEmptyEl) {
+            return;
+        }
+
+        taskListEl.innerHTML = '';
+        let list = [];
+
+        if (Array.isArray(tasks)) {
+            list = tasks.slice();
+        } else if (tasks && typeof tasks === 'object') {
+            list = Object.values(tasks);
+        }
+
+        if (list.length === 0) {
+            taskEmptyEl.style.display = 'block';
+            return;
+        }
+
+        taskEmptyEl.style.display = 'none';
+
+        const order = { running: 0, queued: 1, failed: 2, completed: 3 };
+        list.sort(function (left, right) {
+            const leftStatus = typeof left.status === 'string' ? left.status.toLowerCase() : 'queued';
+            const rightStatus = typeof right.status === 'string' ? right.status.toLowerCase() : 'queued';
+            const leftOrder = order[leftStatus] ?? 4;
+            const rightOrder = order[rightStatus] ?? 4;
+            if (leftOrder === rightOrder) {
+                const leftQueued = typeof left.queued_at === 'string' ? left.queued_at : '';
+                const rightQueued = typeof right.queued_at === 'string' ? right.queued_at : '';
+                return rightQueued.localeCompare(leftQueued);
+            }
+            return leftOrder - rightOrder;
+        });
+
+        list.slice(0, 20).forEach(function (task) {
+            if (!task || typeof task !== 'object') {
+                return;
+            }
+
+            const li = document.createElement('li');
+            li.className = 'task-item';
+
+            const url = typeof task.url === 'string' ? task.url : '';
+            const title = document.createElement('strong');
+            title.textContent = url !== '' ? url : 'Task';
+            li.appendChild(title);
+
+            const meta = document.createElement('div');
+            meta.className = 'task-meta';
+
+            const statusValue = (typeof task.status === 'string' ? task.status : 'queued').toLowerCase();
+            const status = document.createElement('span');
+            status.className = 'task-status';
+            status.setAttribute('data-state', statusValue);
+            status.textContent = statusValue.charAt(0).toUpperCase() + statusValue.slice(1);
+            meta.appendChild(status);
+
+            const depth = Number.isFinite(task.depth) ? Number(task.depth) : null;
+            if (depth !== null) {
+                const depthSpan = document.createElement('span');
+                depthSpan.textContent = 'Depth ' + depth;
+                meta.appendChild(depthSpan);
+            }
+
+            if (task.seed) {
+                const seedSpan = document.createElement('span');
+                seedSpan.textContent = 'Seed';
+                meta.appendChild(seedSpan);
+            }
+
+            if (task.refresh) {
+                const refreshSpan = document.createElement('span');
+                refreshSpan.textContent = 'Refresh';
+                meta.appendChild(refreshSpan);
+            }
+
+            const attempts = Number(task.attempts ?? 0);
+            if (attempts > 1) {
+                const attemptsSpan = document.createElement('span');
+                attemptsSpan.textContent = attempts + ' attempts';
+                meta.appendChild(attemptsSpan);
+            }
+
+            const characters = Number(task.characters ?? 0);
+            if (characters > 0) {
+                const charSpan = document.createElement('span');
+                charSpan.textContent = characters.toLocaleString() + ' chars';
+                meta.appendChild(charSpan);
+            }
+
+            const started = typeof task.started_at === 'string' ? task.started_at : null;
+            const finished = typeof task.finished_at === 'string' ? task.finished_at : null;
+            if (finished) {
+                const finishedSpan = document.createElement('span');
+                finishedSpan.textContent = 'Finished ' + new Date(finished).toLocaleTimeString();
+                meta.appendChild(finishedSpan);
+            } else if (started) {
+                const startedSpan = document.createElement('span');
+                startedSpan.textContent = 'Started ' + new Date(started).toLocaleTimeString();
+                meta.appendChild(startedSpan);
+            }
+
+            li.appendChild(meta);
+            taskListEl.appendChild(li);
+        });
+    }
+
     function updateView(data) {
         data = data || {};
         state.data = data;
@@ -930,6 +1084,8 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
 
         renderLastResult(data.last_result);
         renderErrors(data.errors);
+        renderTaskSummary(data.task_totals);
+        renderTasks(data.tasks);
 
         if (state.pendingReload && statusNormalised === 'idle' && typeof data.last_run_at === 'string') {
             if (state.lastRunAt === null || state.lastRunAt !== data.last_run_at) {
@@ -1035,6 +1191,10 @@ $autoInterval = max(0, (int) ($_SESSION['backend_auto_interval'] ?? 0));
         formData.set('depth', String(data.options && typeof data.options.depth === 'number' ? data.options.depth : 0));
         formData.set('auto_interval', String(Number(data.auto_interval || 0)));
         formData.set('auto_start', '1');
+        const refreshValue = data.options && typeof data.options.refresh_after === 'number'
+            ? data.options.refresh_after
+            : Number(data.refresh_after || 0);
+        formData.set('refresh_after', String(Math.max(0, Number(refreshValue || 0))));
 
         state.pendingReload = true;
         startRun(formData, { reloadOnFinish: true });
