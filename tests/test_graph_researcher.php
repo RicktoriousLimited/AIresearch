@@ -168,6 +168,9 @@ assertEquals(3, $summary['fact_count']);
 assertTrue(in_array('dr alice smith', $summary['synonyms'], true));
 assertTrue(isset($summary['relation_counts']['worksat']));
 assertTrue(isset($summary['counterpart_counts']['horizon lab']));
+assertTrue(isset($summary['fact_descriptions']) && is_array($summary['fact_descriptions']), 'Expected fact descriptions in summary.');
+assertEquals(2, count($summary['fact_descriptions']), 'Descriptions should respect fact limit.');
+assertTrue($summary['fact_descriptions'][0] !== '', 'Fact description should be non-empty.');
 
 $synonymSummary = $researcher->summariseEntity('Dr. Alice Smith', 3);
 assertNotNull($synonymSummary, 'Expected synonym lookup to succeed.');
@@ -183,5 +186,13 @@ assertEquals('horizon lab', $exactSynonym['entity']);
 
 $missing = $researcher->summariseEntity('Nonexistent Entity', 3);
 assertTrue($missing === null, 'Unknown entities should return null.');
+
+$searchResults = $researcher->searchGraph('Alice', 5);
+assertTrue(isset($searchResults['entities']) && count($searchResults['entities']) > 0, 'Expected search results for Alice.');
+$firstEntity = $searchResults['entities'][0];
+assertTrue(isset($firstEntity['facts']) && is_array($firstEntity['facts']), 'Expected fact previews for search result.');
+if ($firstEntity['facts'] !== []) {
+    assertTrue(is_string($firstEntity['facts'][0]) && $firstEntity['facts'][0] !== '', 'Fact preview should be a non-empty string.');
+}
 
 unlink($tempFile);

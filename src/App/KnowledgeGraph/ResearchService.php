@@ -458,7 +458,18 @@ final class ResearchService
                     }
                 }
 
-                if (isset($summary['facts']) && is_array($summary['facts'])) {
+                if (isset($summary['fact_descriptions']) && is_array($summary['fact_descriptions'])) {
+                    foreach (array_slice($summary['fact_descriptions'], 0, 6) as $description) {
+                        if (!is_string($description)) {
+                            continue;
+                        }
+
+                        $trimmed = trim($description);
+                        if ($trimmed !== '') {
+                            $factDescriptions[] = $trimmed;
+                        }
+                    }
+                } elseif (isset($summary['facts']) && is_array($summary['facts'])) {
                     foreach (array_slice($summary['facts'], 0, 6) as $fact) {
                         if (!is_array($fact)) {
                             continue;
