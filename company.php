@@ -2,19 +2,13 @@
 
 declare(strict_types=1);
 
-$scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '/company.php');
-$scriptDir = str_replace('\\', '/', dirname($scriptName));
-if ($scriptDir === '.' || $scriptDir === '/' || $scriptDir === '\\') {
-    $scriptDir = '';
-}
+require __DIR__ . '/src/App/bootstrap.php';
 
-$basePath = rtrim($scriptDir, '/');
-if ($basePath !== '') {
-    $basePath = '/' . ltrim($basePath, '/');
-}
+use App\Web\PathResolver;
 
-$assetBase = $basePath === '' ? '' : $basePath;
-$target = $assetBase . '/search.php';
+$paths = PathResolver::resolve();
+$assetBase = $paths['assetBase'];
+$target = PathResolver::url($assetBase, 'search.php');
 
 header('Location: ' . $target, true, 302);
 header('Content-Type: text/plain; charset=utf-8');

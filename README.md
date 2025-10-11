@@ -45,7 +45,7 @@ filesystem—no database required.
 php bin/build-index
 
 # 2. Launch PHP's built-in server
-php -S 0.0.0.0:8000 -t public
+php -S 0.0.0.0:8000
 ```
 
 Browse `http://localhost:8000/search.php` to:
@@ -58,6 +58,31 @@ Raw articles live in `data/raw/*.jsonl`. The indexer writes sharded docs, invert
 facets, metadata, and recency files into `data/index/<version>/`, then atomically updates
 `data/index/manifest.json`. Cached query responses land in `data/cache/` and are invalidated on
 every rebuild. Search traffic is logged to `data/search_logs.jsonl` for weekly reporting.
+
+### Deploying with Apache HTTP Server
+
+All application entry points (`index.php`, `search.php`, `knowledge-graph.php`, etc.) now live in the
+repository root so you can point Apache's `DocumentRoot` directly at the project directory without a
+`public/` subfolder. A minimal virtual host configuration looks like:
+
+```apache
+<VirtualHost *:80>
+    ServerName airesearch.local
+    DocumentRoot "/var/www/airesearch"
+
+    <Directory "/var/www/airesearch">
+        AllowOverride FileInfo
+        Options -Indexes
+        Require all granted
+    </Directory>
+</VirtualHost>
+```
+
+After reloading Apache, browse to `http://airesearch.local/index.php` (or `/search.php`) and the PHP
+autoloader will resolve paths relative to the current directory. The included `.htaccess` file sets a
+`DirectoryIndex` and disables directory listings so the same configuration works on shared hosting.
+Ensure the `data/` directory remains writable by the web server user if you intend to rebuild indices
+or use result caching in production.
 
 ### Discovery search
 

@@ -7,24 +7,20 @@ require __DIR__ . '/src/App/bootstrap.php';
 use App\KnowledgeGraph\GraphRepository;
 use App\KnowledgeGraph\GraphResearcher;
 use App\KnowledgeGraph\ResearchService;
+use App\Web\PathResolver;
 
-$scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '/knowledge-graph.php');
-$scriptDir = str_replace('\\', '/', dirname($scriptName));
-if ($scriptDir === '.' || $scriptDir === '/' || $scriptDir === '\\') {
-    $scriptDir = '';
-}
-$basePath = rtrim($scriptDir, '/');
-if ($basePath !== '') {
-    $basePath = '/' . ltrim($basePath, '/');
-}
+$paths = PathResolver::resolve();
+$basePath = $paths['basePath'];
+$assetBase = $paths['assetBase'];
 
-$assetBase = $basePath === '' ? '' : $basePath;
-
-$stylesPath = $assetBase . '/assets/styles.css';
-$researchStylesPath = $assetBase . '/assets/research.css';
-$homePath = $assetBase . '/index.php';
-$apiPath = $assetBase . '/api/research.php';
-$scriptPath = $assetBase . '/assets/knowledge-graph.js';
+$stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
+$researchStylesPath = PathResolver::url($assetBase, 'assets/research.css');
+$homePath = PathResolver::url($assetBase, 'index.php');
+$searchPath = PathResolver::url($assetBase, 'search.php');
+$graphPath = PathResolver::url($assetBase, 'knowledge-graph.php');
+$docsPath = PathResolver::url($assetBase, 'docs');
+$apiPath = PathResolver::url($assetBase, 'api/research.php');
+$scriptPath = PathResolver::url($assetBase, 'assets/knowledge-graph.js');
 
 $stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
 $researchStylesVersion = file_exists(__DIR__ . '/assets/research.css') ? (string) filemtime(__DIR__ . '/assets/research.css') : (string) time();
@@ -102,17 +98,17 @@ if (!is_string($initialJson)) {
     <link rel="stylesheet" href="<?= $escape($researchStylesPath . '?v=' . $researchStylesVersion) ?>">
 </head>
 <body class="knowledge-page">
-<header class="site-header">
-    <div class="shell header-shell">
-        <a class="brand" href="<?= $escape($assetBase . '/index.php') ?>">AIresearch</a>
+<header class="site-header site-header--compact">
+    <div class="shell header-shell header-shell--compact">
+        <a class="brand" href="<?= $escape($homePath) ?>">AIresearch</a>
         <nav class="primary-nav" aria-label="Primary">
-            <a href="<?= $escape($assetBase . '/index.php') ?>" class="primary-nav__link">Home</a>
-            <a href="<?= $escape($assetBase . '/search.php') ?>" class="primary-nav__link">Autopilot search</a>
-            <a href="<?= $escape($assetBase . '/knowledge-graph.php') ?>" class="primary-nav__link primary-nav__link--active">Knowledge graph</a>
-            <a href="<?= $escape($assetBase . '/docs') ?>" class="primary-nav__link">Documentation</a>
+            <a href="<?= $escape($homePath) ?>" class="primary-nav__link">Home</a>
+            <a href="<?= $escape($searchPath) ?>" class="primary-nav__link">Autopilot search</a>
+            <a href="<?= $escape($graphPath) ?>" class="primary-nav__link primary-nav__link--active">Knowledge graph</a>
+            <a href="<?= $escape($docsPath) ?>" class="primary-nav__link">Documentation</a>
         </nav>
         <div class="header-actions">
-            <a class="button primary" href="<?= $escape($assetBase . '/search.php') ?>">Launch search</a>
+            <a class="button primary" href="<?= $escape($searchPath) ?>">Launch search</a>
         </div>
     </div>
 </header>

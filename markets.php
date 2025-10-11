@@ -2,16 +2,13 @@
 
 declare(strict_types=1);
 
-$scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '/markets.php');
-$scriptDir = str_replace('\\', '/', dirname($scriptName));
-if ($scriptDir === '.' || $scriptDir === '/' || $scriptDir === '\\') {
-    $scriptDir = '';
-}
-$basePath = rtrim($scriptDir, '/');
-if ($basePath !== '') {
-    $basePath = '/' . ltrim($basePath, '/');
-}
-$target = ($basePath === '' ? '' : $basePath) . '/index.php';
+require __DIR__ . '/src/App/bootstrap.php';
+
+use App\Web\PathResolver;
+
+$paths = PathResolver::resolve();
+$assetBase = $paths['assetBase'];
+$target = PathResolver::url($assetBase, 'index.php');
 
 header('Location: ' . $target, true, 302);
 header('Content-Type: text/plain; charset=utf-8');

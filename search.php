@@ -7,25 +7,18 @@ require __DIR__ . '/src/App/bootstrap.php';
 use App\KnowledgeGraph\GraphRepository;
 use App\KnowledgeGraph\GraphResearcher;
 use App\KnowledgeGraph\ResearchService;
+use App\Web\PathResolver;
 
-$scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '/search.php');
-$scriptDir = str_replace('\\', '/', dirname($scriptName));
-if ($scriptDir === '.' || $scriptDir === '/' || $scriptDir === '\\') {
-    $scriptDir = '';
-}
-$basePath = rtrim($scriptDir, '/');
-if ($basePath !== '') {
-    $basePath = '/' . ltrim($basePath, '/');
-}
+$paths = PathResolver::resolve();
+$basePath = $paths['basePath'];
+$assetBase = $paths['assetBase'];
 
-$assetBase = $basePath === '' ? '' : $basePath;
-
-$stylesPath = $assetBase . '/assets/styles.css';
-$newsStylesPath = $assetBase . '/assets/google-news.css';
-$scriptPath = $assetBase . '/assets/search.js';
-$apiPath = $assetBase . '/api/research.php';
-$homePath = $assetBase . '/index.php';
-$graphPath = $assetBase . '/knowledge-graph.php';
+$stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
+$newsStylesPath = PathResolver::url($assetBase, 'assets/google-news.css');
+$scriptPath = PathResolver::url($assetBase, 'assets/search.js');
+$apiPath = PathResolver::url($assetBase, 'api/research.php');
+$homePath = PathResolver::url($assetBase, 'index.php');
+$graphPath = PathResolver::url($assetBase, 'knowledge-graph.php');
 
 $stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
 $newsStylesVersion = file_exists(__DIR__ . '/assets/google-news.css') ? (string) filemtime(__DIR__ . '/assets/google-news.css') : (string) time();
