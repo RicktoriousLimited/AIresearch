@@ -1,17 +1,39 @@
 (function () {
   const config = window.AISearch || {};
   const endpoints = config.endpoints || {};
+  const insightEndpoint = endpoints.insight || endpoints.search || '';
   const searchEndpoint = endpoints.search || '';
   const reportEndpoint = endpoints.report || searchEndpoint;
   const initial = config.initial || {};
-  const initialReport = initial && typeof initial.report === 'object' ? initial.report : null;
-  const initialEntities = Array.isArray(initial.entities) ? initial.entities : [];
+  const initialInsight = initial && typeof initial.insight === 'object' ? initial.insight : null;
+  const initialReport = initialInsight && typeof initialInsight.report === 'object'
+    ? initialInsight.report
+    : (initial && typeof initial.report === 'object' ? initial.report : null);
+  const initialSearchState = initialInsight && typeof initialInsight.search === 'object'
+    ? initialInsight.search
+    : (initial && typeof initial.search === 'object' ? initial.search : null);
+  const initialEntities = initialSearchState && Array.isArray(initialSearchState.entities)
+    ? initialSearchState.entities
+    : (Array.isArray(initial.entities) ? initial.entities : []);
   const initialTop = Array.isArray(initial.top) ? initial.top : [];
-  const initialSources = Array.isArray(initial.sources) ? initial.sources : [];
+  const initialSources = initialInsight && initialInsight.references && Array.isArray(initialInsight.references.sources)
+    ? initialInsight.references.sources
+    : (initialSearchState && Array.isArray(initialSearchState.sources)
+        ? initialSearchState.sources
+        : (Array.isArray(initial.sources) ? initial.sources : []));
 
   const form = document.querySelector('[data-search-form]');
   const input = document.querySelector('[data-search-input]');
   const statusEl = document.querySelector('[data-search-status]');
+  const insightSection = document.querySelector('[data-insight]');
+  const insightTitle = document.querySelector('[data-insight-title]');
+  const insightMeta = document.querySelector('[data-insight-meta]');
+  const insightBody = document.querySelector('[data-insight-body]');
+  const insightEmpty = document.querySelector('[data-insight-empty]');
+  const insightEntitiesList = document.querySelector('[data-insight-entities]');
+  const insightEntitiesEmpty = document.querySelector('[data-insight-entities-empty]');
+  const insightReferencesList = document.querySelector('[data-insight-references]');
+  const insightReferencesEmpty = document.querySelector('[data-insight-references-empty]');
   const trendingContainer = document.querySelector('[data-trending]');
   const trendingList = document.querySelector('[data-trending-list]');
   const briefSection = document.querySelector('[data-brief]');
@@ -373,6 +395,366 @@
     });
   }
 
+  function renderInsight(insight) {
+    if (!insightSection) {
+      return;
+    }
+
+    const hasInsight = insight && typeof insight === 'object';
+    const documentData = hasInsight && insight.document && typeof insight.document === 'object' ? insight.document : null;
+    const sections = documentData && Array.isArray(documentData.sections) ? documentData.sections : [];
+    const entities = hasInsight && Array.isArray(insight.entities) ? insight.entities : [];
+    const references = hasInsight && insight.references && typeof insight.references === 'object' ? insight.references : {};
+    const title = documentData && typeof documentData.title === 'string' ? documentData.title.trim() : 'Insight briefing';
+    const query = hasInsight && typeof insight.query === 'string' ? insight.query.trim() : '';
+    const generatedAt = hasInsight && typeof insight.generated_at === 'string' ? insight.generated_at : '';
+    const reportData = hasInsight && typeof insight.report === 'object' ? insight.report : null;
+    const docCount = reportData && typeof reportData.document_count === 'number' ? reportData.document_count : 0;
+
+    if (insightTitle) {
+      insightTitle.textContent = title || 'Insight briefing';
+    }
+
+    if (insightMeta) {
+      const parts = [];
+      parts.push(query ? `Focus: “${query}”` : 'Focus: Latest coverage');
+      if (Number.isFinite(docCount) && docCount > 0) {
+        parts.push(`${formatNumber(docCount)} source${docCount === 1 ? '' : 's'}`);
+      }
+      if (generatedAt) {
+        const formatted = formatDate(generatedAt);
+        const relative = formatRelative(generatedAt);
+        if (formatted) {
+          parts.push(relative ? `${formatted} (${relative})` : formatted);
+        }
+      }
+      insightMeta.textContent = parts.join(' · ');
+    }
+
+    renderInsightSections(sections);
+    renderInsightEntities(entities);
+    renderInsightReferences(references);
+  }
+
+  function renderInsightSections(sections) {
+    if (!insightBody) {
+      return;
+    }
+
+    insightBody.innerHTML = '';
+
+    const list = Array.isArray(sections) ? sections : [];
+    let hasContent = false;
+
+    list.forEach((section) => {
+      if (!section || typeof section !== 'object') {
+        return;
+      }
+
+      const items = Array.isArray(section.items) ? section.items : [];
+      if (items.length === 0) {
+        return;
+      }
+
+      hasContent = true;
+
+      const type = typeof section.type === 'string' ? section.type : 'bullets';
+      const typeSlug = typeof type === 'string' ? type.replace(/[^a-z0-9_-]+/gi, '') : 'bullets';
+      const heading = typeof section.heading === 'string' ? section.heading : '';
+      const sectionEl = document.createElement('section');
+      const className = `news-insight__section news-insight__section--${typeSlug}`;
+      sectionEl.className = className;
+
+      if (heading) {
+        const headingEl = document.createElement('h3');
+        headingEl.textContent = heading;
+        sectionEl.appendChild(headingEl);
+      }
+
+      if (type === 'topics') {
+        const listEl = document.createElement('ul');
+        listEl.className = 'news-insight__topics';
+        items.forEach((topic) => {
+          if (!topic || typeof topic !== 'object') {
+            return;
+          }
+          const label = typeof topic.label === 'string' ? topic.label.trim() : '';
+          if (!label) {
+            return;
+          }
+          const count = typeof topic.count === 'number' ? topic.count : Number(topic.count || 0);
+          const citations = Array.isArray(topic.citations)
+            ? topic.citations.filter(Boolean).map((value) => String(value)).slice(0, 6)
+            : [];
+
+          const itemEl = document.createElement('li');
+          const labelEl = document.createElement('span');
+          labelEl.className = 'news-insight__topic-label';
+          labelEl.textContent = label;
+          itemEl.appendChild(labelEl);
+
+          if (Number.isFinite(count) && count > 0) {
+            const countEl = document.createElement('span');
+            countEl.className = 'news-insight__topic-count';
+            countEl.textContent = `${formatNumber(count)} mention${count === 1 ? '' : 's'}`;
+            itemEl.appendChild(countEl);
+          }
+
+          if (citations.length > 0) {
+            const citeEl = document.createElement('span');
+            citeEl.className = 'news-insight__topic-citations';
+            citeEl.textContent = `Citations: ${citations.join(', ')}`;
+            itemEl.appendChild(citeEl);
+          }
+
+          listEl.appendChild(itemEl);
+        });
+        if (listEl.children.length > 0) {
+          sectionEl.appendChild(listEl);
+        }
+      } else {
+        const listEl = document.createElement('ul');
+        listEl.className = 'news-insight__bullet-list';
+        items.forEach((entry) => {
+          if (!entry || typeof entry !== 'object') {
+            return;
+          }
+          const text = typeof entry.text === 'string' ? entry.text.trim() : '';
+          if (!text) {
+            return;
+          }
+          const citation = typeof entry.citation === 'string' ? entry.citation.trim() : '';
+          const itemEl = document.createElement('li');
+          itemEl.textContent = text;
+          if (citation) {
+            const citeEl = document.createElement('span');
+            citeEl.className = 'news-insight__citation';
+            citeEl.textContent = ` (${citation})`;
+            itemEl.appendChild(citeEl);
+          }
+          listEl.appendChild(itemEl);
+        });
+        if (listEl.children.length > 0) {
+          sectionEl.appendChild(listEl);
+        }
+      }
+
+      if (sectionEl.children.length > 0) {
+        insightBody.appendChild(sectionEl);
+      }
+    });
+
+    if (!hasContent) {
+      if (insightSection) {
+        insightSection.classList.add('is-empty');
+      }
+      if (insightEmpty) {
+        insightEmpty.hidden = false;
+      }
+      return;
+    }
+
+    if (insightSection) {
+      insightSection.classList.remove('is-empty');
+    }
+    if (insightEmpty) {
+      insightEmpty.hidden = true;
+    }
+  }
+
+  function renderInsightEntities(entities) {
+    if (!insightEntitiesList) {
+      return;
+    }
+
+    const list = Array.isArray(entities) ? entities : [];
+    insightEntitiesList.innerHTML = '';
+
+    if (!insightEntitiesEmpty) {
+      // no-op
+    } else if (list.length === 0) {
+      insightEntitiesEmpty.hidden = false;
+    } else {
+      insightEntitiesEmpty.hidden = true;
+    }
+
+    if (list.length === 0) {
+      return;
+    }
+
+    list.slice(0, 6).forEach((entity) => {
+      if (!entity || typeof entity !== 'object') {
+        return;
+      }
+      const name = typeof entity.entity === 'string' ? entity.entity.trim() : '';
+      if (!name) {
+        return;
+      }
+      const summary = typeof entity.summary === 'string' ? entity.summary.trim() : '';
+      const synonyms = Array.isArray(entity.synonyms)
+        ? entity.synonyms.filter(Boolean).map((value) => String(value).trim()).filter(Boolean).slice(0, 3)
+        : [];
+      const facts = Array.isArray(entity.facts)
+        ? entity.facts.filter(Boolean).map((value) => String(value).trim()).filter(Boolean).slice(0, 3)
+        : [];
+
+      const itemEl = document.createElement('li');
+
+      const nameEl = document.createElement('p');
+      nameEl.className = 'news-insight__entity-name';
+      nameEl.textContent = name;
+      itemEl.appendChild(nameEl);
+
+      if (summary) {
+        const summaryEl = document.createElement('p');
+        summaryEl.className = 'news-insight__entity-summary';
+        summaryEl.textContent = summary;
+        itemEl.appendChild(summaryEl);
+      }
+
+      if (synonyms.length > 0) {
+        const synonymEl = document.createElement('p');
+        synonymEl.className = 'news-insight__entity-synonyms';
+        synonymEl.textContent = `Also known as ${synonyms.join(', ')}`;
+        itemEl.appendChild(synonymEl);
+      }
+
+      if (facts.length > 0) {
+        const factList = document.createElement('ul');
+        factList.className = 'news-insight__fact-list';
+        facts.forEach((fact) => {
+          const factItem = document.createElement('li');
+          factItem.textContent = fact;
+          factList.appendChild(factItem);
+        });
+        itemEl.appendChild(factList);
+      }
+
+      insightEntitiesList.appendChild(itemEl);
+    });
+  }
+
+  function renderInsightReferences(refs) {
+    if (!insightReferencesList) {
+      return;
+    }
+
+    const citations = refs && Array.isArray(refs.citations) ? refs.citations : [];
+    const sources = refs && Array.isArray(refs.sources) ? refs.sources : [];
+    const seen = new Set();
+    const items = [];
+
+    citations.forEach((citation) => {
+      if (!citation || typeof citation !== 'object') {
+        return;
+      }
+      const url = citation.url && typeof citation.url === 'string' ? citation.url.trim() : '';
+      const id = citation.id && typeof citation.id === 'string' ? citation.id.trim() : '';
+      const key = url || (id ? `citation:${id}` : '');
+      if (key && seen.has(key)) {
+        return;
+      }
+      if (key) {
+        seen.add(key);
+      }
+      items.push({
+        type: 'citation',
+        label: citation.title && typeof citation.title === 'string' && citation.title.trim()
+          ? citation.title.trim()
+          : (url ? extractHost(url) : 'Citation'),
+        url,
+        id,
+        preview: citation.preview && typeof citation.preview === 'string' ? citation.preview.trim() : '',
+        fetched_at: citation.fetched_at && typeof citation.fetched_at === 'string' ? citation.fetched_at : '',
+      });
+    });
+
+    sources.forEach((source) => {
+      if (!source || typeof source !== 'object') {
+        return;
+      }
+      const url = source.url && typeof source.url === 'string' ? source.url.trim() : '';
+      const key = url || (source.title && typeof source.title === 'string' ? `source:${source.title.trim()}` : '');
+      if (key && seen.has(key)) {
+        return;
+      }
+      if (key) {
+        seen.add(key);
+      }
+      items.push({
+        type: 'source',
+        label: source.title && typeof source.title === 'string' && source.title.trim()
+          ? source.title.trim()
+          : (url ? extractHost(url) : 'Source'),
+        url,
+        preview: source.summary && typeof source.summary === 'string'
+          ? source.summary.trim()
+          : (source.preview && typeof source.preview === 'string' ? source.preview.trim() : ''),
+        fetched_at: source.last_seen && typeof source.last_seen === 'string'
+          ? source.last_seen
+          : (source.fetched_at && typeof source.fetched_at === 'string' ? source.fetched_at : ''),
+      });
+    });
+
+    insightReferencesList.innerHTML = '';
+
+    if (insightReferencesEmpty) {
+      insightReferencesEmpty.hidden = items.length > 0;
+    }
+
+    if (items.length === 0) {
+      return;
+    }
+
+    items.slice(0, 10).forEach((item) => {
+      const li = document.createElement('li');
+
+      const titleEl = document.createElement('div');
+      titleEl.className = 'news-insight__reference-title';
+      const label = item.label || (item.type === 'citation' ? 'Citation' : 'Source');
+      if (item.url) {
+        const link = document.createElement('a');
+        link.href = item.url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = label || extractHost(item.url) || (item.type === 'citation' ? 'Citation' : 'Source');
+        titleEl.appendChild(link);
+      } else {
+        titleEl.textContent = label;
+      }
+      li.appendChild(titleEl);
+
+      const metaParts = [];
+      if (item.type === 'citation' && item.id) {
+        metaParts.push(`Citation ${item.id}`);
+      } else if (item.type === 'source') {
+        metaParts.push('Stored source');
+      }
+      if (item.fetched_at) {
+        const formatted = formatDate(item.fetched_at);
+        const relative = formatRelative(item.fetched_at);
+        if (formatted) {
+          metaParts.push(relative ? `${formatted} (${relative})` : formatted);
+        }
+      }
+      if (metaParts.length > 0) {
+        const metaEl = document.createElement('span');
+        metaEl.className = 'news-insight__reference-meta';
+        metaEl.textContent = metaParts.join(' · ');
+        li.appendChild(metaEl);
+      }
+
+      if (item.preview) {
+        const previewEl = document.createElement('p');
+        previewEl.className = 'news-insight__reference-preview';
+        previewEl.textContent = item.preview;
+        li.appendChild(previewEl);
+      }
+
+      insightReferencesList.appendChild(li);
+    });
+  }
+
   function renderBrief(report) {
     if (!briefSection || !briefList) {
       return;
@@ -670,6 +1052,26 @@
     return 'Request failed.';
   }
 
+  async function fetchInsight(query, options = {}) {
+    if (!insightEndpoint) {
+      throw new Error('Insight endpoint is not configured.');
+    }
+    const url = buildUrl(insightEndpoint, { action: 'insight', limit: 6, q: query, ...options });
+    const response = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!response.ok) {
+      throw new Error(`Insight request failed (${response.status})`);
+    }
+    const payload = await response.json();
+    if (payload && payload.error) {
+      throw new Error(String(payload.error));
+    }
+    const insight = payload && payload.data && payload.data.insight ? payload.data.insight : null;
+    if (!insight) {
+      throw new Error('Malformed insight response.');
+    }
+    return insight;
+  }
+
   async function fetchSearch(query, options = {}) {
     if (!searchEndpoint) {
       return null;
@@ -710,8 +1112,67 @@
     return report;
   }
 
+  function applyInsightResult(insight, query, errors = []) {
+    const reportData = insight && typeof insight.report === 'object' ? insight.report : null;
+    const searchData = insight && typeof insight.search === 'object' ? insight.search : null;
+    const fallbackSources = insight && insight.references && Array.isArray(insight.references.sources)
+      ? insight.references.sources
+      : (searchData && Array.isArray(searchData.sources) ? searchData.sources : initialSources.slice());
+
+    renderInsight(insight);
+    renderBrief(reportData);
+    renderResults(reportData, fallbackSources);
+
+    const searchEntities = searchData && Array.isArray(searchData.entities) ? searchData.entities : [];
+    const fallbackEntities = searchEntities.length > 0
+      ? searchEntities
+      : (insight && Array.isArray(insight.entities) ? insight.entities : initialEntities);
+    updateToolbar(reportData, fallbackSources, fallbackEntities);
+
+    if (searchEntities.length > 0) {
+      renderTrending(searchEntities);
+    } else if (insight && Array.isArray(insight.entities) && insight.entities.length > 0) {
+      renderTrending(insight.entities);
+    } else if (!query) {
+      renderTrending(initialEntities);
+    } else {
+      renderTrending([]);
+    }
+
+    const hasHighlights = reportData && Array.isArray(reportData.highlights) && reportData.highlights.length > 0;
+    const hasFallback = !hasHighlights && Array.isArray(fallbackSources) && fallbackSources.length > 0;
+
+    let tone = hasHighlights ? 'success' : hasFallback ? 'warning' : 'warning';
+    let message;
+
+    if (!query) {
+      message = hasHighlights
+        ? 'Showing the latest insight briefing generated from stored sources.'
+        : 'Showing stored sources from the knowledge graph. Enter a focus area to generate a briefing.';
+    } else if (hasHighlights) {
+      message = `Generated an insight briefing for “${query}”.`;
+    } else if (hasFallback) {
+      message = `No curated highlights for “${query}” yet. Showing stored sources instead.`;
+    } else {
+      message = `No stored coverage yet for “${query}”.`;
+    }
+
+    if (errors.length > 0) {
+      const errorText = errors[0];
+      if (hasHighlights || hasFallback) {
+        message = `${message} ${errorText}`;
+        tone = hasHighlights ? 'success' : 'warning';
+      } else {
+        message = errorText;
+        tone = 'error';
+      }
+    }
+
+    setStatus(message, tone);
+  }
+
   async function performSearch(query) {
-    if (!searchEndpoint && !reportEndpoint) {
+    if (!insightEndpoint && !searchEndpoint && !reportEndpoint) {
       setStatus('Search is not configured.', 'error');
       return;
     }
@@ -723,6 +1184,28 @@
     setLoading(true);
     setStatus(trimmed ? `Searching for “${trimmed}”…` : 'Loading the latest coverage…', 'info');
 
+    const errors = [];
+
+    if (insightEndpoint) {
+      try {
+        const insight = await fetchInsight(trimmed, filterParams);
+        if (requestId !== currentRequestId) {
+          return;
+        }
+        setLoading(false);
+        applyInsightResult(insight, trimmed);
+        return;
+      } catch (primaryError) {
+        if (requestId !== currentRequestId) {
+          return;
+        }
+        const reason = normaliseError(primaryError);
+        if (reason !== 'abort') {
+          errors.push(reason);
+        }
+      }
+    }
+
     try {
       const searchPromise = searchEndpoint ? fetchSearch(trimmed, filterParams) : Promise.resolve(null);
       const reportPromise = reportEndpoint ? fetchReport(trimmed, filterParams) : Promise.resolve(null);
@@ -733,11 +1216,11 @@
       }
 
       setLoading(false);
+      renderInsight(null);
 
       let searchData = null;
       let reportData = null;
       let fallbackSources = initialSources.slice();
-      const errors = [];
 
       if (searchOutcome.status === 'fulfilled') {
         searchData = searchOutcome.value;
@@ -805,6 +1288,7 @@
         return;
       }
       setLoading(false);
+      renderInsight(null);
       setStatus(error instanceof Error ? error.message : 'Search failed.', 'error');
     }
   }
@@ -913,6 +1397,7 @@
   }
 
   function bootstrap() {
+    renderInsight(initialInsight);
     renderBrief(initialReport);
     renderResults(initialReport, initialSources);
     renderTrending(initialEntities);

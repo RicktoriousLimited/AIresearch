@@ -35,22 +35,265 @@ $repository = new GraphRepository();
 $researcher = new GraphResearcher($repository);
 $service = new ResearchService($repository);
 
-$initialSearch = $researcher->searchGraph('', 18);
+$initialInsight = $service->buildInsightDocument('', 6);
+$initialReport = isset($initialInsight['report']) && is_array($initialInsight['report'])
+    ? $initialInsight['report']
+    : $service->buildResearchBrief('', 5);
+$initialSearch = isset($initialInsight['search']) && is_array($initialInsight['search'])
+    ? $initialInsight['search']
+    : $researcher->searchGraph('', 18);
 $topEntities = $service->listTopEntities(12);
-$initialBrief = $service->buildResearchBrief('', 5);
 
-$sources = isset($initialSearch['sources']) && is_array($initialSearch['sources']) ? $initialSearch['sources'] : [];
-$initialHighlights = isset($initialBrief['highlights']) && is_array($initialBrief['highlights']) ? $initialBrief['highlights'] : [];
-$initialCombined = isset($initialBrief['combined_summary']) && is_array($initialBrief['combined_summary']) ? $initialBrief['combined_summary'] : [];
 $initialEntities = isset($initialSearch['entities']) && is_array($initialSearch['entities']) ? $initialSearch['entities'] : [];
+$initialHighlights = isset($initialReport['highlights']) && is_array($initialReport['highlights']) ? $initialReport['highlights'] : [];
+$initialCombined = isset($initialReport['combined_summary']) && is_array($initialReport['combined_summary']) ? $initialReport['combined_summary'] : [];
+
+$initialDocument = isset($initialInsight['document']) && is_array($initialInsight['document']) ? $initialInsight['document'] : [];
+$initialDocumentTitle = isset($initialDocument['title']) && is_string($initialDocument['title']) ? trim($initialDocument['title']) : 'Insight briefing';
+$initialSections = isset($initialDocument['sections']) && is_array($initialDocument['sections']) ? $initialDocument['sections'] : [];
+$initialInsightEntities = isset($initialInsight['entities']) && is_array($initialInsight['entities']) ? $initialInsight['entities'] : [];
+$initialReferences = isset($initialInsight['references']) && is_array($initialInsight['references']) ? $initialInsight['references'] : [];
+
+$sources = isset($initialReferences['sources']) && is_array($initialReferences['sources'])
+    ? $initialReferences['sources']
+    : (isset($initialSearch['sources']) && is_array($initialSearch['sources']) ? $initialSearch['sources'] : []);
+
+$initialInsightEntitiesList = array_slice($initialInsightEntities, 0, 6);
+$referenceItems = [];
+$referenceSeen = [];
+
+if (isset($initialReferences['citations']) && is_array($initialReferences['citations'])) {
+    foreach ($initialReferences['citations'] as $citation) {
+        if (!is_array($citation)) {
+            continue;
+        }
+
+        $url = isset($citation['url']) && is_string($citation['url']) ? trim($citation['url']) : '';
+        $id = isset($citation['id']) && is_string($citation['id']) ? trim($citation['id']) : '';
+        $key = $url !== '' ? $url : ($id !== '' ? 'citation:' . $id : null);
+        if ($key !== null) {
+            if (isset($referenceSeen[$key])) {
+                continue;
+            }
+            $referenceSeen[$key] = true;
+        }
+
+        $label = isset($citation['title']) && is_string($citation['title']) ? trim($citation['title']) : ($url !== '' ? $getHost($url) : 'Citation');
+        $referenceItems[] = [
+            'type' => 'citation',
+            'label' => $label,
+            'url' => $url,
+            'id' => $id,
+            'preview' => isset($citation['preview']) && is_string($citation['preview']) ? trim($citation['preview']) : '',
+            'fetched_at' => isset($citation['fetched_at']) && is_string($citation['fetched_at']) ? trim($citation['fetched_at']) : '',
+        ];
+    }
+}
+
+if (isset($initialReferences['sources']) && is_array($initialReferences['sources'])) {
+    foreach ($initialReferences['sources'] as $source) {
+        if (!is_array($source)) {
+            continue;
+        }
+
+        $url = isset($source['url']) && is_string($source['url']) ? trim($source['url']) : '';
+        $key = $url !== '' ? $url : (isset($source['title']) && is_string($source['title']) ? 'source:' . trim($source['title']) : null);
+        if ($key !== null) {
+            if (isset($referenceSeen[$key])) {
+                continue;
+            }
+            $referenceSeen[$key] = true;
+        }
+
+        $label = isset($source['title']) && is_string($source['title']) && trim($source['title']) !== '' ? trim($source['title']) : ($url !== '' ? $getHost($url) : 'Source');
+        $preview = '';
+        if (isset($source['summary']) && is_string($source['summary'])) {
+            $preview = trim($source['summary']);
+        } elseif (isset($source['preview']) && is_string($source['preview'])) {
+            $preview = trim($source['preview']);
+        }
+
+        $referenceItems[] = [
+            'type' => 'source',
+            'label' => $label,
+            'url' => $url,
+            'preview' => $preview,
+            'fetched_at' => isset($source['last_seen']) && is_string($source['last_seen']) ? trim($source['last_seen']) : (isset($source['fetched_at']) && is_string($source['fetched_at']) ? trim($source['fetched_at']) : ''),
+        ];
+    }
+}
+
+$initialInsightReferencesList = array_slice($referenceItems, 0, 10);
+
+$renderSections = [];
+foreach ($initialSections as $section) {
+    if (!is_array($section)) {
+        continue;
+    }
+
+    $sectionHeading = isset($section['heading']) && is_string($section['heading']) ? trim($section['heading']) : '';
+    $sectionType = isset($section['type']) && is_string($section['type']) ? trim($section['type']) : 'bullets';
+    $sectionItems = isset($section['items']) && is_array($section['items']) ? $section['items'] : [];
+    $items = [];
+
+    if ($sectionType === 'topics') {
+        foreach ($sectionItems as $topic) {
+            if (!is_array($topic)) {
+                continue;
+            }
+
+            $label = isset($topic['label']) && is_string($topic['label']) ? trim($topic['label']) : '';
+            if ($label === '') {
+                continue;
+            }
+
+            $count = isset($topic['count']) ? (int) $topic['count'] : 0;
+            $citations = [];
+            if (isset($topic['citations']) && is_array($topic['citations'])) {
+                $citations = array_slice(
+                    array_values(array_filter(
+                        array_map('strval', $topic['citations']),
+                        static fn(string $value): bool => trim($value) !== ''
+                    )),
+                    0,
+                    6
+                );
+            }
+
+            $items[] = [
+                'label' => $label,
+                'count' => $count,
+                'citations' => $citations,
+            ];
+        }
+    } else {
+        foreach ($sectionItems as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $text = isset($item['text']) && is_string($item['text']) ? trim($item['text']) : '';
+            if ($text === '') {
+                continue;
+            }
+
+            $citation = isset($item['citation']) && is_string($item['citation']) ? trim($item['citation']) : '';
+            $items[] = ['text' => $text, 'citation' => $citation];
+        }
+    }
+
+    if ($items === []) {
+        continue;
+    }
+
+    $renderSections[] = [
+        'heading' => $sectionHeading,
+        'type' => $sectionType,
+        'items' => $items,
+    ];
+}
+
+$renderEntities = [];
+foreach ($initialInsightEntitiesList as $entity) {
+    if (!is_array($entity)) {
+        continue;
+    }
+
+    $name = isset($entity['entity']) && is_string($entity['entity']) ? trim($entity['entity']) : '';
+    if ($name === '') {
+        continue;
+    }
+
+    $summary = isset($entity['summary']) && is_string($entity['summary']) ? trim($entity['summary']) : '';
+    $synonyms = isset($entity['synonyms']) && is_array($entity['synonyms'])
+        ? array_slice(array_values(array_filter(array_map('strval', $entity['synonyms']), static fn(string $value): bool => trim($value) !== '')), 0, 3)
+        : [];
+    $facts = isset($entity['facts']) && is_array($entity['facts'])
+        ? array_slice(array_values(array_filter(array_map('strval', $entity['facts']), static fn(string $value): bool => trim($value) !== '')), 0, 3)
+        : [];
+
+    $renderEntities[] = [
+        'name' => $name,
+        'summary' => $summary,
+        'synonyms' => $synonyms,
+        'facts' => $facts,
+    ];
+}
+
+$renderReferences = [];
+foreach ($initialInsightReferencesList as $reference) {
+    if (!is_array($reference)) {
+        continue;
+    }
+
+    $renderReferences[] = [
+        'label' => isset($reference['label']) ? trim((string) $reference['label']) : '',
+        'url' => isset($reference['url']) ? trim((string) $reference['url']) : '',
+        'type' => isset($reference['type']) ? trim((string) $reference['type']) : '',
+        'id' => isset($reference['id']) ? trim((string) $reference['id']) : '',
+        'preview' => isset($reference['preview']) ? trim((string) $reference['preview']) : '',
+        'fetched_at' => isset($reference['fetched_at']) ? trim((string) $reference['fetched_at']) : '',
+    ];
+}
+
+$docCount = isset($initialReport['document_count']) && is_numeric($initialReport['document_count']) ? (int) $initialReport['document_count'] : 0;
+$generatedLabel = $formatDate($initialReport['generated_at'] ?? null);
+$insightGeneratedAt = isset($initialInsight['generated_at']) && is_string($initialInsight['generated_at']) ? $initialInsight['generated_at'] : ($initialReport['generated_at'] ?? null);
+$insightGeneratedLabel = $formatDate($insightGeneratedAt);
+
+$initialInsightMetaParts = [];
+$focusLabel = isset($initialInsight['query']) && is_string($initialInsight['query']) ? trim($initialInsight['query']) : '';
+$initialInsightMetaParts[] = $focusLabel !== '' ? 'Focus: “' . $focusLabel . '”' : 'Focus: Latest coverage';
+if ($docCount > 0) {
+    $initialInsightMetaParts[] = $formatNumber($docCount) . ' sources';
+}
+if ($insightGeneratedLabel !== null) {
+    $initialInsightMetaParts[] = 'Generated ' . $insightGeneratedLabel;
+}
+$initialInsightMeta = implode(' · ', array_filter($initialInsightMetaParts));
+
+$initialBriefMetaParts = [];
+$initialBriefMetaParts[] = $focusLabel !== '' ? 'Focus: “' . $focusLabel . '”' : 'Focus: Latest coverage';
+if ($docCount > 0) {
+    $initialBriefMetaParts[] = $formatNumber($docCount) . ' sources';
+}
+if ($generatedLabel !== null) {
+    $initialBriefMetaParts[] = 'Generated ' . $generatedLabel;
+}
+$initialBriefMeta = implode(' · ', array_filter($initialBriefMetaParts));
+
+$initialResultsMetaParts = [];
+if ($initialHighlights !== []) {
+    $initialResultsMetaParts[] = $formatNumber(count($initialHighlights)) . ' curated highlight' . (count($initialHighlights) === 1 ? '' : 's');
+}
+if ($docCount > 0) {
+    $initialResultsMetaParts[] = $formatNumber($docCount) . ' total sources';
+} elseif ($sources !== []) {
+    $initialResultsMetaParts[] = $formatNumber(count($sources)) . ' stored source' . (count($sources) === 1 ? '' : 's');
+}
+$initialResultsMeta = implode(' · ', array_filter($initialResultsMetaParts));
+
+$initialInsightHasSections = $renderSections !== [];
+$initialInsightIsEmpty = !$initialInsightHasSections && $renderEntities === [] && $renderReferences === [];
+$initialInsightClass = 'news-insight' . ($initialInsightIsEmpty ? ' is-empty' : '');
+
+$initialStatus = 'Enter a focus area to generate an insight briefing.';
+if ($initialHighlights !== []) {
+    $initialStatus = 'Showing the latest insight briefing. Enter a focus area to refine it.';
+} elseif ($sources !== []) {
+    $initialStatus = 'Showing stored sources from the knowledge graph. Enter a focus area to generate a briefing.';
+}
 
 $initialState = [
     'endpoints' => [
+        'insight' => $apiPath,
         'search' => $apiPath,
         'report' => $apiPath,
     ],
     'initial' => [
-        'report' => $initialBrief,
+        'insight' => $initialInsight,
+        'report' => $initialReport,
+        'search' => $initialSearch,
         'entities' => $initialEntities,
         'top' => $topEntities,
         'sources' => $sources,
@@ -108,38 +351,6 @@ $getHost = static function (?string $url): string {
 
     return $host;
 };
-
-$docCount = isset($initialBrief['document_count']) && is_numeric($initialBrief['document_count']) ? (int) $initialBrief['document_count'] : 0;
-$generatedLabel = $formatDate($initialBrief['generated_at'] ?? null);
-
-$initialBriefMetaParts = [];
-$focusLabel = isset($initialBrief['query']) && is_string($initialBrief['query']) ? trim($initialBrief['query']) : '';
-$initialBriefMetaParts[] = $focusLabel !== '' ? 'Focus: “' . $focusLabel . '”' : 'Focus: Latest coverage';
-if ($docCount > 0) {
-    $initialBriefMetaParts[] = $formatNumber($docCount) . ' sources';
-}
-if ($generatedLabel !== null) {
-    $initialBriefMetaParts[] = 'Generated ' . $generatedLabel;
-}
-$initialBriefMeta = implode(' · ', array_filter($initialBriefMetaParts));
-
-$initialResultsMetaParts = [];
-if ($initialHighlights !== []) {
-    $initialResultsMetaParts[] = $formatNumber(count($initialHighlights)) . ' curated highlight' . (count($initialHighlights) === 1 ? '' : 's');
-}
-if ($docCount > 0) {
-    $initialResultsMetaParts[] = $formatNumber($docCount) . ' total sources';
-} elseif ($sources !== []) {
-    $initialResultsMetaParts[] = $formatNumber(count($sources)) . ' stored source' . (count($sources) === 1 ? '' : 's');
-}
-$initialResultsMeta = implode(' · ', array_filter($initialResultsMetaParts));
-
-$initialStatus = 'Enter a focus area to generate a briefing.';
-if ($initialHighlights !== []) {
-    $initialStatus = 'Showing the latest coverage. Enter a focus area to refine the briefing.';
-} elseif ($sources !== []) {
-    $initialStatus = 'Showing stored sources from the knowledge graph. Enter a focus area to refine the briefing.';
-}
 
 $trendingChips = array_slice($topEntities, 0, 8);
 $fallbackSources = $initialHighlights === [] ? array_slice($sources, 0, 6) : [];
@@ -344,6 +555,141 @@ $workspaceActions = [
 
         <div class="news-search__layout">
         <div class="news-search__main">
+        <section class="<?= $escape($initialInsightClass) ?>" data-insight>
+            <header class="news-insight__header">
+                <h2 class="news-insight__title" data-insight-title><?= $escape($initialDocumentTitle) ?></h2>
+                <p class="news-insight__meta" data-insight-meta><?= $escape($initialInsightMeta) ?></p>
+            </header>
+            <div class="news-insight__document" data-insight-body>
+                <?php foreach ($renderSections as $section): ?>
+                    <?php
+                        $sectionHeading = isset($section['heading']) ? (string) $section['heading'] : '';
+                        $sectionType = isset($section['type']) ? (string) $section['type'] : 'bullets';
+                        $items = isset($section['items']) && is_array($section['items']) ? $section['items'] : [];
+                        $sectionClass = 'news-insight__section';
+                        if ($sectionType !== '') {
+                            $sectionClass .= ' news-insight__section--' . preg_replace('/[^a-z0-9_-]+/i', '', $sectionType);
+                        }
+                    ?>
+                    <section class="<?= $escape($sectionClass) ?>">
+                        <?php if ($sectionHeading !== ''): ?>
+                            <h3><?= $escape($sectionHeading) ?></h3>
+                        <?php endif; ?>
+                        <?php if ($sectionType === 'topics'): ?>
+                            <ul class="news-insight__topics">
+                                <?php foreach ($items as $topic): ?>
+                                    <?php
+                                        $label = isset($topic['label']) ? (string) $topic['label'] : '';
+                                        $count = isset($topic['count']) ? (int) $topic['count'] : 0;
+                                        $citations = isset($topic['citations']) && is_array($topic['citations']) ? $topic['citations'] : [];
+                                    ?>
+                                    <li>
+                                        <span class="news-insight__topic-label"><?= $escape($label) ?></span>
+                                        <?php if ($count > 0): ?>
+                                            <span class="news-insight__topic-count"><?= $escape($formatNumber($count)) ?> mention<?= $count === 1 ? '' : 's' ?></span>
+                                        <?php endif; ?>
+                                        <?php if ($citations !== []): ?>
+                                            <span class="news-insight__topic-citations">Citations: <?= $escape(implode(', ', $citations)) ?></span>
+                                        <?php endif; ?>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        <?php else: ?>
+                            <ul class="news-insight__bullet-list">
+                                <?php foreach ($items as $item): ?>
+                                    <?php
+                                        $text = isset($item['text']) ? (string) $item['text'] : '';
+                                        $citation = isset($item['citation']) ? (string) $item['citation'] : '';
+                                    ?>
+                                    <li>
+                                        <?= $escape($text) ?>
+                                        <?php if ($citation !== ''): ?>
+                                            <span class="news-insight__citation">(<?= $escape($citation) ?>)</span>
+                                        <?php endif; ?>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        <?php endif; ?>
+                    </section>
+                <?php endforeach; ?>
+            </div>
+            <p class="news-insight__empty" data-insight-empty<?= $initialInsightIsEmpty ? '' : ' hidden' ?>>Start typing to generate an insight brief that blends multiple sources with the knowledge graph.</p>
+            <div class="news-insight__columns">
+                <div class="news-insight__column">
+                    <h3 class="news-insight__column-title">Key entities</h3>
+                    <ul class="news-insight__entity-list" data-insight-entities>
+                        <?php foreach ($renderEntities as $entity): ?>
+                            <?php
+                                $entityName = $entity['name'] ?? '';
+                                $entitySummary = $entity['summary'] ?? '';
+                                $entitySynonyms = isset($entity['synonyms']) && is_array($entity['synonyms']) ? $entity['synonyms'] : [];
+                                $entityFacts = isset($entity['facts']) && is_array($entity['facts']) ? $entity['facts'] : [];
+                            ?>
+                            <li>
+                                <p class="news-insight__entity-name"><?= $escape($entityName) ?></p>
+                                <?php if ($entitySummary !== ''): ?>
+                                    <p class="news-insight__entity-summary"><?= $escape($entitySummary) ?></p>
+                                <?php endif; ?>
+                                <?php if ($entitySynonyms !== []): ?>
+                                    <p class="news-insight__entity-synonyms">Also known as <?= $escape(implode(', ', $entitySynonyms)) ?></p>
+                                <?php endif; ?>
+                                <?php if ($entityFacts !== []): ?>
+                                    <ul class="news-insight__fact-list">
+                                        <?php foreach ($entityFacts as $fact): ?>
+                                            <li><?= $escape($fact) ?></li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                <?php endif; ?>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <p class="news-insight__column-empty" data-insight-entities-empty<?= $renderEntities !== [] ? ' hidden' : '' ?>>No entities matched yet. Enter a focus area to populate this list.</p>
+                </div>
+                <div class="news-insight__column">
+                    <h3 class="news-insight__column-title">References &amp; sources</h3>
+                    <ul class="news-insight__reference-list" data-insight-references>
+                        <?php foreach ($renderReferences as $reference): ?>
+                            <?php
+                                $referenceLabel = $reference['label'] ?? '';
+                                $referenceUrl = $reference['url'] ?? '';
+                                $referenceType = $reference['type'] ?? '';
+                                $referenceId = $reference['id'] ?? '';
+                                $referencePreview = $reference['preview'] ?? '';
+                                $referenceFetched = $reference['fetched_at'] ?? '';
+                                $referenceMetaParts = [];
+                                if ($referenceType === 'citation' && $referenceId !== '') {
+                                    $referenceMetaParts[] = 'Citation ' . $referenceId;
+                                } elseif ($referenceType === 'source') {
+                                    $referenceMetaParts[] = 'Stored source';
+                                }
+                                $formattedFetched = $referenceFetched !== '' ? $formatDate($referenceFetched) : null;
+                                if ($formattedFetched !== null) {
+                                    $referenceMetaParts[] = $formattedFetched;
+                                }
+                                $referenceLabelOutput = $referenceLabel !== '' ? $referenceLabel : ($referenceType === 'citation' ? 'Citation' : 'Source');
+                            ?>
+                            <li>
+                                <div class="news-insight__reference-title">
+                                    <?php if ($referenceUrl !== ''): ?>
+                                        <a href="<?= $escape($referenceUrl) ?>" target="_blank" rel="noopener"><?= $escape($referenceLabelOutput !== '' ? $referenceLabelOutput : $getHost($referenceUrl)) ?></a>
+                                    <?php else: ?>
+                                        <?= $escape($referenceLabelOutput) ?>
+                                    <?php endif; ?>
+                                </div>
+                                <?php if ($referenceMetaParts !== []): ?>
+                                    <span class="news-insight__reference-meta"><?= $escape(implode(' · ', $referenceMetaParts)) ?></span>
+                                <?php endif; ?>
+                                <?php if ($referencePreview !== ''): ?>
+                                    <p class="news-insight__reference-preview"><?= $escape($referencePreview) ?></p>
+                                <?php endif; ?>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                    <p class="news-insight__column-empty" data-insight-references-empty<?= $renderReferences !== [] ? ' hidden' : '' ?>>No references yet. Add sources to your knowledge graph to see them here.</p>
+                </div>
+            </div>
+        </section>
+
         <section class="news-brief<?= $initialCombined === [] ? ' is-empty' : '' ?>" data-brief>
             <header class="news-brief__header">
                 <h2 class="news-brief__title">Focus brief</h2>

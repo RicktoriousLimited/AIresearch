@@ -63,6 +63,23 @@ switch ($method) {
                     'meta' => ['processing_time_ms' => runtime($startTime)],
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
                 return;
+            case 'insight':
+                $limit = isset($_GET['limit']) ? max(1, (int) $_GET['limit']) : 6;
+                $query = isset($_GET['q']) && is_string($_GET['q']) ? (string) $_GET['q'] : '';
+                $selectors = isset($_GET['sources']) ? InputNormaliser::selectors($_GET['sources']) : [];
+                $insight = $service->buildInsightDocument($query, $limit, $selectors);
+
+                if (isset($insight['references']['sources']) && is_array($insight['references']['sources'])) {
+                    $insight['references']['sources'] = sanitiseSources($insight['references']['sources']);
+                }
+
+                echo json_encode([
+                    'data' => [
+                        'insight' => $insight,
+                    ],
+                    'meta' => ['processing_time_ms' => runtime($startTime)],
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+                return;
             case 'search':
                 $limit = isset($_GET['limit']) ? max(1, (int) $_GET['limit']) : 12;
                 $query = isset($_GET['q']) && is_string($_GET['q']) ? (string) $_GET['q'] : '';
