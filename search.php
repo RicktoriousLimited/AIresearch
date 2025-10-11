@@ -35,6 +35,53 @@ $repository = new GraphRepository();
 $researcher = new GraphResearcher($repository);
 $service = new ResearchService($repository);
 
+$escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES);
+$formatNumber = static function ($value): string {
+    if (!is_numeric($value)) {
+        $value = 0;
+    }
+
+    return number_format((int) round((float) $value));
+};
+$formatDate = static function (?string $value): ?string {
+    if ($value === null || trim($value) === '') {
+        return null;
+    }
+
+    try {
+        $date = new DateTimeImmutable($value);
+    } catch (Exception $exception) {
+        return $value;
+    }
+
+    return $date->format('F j, Y H:i');
+};
+$formatPercent = static function ($value): string {
+    if (!is_numeric($value)) {
+        $value = 0;
+    }
+
+    $numeric = max(0.0, (float) $value);
+
+    return (string) round($numeric * 100) . '%';
+};
+$getHost = static function (?string $url): string {
+    if ($url === null || trim($url) === '') {
+        return '';
+    }
+
+    $host = parse_url($url, PHP_URL_HOST);
+    if (!is_string($host)) {
+        return '';
+    }
+
+    if (str_starts_with($host, 'www.')) {
+        $host = substr($host, 4);
+    }
+
+    return $host;
+};
+
 $initialInsight = $service->buildInsightDocument('', 6);
 $initialReport = isset($initialInsight['report']) && is_array($initialInsight['report'])
     ? $initialInsight['report']
@@ -43,6 +90,7 @@ $initialSearch = isset($initialInsight['search']) && is_array($initialInsight['s
     ? $initialInsight['search']
     : $researcher->searchGraph('', 18);
 $topEntities = $service->listTopEntities(12);
+$trendingChips = array_slice($topEntities, 0, 8);
 
 $initialEntities = isset($initialSearch['entities']) && is_array($initialSearch['entities']) ? $initialSearch['entities'] : [];
 $initialHighlights = isset($initialReport['highlights']) && is_array($initialReport['highlights']) ? $initialReport['highlights'] : [];
@@ -284,6 +332,62 @@ if ($initialHighlights !== []) {
     $initialStatus = 'Showing stored sources from the knowledge graph. Enter a focus area to generate a briefing.';
 }
 
+$statusCardHeading = ($docCount > 0 || $initialHighlights !== [])
+    ? 'Insight workspace is ready'
+    : 'Prep your first insight briefing';
+$statusCardDescription = $initialHighlights !== []
+    ? 'Keep refining the focus to surface fresh intelligence across your monitored sources.'
+    : 'Choose a starter template or enter a focus area to generate a personalised insight briefing.';
+
+$primaryEntity = '';
+if ($renderEntities !== []) {
+    $firstEntity = $renderEntities[0]['name'] ?? '';
+    if (is_string($firstEntity)) {
+        $primaryEntity = trim($firstEntity);
+    }
+}
+if ($primaryEntity === '' && $trendingChips !== []) {
+    $firstChip = $trendingChips[0]['entity'] ?? '';
+    if (is_string($firstChip)) {
+        $primaryEntity = trim($firstChip);
+    }
+}
+
+$insightSummaryPoints = [];
+if ($focusLabel !== '') {
+    $insightSummaryPoints[] = 'Focus area: “' . $focusLabel . '”';
+}
+if ($docCount > 0) {
+    $insightSummaryPoints[] = $formatNumber($docCount) . ' sources analysed';
+} elseif ($sources !== []) {
+    $insightSummaryPoints[] = $formatNumber(count($sources)) . ' stored source' . (count($sources) === 1 ? '' : 's');
+}
+if ($initialHighlights !== []) {
+    $insightSummaryPoints[] = $formatNumber(count($initialHighlights)) . ' curated highlight' . (count($initialHighlights) === 1 ? '' : 's');
+}
+if ($primaryEntity !== '') {
+    $insightSummaryPoints[] = 'Top entity: ' . $primaryEntity;
+}
+if ($generatedLabel !== null) {
+    $insightSummaryPoints[] = 'Brief generated ' . $generatedLabel;
+} elseif ($insightGeneratedLabel !== null) {
+    $insightSummaryPoints[] = 'Insight generated ' . $insightGeneratedLabel;
+}
+
+$insightSummaryPoints = array_values(array_filter(
+    array_unique(array_map('trim', $insightSummaryPoints)),
+    static fn(string $value): bool => $value !== ''
+));
+if (count($insightSummaryPoints) > 4) {
+    $insightSummaryPoints = array_slice($insightSummaryPoints, 0, 4);
+}
+if ($insightSummaryPoints === []) {
+    $insightSummaryPoints = [
+        'Use popular topics or watchlist entities to jump into a curated insight.',
+        'Upload documents or add URLs to expand the knowledge graph coverage.',
+    ];
+}
+
 $initialState = [
     'endpoints' => [
         'insight' => $apiPath,
@@ -305,54 +409,6 @@ if (!is_string($initialJson)) {
     $initialJson = '{}';
 }
 
-$escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES);
-$formatNumber = static function ($value): string {
-    if (!is_numeric($value)) {
-        $value = 0;
-    }
-
-    return number_format((int) round((float) $value));
-};
-$formatDate = static function (?string $value): ?string {
-    if ($value === null || trim($value) === '') {
-        return null;
-    }
-
-    try {
-        $date = new DateTimeImmutable($value);
-    } catch (Exception $exception) {
-        return $value;
-    }
-
-    return $date->format('F j, Y H:i');
-};
-$formatPercent = static function ($value): string {
-    if (!is_numeric($value)) {
-        $value = 0;
-    }
-
-    $numeric = max(0.0, (float) $value);
-
-    return (string) round($numeric * 100) . '%';
-};
-$getHost = static function (?string $url): string {
-    if ($url === null || trim($url) === '') {
-        return '';
-    }
-
-    $host = parse_url($url, PHP_URL_HOST);
-    if (!is_string($host)) {
-        return '';
-    }
-
-    if (str_starts_with($host, 'www.')) {
-        $host = substr($host, 4);
-    }
-
-    return $host;
-};
-
-$trendingChips = array_slice($topEntities, 0, 8);
 $fallbackSources = $initialHighlights === [] ? array_slice($sources, 0, 6) : [];
 
 $watchlistEntities = [];
@@ -505,6 +561,25 @@ $workspaceActions = [
                     </div>
                     <p class="news-search__filters-note" data-filter-summary>Filtering last 7d · All signals · Any tone</p>
                     <p class="news-search__status news-search__status--info" data-search-status aria-live="polite"><?= $escape($initialStatus) ?></p>
+                    <div class="news-search__status-card" data-status-card>
+                        <div class="news-search__status-card-icon" aria-hidden="true">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="10" cy="10" r="10" fill="#E8F0FE" />
+                                <path d="M14.6 7.2a.75.75 0 0 0-1.2-.9l-3.58 4.78-1.58-1.74a.75.75 0 0 0-1.1 1.02l2.2 2.43a.75.75 0 0 0 1.16-.06L14.6 7.2Z" fill="#1A73E8" />
+                            </svg>
+                        </div>
+                        <div class="news-search__status-card-content">
+                            <p class="news-search__status-card-title"><?= $escape($statusCardHeading) ?></p>
+                            <p class="news-search__status-card-text"><?= $escape($statusCardDescription) ?></p>
+                            <?php if ($insightSummaryPoints !== []): ?>
+                                <ul class="news-search__status-card-list">
+                                    <?php foreach ($insightSummaryPoints as $point): ?>
+                                        <li><?= $escape($point) ?></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            <?php endif; ?>
+                        </div>
+                    </div>
                     <div class="news-search__trending" data-trending<?= $trendingChips === [] ? ' hidden' : '' ?>>
                         <span class="news-search__trending-label">Popular topics</span>
                         <div class="news-search__trending-list" data-trending-list>
