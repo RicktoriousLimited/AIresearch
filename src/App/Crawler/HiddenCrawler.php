@@ -60,6 +60,8 @@ use function hash;
 use function ksort;
 use function sprintf;
 use function strtotime;
+use function floor;
+use function stripos;
 
 
 use const DATE_ATOM;
@@ -533,6 +535,13 @@ final class HiddenCrawler
                 }
             }
 
+            $this->updateDiscoveryAfterCrawl(
+                $discoveryLedger,
+                $result,
+                $current,
+                $refreshAfterMinutes
+            );
+
             $progress['last_updated_at'] = date(DATE_ATOM);
             $progress['tasks'] = array_values($tasks);
             $progress['task_totals'] = $this->summariseTaskTotals($tasks);
@@ -863,6 +872,86 @@ final class HiddenCrawler
             'errors' => $errors,
             'discovery' => $this->discoveryTree(),
         ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function knownUrls(int $limit = 50, bool $onlyDue = true): array
+    {
+        $limit = max(1, $limit);
+
+        $entries = $this->loadStoredEntries();
+        $ledger = $this->initialiseDiscoveryLedger($entries);
+        $historyByKey = $this->indexHistoryByQueueKey($entries);
+
+        try {
+            $now = new DateTimeImmutable();
+        } catch (Throwable $exception) {
+            $now = null;
+        }
+
+        $candidates = [];
+
+        foreach ($ledger as $key => $meta) {
+            if (!is_array($meta)) {
+                continue;
+            }
+
+            $url = (string) ($meta['url'] ?? $key);
+            if ($url === '') {
+                continue;
+            }
+
+            $domain = $this->extractDomain($url);
+            $schedule = $this->normaliseSchedule($meta['schedule'] ?? []);
+            $ledgerEntry = $meta;
+            $ledgerEntry['schedule'] = $schedule;
+
+            $historyEntry = $historyByKey[$key] ?? null;
+            $interval = $this->determineRefreshInterval($historyEntry, $ledgerEntry, 0);
+            $dueAt = $this->resolveNextDueDate($schedule, (string) ($meta['last_seen_at'] ?? ''), $interval);
+
+            if ($onlyDue && $now !== null && $dueAt !== null && $dueAt > $now) {
+                continue;
+            }
+
+            $sourceCount = is_array($meta['sources'] ?? null) ? count($meta['sources']) : 0;
+
+            $candidates[] = [
+                'url' => $url,
+                'domain' => $domain,
+                'seed' => !empty($meta['seed']),
+                'priority' => $this->baseScoreForDomain($domain),
+                'interval_minutes' => $interval,
+                'last_seen_at' => (string) ($meta['last_seen_at'] ?? ''),
+                'next_due_at' => $dueAt !== null ? $dueAt->format(DATE_ATOM) : '',
+                'source_count' => $sourceCount,
+            ];
+        }
+
+        if ($candidates !== []) {
+            usort($candidates, static function (array $left, array $right): int {
+                $leftDue = (string) ($left['next_due_at'] ?? '');
+                $rightDue = (string) ($right['next_due_at'] ?? '');
+
+                if ($leftDue === '' && $rightDue !== '') {
+                    return 1;
+                }
+
+                if ($rightDue === '' && $leftDue !== '') {
+                    return -1;
+                }
+
+                if ($leftDue !== $rightDue) {
+                    return $leftDue <=> $rightDue;
+                }
+
+                return (float) ($right['priority'] ?? 0.0) <=> (float) ($left['priority'] ?? 0.0);
+            });
+        }
+
+        return array_slice($candidates, 0, $limit);
     }
 
     /**
@@ -1555,13 +1644,8 @@ final class HiddenCrawler
         array &$tasks,
         array &$ledger
     ): array {
-        $refreshAfterMinutes = max(0, $refreshAfterMinutes);
-        if ($refreshAfterMinutes === 0) {
-            return [];
-        }
-
         try {
-            $cutoff = (new DateTimeImmutable())->sub(new DateInterval('PT' . $refreshAfterMinutes . 'M'));
+            $now = new DateTimeImmutable();
         } catch (Throwable $exception) {
             return [];
         }
@@ -1583,13 +1667,34 @@ final class HiddenCrawler
                 continue;
             }
 
-            $lastSeen = $this->parseDateTime((string) ($entry['last_checked_at'] ?? $entry['fetched_at'] ?? ''));
-            if ($lastSeen === null || $lastSeen > $cutoff) {
+            if (!isset($ledger[$key])) {
+                $ledger[$key] = [
+                    'url' => $url,
+                    'seed' => false,
+                    'first_seen_at' => (string) ($entry['fetched_at'] ?? date(DATE_ATOM)),
+                    'last_seen_at' => (string) ($entry['last_checked_at'] ?? $entry['fetched_at'] ?? date(DATE_ATOM)),
+                    'sources' => [],
+                    'schedule' => $this->defaultScheduleState(),
+                ];
+            }
+
+            $lastSeenRaw = (string) ($entry['last_checked_at'] ?? $entry['fetched_at'] ?? '');
+            $intervalMinutes = $this->determineRefreshInterval($entry, $ledger[$key], $refreshAfterMinutes);
+            $dueAt = $this->resolveNextDueDate(
+                $ledger[$key]['schedule'] ?? [],
+                $lastSeenRaw,
+                $intervalMinutes
+            );
+
+            if ($dueAt === null || $dueAt > $now) {
                 continue;
             }
 
             $domain = $this->extractDomain($url);
             $priority = $this->baseScoreForDomain($domain) + 0.15;
+            if ($intervalMinutes < 90) {
+                $priority += 0.05;
+            }
 
             $queue[] = $this->attachTaskMetadata([
                 'url' => $url,
@@ -1601,7 +1706,7 @@ final class HiddenCrawler
 
             $seen[$key] = true;
 
-            $this->registerSchedule($ledger, $url, 'refresh', $refreshAfterMinutes, null);
+            $this->registerSchedule($ledger, $url, 'refresh', $intervalMinutes, null);
         }
 
         if ($queue !== []) {
@@ -1609,6 +1714,204 @@ final class HiddenCrawler
         }
 
         return $queue;
+    }
+
+    /**
+     * @param mixed $schedule
+     */
+    private function resolveNextDueDate($schedule, string $lastSeen, int $intervalMinutes): ?DateTimeImmutable
+    {
+        $intervalMinutes = max(0, $intervalMinutes);
+        if ($intervalMinutes === 0) {
+            return null;
+        }
+
+        $state = $this->normaliseSchedule($schedule);
+        $nextDueRaw = (string) ($state['next_due_at'] ?? '');
+        $nextDue = $nextDueRaw !== '' ? $this->parseDateTime($nextDueRaw) : null;
+        if ($nextDue !== null) {
+            return $nextDue;
+        }
+
+        $origin = $this->parseDateTime($lastSeen);
+        if ($origin === null) {
+            try {
+                $origin = new DateTimeImmutable();
+            } catch (Throwable $exception) {
+                return null;
+            }
+        }
+
+        try {
+            return $origin->add(new DateInterval('PT' . $intervalMinutes . 'M'));
+        } catch (Throwable $exception) {
+            return null;
+        }
+    }
+
+    private function determineRefreshInterval(?array $entry, array $ledgerEntry, int $defaultInterval): int
+    {
+        $defaultInterval = max(0, $defaultInterval);
+
+        $schedule = $this->normaliseSchedule($ledgerEntry['schedule'] ?? []);
+        $history = is_array($schedule['history'] ?? null) ? $schedule['history'] : [];
+
+        $intervals = [];
+        $previous = null;
+
+        foreach ($history as $event) {
+            if (!is_array($event)) {
+                continue;
+            }
+
+            $reason = (string) ($event['reason'] ?? '');
+            if ($reason === '') {
+                continue;
+            }
+
+            if (!in_array($reason, ['refresh', 'crawl', 'discovery', 'seed'], true)) {
+                continue;
+            }
+
+            $queuedAt = (string) ($event['queued_at'] ?? '');
+            $timestamp = $this->parseDateTime($queuedAt);
+            if ($timestamp === null) {
+                continue;
+            }
+
+            if ($previous !== null) {
+                $difference = (int) round(($timestamp->getTimestamp() - $previous->getTimestamp()) / 60);
+                if ($difference > 0) {
+                    $intervals[] = $difference;
+                }
+            }
+
+            $previous = $timestamp;
+        }
+
+        if ($intervals !== []) {
+            sort($intervals);
+            $count = count($intervals);
+            $middle = (int) floor($count / 2);
+            if ($count % 2 === 0 && $count > 1) {
+                $median = (int) round(($intervals[$middle - 1] + $intervals[$middle]) / 2);
+            } else {
+                $median = $intervals[$middle];
+            }
+            $interval = max(5, $median);
+        } else {
+            $interval = $defaultInterval > 0 ? $defaultInterval : 360;
+        }
+
+        $summary = '';
+        $lengthDelta = 0;
+        $revision = 1;
+
+        if (is_array($entry)) {
+            $revision = max(1, (int) ($entry['revision'] ?? 1));
+            $changes = $entry['changes'] ?? null;
+            if (is_array($changes)) {
+                $summary = (string) ($changes['summary'] ?? '');
+                $lengthDelta = (int) ($changes['length_delta'] ?? 0);
+            } elseif (is_string($changes)) {
+                $summary = $changes;
+            }
+        }
+
+        $unchanged = stripos($summary, 'no content changes') !== false;
+
+        if ($unchanged) {
+            $interval = (int) round($interval * 1.5);
+            if ($defaultInterval > 0) {
+                $interval = max($interval, (int) round($defaultInterval * 1.5));
+            }
+        } else {
+            if ($lengthDelta > 500) {
+                $interval = (int) round($interval * 0.6);
+            } else {
+                $interval = (int) round($interval * 0.8);
+            }
+
+            if ($defaultInterval > 0) {
+                $interval = min($interval, max(15, $defaultInterval));
+            }
+        }
+
+        if ($revision <= 2) {
+            $cap = $defaultInterval > 0 ? max(30, $defaultInterval) : 240;
+            $interval = min($interval, $cap);
+        }
+
+        return max(15, min($interval, 1440));
+    }
+
+    private function updateDiscoveryAfterCrawl(
+        array &$ledger,
+        array $result,
+        array $context,
+        int $defaultInterval
+    ): void {
+        if (isset($result['error'])) {
+            return;
+        }
+
+        $candidates = [
+            (string) ($result['normalized_url'] ?? ''),
+            (string) ($result['url'] ?? ''),
+            (string) ($context['url'] ?? ''),
+        ];
+
+        $url = '';
+        foreach ($candidates as $candidate) {
+            $candidate = trim($candidate);
+            if ($candidate !== '') {
+                $url = $candidate;
+                break;
+            }
+        }
+
+        if ($url === '') {
+            return;
+        }
+
+        $key = $this->queueKey($url);
+        if ($key === '') {
+            return;
+        }
+
+        if (!isset($ledger[$key])) {
+            $ledger[$key] = [
+                'url' => $url,
+                'seed' => !empty($context['seed']),
+                'first_seen_at' => (string) ($result['fetched_at'] ?? date(DATE_ATOM)),
+                'last_seen_at' => (string) ($result['last_checked_at'] ?? $result['fetched_at'] ?? date(DATE_ATOM)),
+                'sources' => [],
+                'schedule' => $this->defaultScheduleState(),
+            ];
+        }
+
+        if (!isset($ledger[$key]['schedule']) || !is_array($ledger[$key]['schedule'])) {
+            $ledger[$key]['schedule'] = $this->defaultScheduleState();
+        } else {
+            $ledger[$key]['schedule'] = $this->normaliseSchedule($ledger[$key]['schedule']);
+        }
+
+        if (!empty($context['seed'])) {
+            $ledger[$key]['seed'] = true;
+        }
+
+        $timestamp = (string) ($result['last_checked_at'] ?? $result['fetched_at'] ?? date(DATE_ATOM));
+        if (!isset($ledger[$key]['first_seen_at']) || $ledger[$key]['first_seen_at'] === '') {
+            $ledger[$key]['first_seen_at'] = $timestamp;
+        }
+
+        $ledger[$key]['last_seen_at'] = $this->latestTimestamp(
+            (string) ($ledger[$key]['last_seen_at'] ?? ''),
+            $timestamp
+        );
+
+        $interval = $this->determineRefreshInterval($result, $ledger[$key], $defaultInterval);
+        $this->registerSchedule($ledger, $url, 'crawl', $interval, null);
     }
 
     private function parseDateTime(string $value): ?DateTimeImmutable

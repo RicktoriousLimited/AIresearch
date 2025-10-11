@@ -109,9 +109,27 @@ if (!is_array($firstScheduleHistory) || $firstScheduleHistory === []) {
     throw new RuntimeException('Seed schedule history should include the initial run.');
 }
 
-$firstScheduleEvent = $firstScheduleHistory[0];
-if (($firstScheduleEvent['reason'] ?? '') !== 'seed') {
+$seedReasons = array_map(static fn(array $event): string => (string) ($event['reason'] ?? ''), $firstScheduleHistory);
+if (!in_array('seed', $seedReasons, true)) {
     throw new RuntimeException('Seed schedule should track the seed scheduling reason.');
+}
+
+$knownSeeds = $crawler->knownUrls(10, false);
+if (!is_array($knownSeeds) || $knownSeeds === []) {
+    throw new RuntimeException('Known URLs list should include seeded targets.');
+}
+
+$knownSeed = $knownSeeds[0];
+if (!is_string($knownSeed['url'] ?? '') || $knownSeed['url'] === '') {
+    throw new RuntimeException('Known URL entries should expose the page URL.');
+}
+
+if (!array_key_exists('interval_minutes', $knownSeed) || (int) $knownSeed['interval_minutes'] < 15) {
+    throw new RuntimeException('Known URL entries should include a positive refresh interval.');
+}
+
+if (!array_key_exists('next_due_at', $knownSeed)) {
+    throw new RuntimeException('Known URL entries should expose the next due timestamp.');
 }
 
 $secondResult = $crawler->crawl(['https://example.com?utm_source=twitter']);
@@ -254,13 +272,43 @@ if (!is_array($linkedEvents) || $linkedEvents === []) {
     throw new RuntimeException('Discovered schedule history should retain recent events.');
 }
 
-$latestLinkedEvent = $linkedEvents[0];
-if (($latestLinkedEvent['reason'] ?? '') !== 'discovery') {
+$linkedReasons = array_map(static fn(array $event): string => (string) ($event['reason'] ?? ''), $linkedEvents);
+if (!in_array('discovery', $linkedReasons, true)) {
     throw new RuntimeException('Discovered schedule should flag discovery events.');
 }
 
-if (($latestLinkedEvent['queued_at'] ?? '') === '') {
+$queuedTimestamps = array_values(array_filter(array_map(static fn(array $event): string => (string) ($event['queued_at'] ?? ''), $linkedEvents), static fn(string $value): bool => $value !== ''));
+if ($queuedTimestamps === []) {
     throw new RuntimeException('Schedule events should capture the queued timestamp.');
+}
+
+$linkedKnown = $linkedCrawler->knownUrls(10, false);
+if (!is_array($linkedKnown) || $linkedKnown === []) {
+    throw new RuntimeException('Known URL list should include linked discoveries.');
+}
+
+$linkedChildKnown = null;
+foreach ($linkedKnown as $knownEntry) {
+    if (!is_array($knownEntry)) {
+        continue;
+    }
+
+    if (str_contains((string) ($knownEntry['url'] ?? ''), 'child-page')) {
+        $linkedChildKnown = $knownEntry;
+        break;
+    }
+}
+
+if (!is_array($linkedChildKnown)) {
+    throw new RuntimeException('Discovered links should surface in known URL listings.');
+}
+
+if (!array_key_exists('interval_minutes', $linkedChildKnown) || (int) $linkedChildKnown['interval_minutes'] < 15) {
+    throw new RuntimeException('Discovered entries should include a refresh interval.');
+}
+
+if (!is_string($linkedChildKnown['next_due_at'] ?? '') || $linkedChildKnown['next_due_at'] === '') {
+    throw new RuntimeException('Discovered entries should expose the next due timestamp.');
 }
 
 unlink($flakyStorage);
