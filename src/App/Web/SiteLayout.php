@@ -7,17 +7,15 @@ namespace App\Web;
 final class SiteLayout
 {
     /**
-     * @param array{home?: string, search?: string, graph?: string, docs?: string} $paths
-     * @param string $active One of home|search|graph|docs
+     * @param array{home?: string, search?: string} $paths
+     * @param string $active One of home|search
      * @param array<int, array{label: string, href: string, class?: string}> $actions
      */
     public static function renderHeader(array $paths, string $active = 'home', array $actions = []): void
     {
         $links = [
             'home' => ['label' => 'Home', 'href' => $paths['home'] ?? '#'],
-            'search' => ['label' => 'News search', 'href' => $paths['search'] ?? '#'],
-            'graph' => ['label' => 'Knowledge graph', 'href' => $paths['graph'] ?? '#'],
-            'docs' => ['label' => 'Docs', 'href' => $paths['docs'] ?? '#'],
+            'search' => ['label' => 'Search', 'href' => $paths['search'] ?? '#'],
         ];
 
         echo '<header class="site-header">';
@@ -55,16 +53,13 @@ final class SiteLayout
     }
 
     /**
-     * @param array{home?: string, search?: string, graph?: string, docs?: string} $paths
+     * @param array{home?: string, search?: string} $paths
      */
-    public static function renderFooter(array $paths, string $tagline = 'Serving real-time newsroom intelligence from the AIresearch crawler.'):
-        void
+    public static function renderFooter(array $paths, string $tagline = 'Fast briefings from the AIresearch crawler.'): void
     {
         $links = [
             ['label' => 'Home', 'href' => $paths['home'] ?? '#'],
-            ['label' => 'News search', 'href' => $paths['search'] ?? '#'],
-            ['label' => 'Knowledge graph', 'href' => $paths['graph'] ?? '#'],
-            ['label' => 'Docs', 'href' => $paths['docs'] ?? '#'],
+            ['label' => 'Search', 'href' => $paths['search'] ?? '#'],
         ];
 
         echo '<footer class="site-footer">';
@@ -86,3 +81,4 @@ final class SiteLayout
         return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 }
+

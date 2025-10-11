@@ -1,9 +1,13 @@
 (() => {
     const form = document.querySelector('[data-home-search]');
     const input = form ? form.querySelector('[data-home-search-input]') : null;
-    const placeholderAttr = input ? input.getAttribute('data-home-phrases') : null;
-    let phrases = [];
 
+    if (!form || !input) {
+        return;
+    }
+
+    let phrases = [];
+    const placeholderAttr = input.getAttribute('data-home-phrases');
     if (placeholderAttr) {
         try {
             const parsed = JSON.parse(placeholderAttr);
@@ -15,58 +19,40 @@
         }
     }
 
-    if (input && phrases.length > 1) {
+    if (phrases.length > 1) {
         let index = 0;
-        const basePlaceholder = input.getAttribute('placeholder');
-
+        const updatePlaceholder = () => {
+            const phrase = phrases[index] ?? '';
+            if (phrase) {
+                input.setAttribute('placeholder', `Try “${phrase}”`);
+            }
+        };
+        updatePlaceholder();
         window.setInterval(() => {
             index = (index + 1) % phrases.length;
-            const nextPhrase = phrases[index];
-            if (typeof nextPhrase === 'string' && nextPhrase.trim() !== '') {
-                input.setAttribute('placeholder', `Try “${nextPhrase}”`);
-            }
+            updatePlaceholder();
         }, 6000);
-
-        if (!basePlaceholder || basePlaceholder.trim() === '') {
-            input.setAttribute('placeholder', `Try “${phrases[0]}”`);
-        }
+    } else if (phrases.length === 1 && (!input.placeholder || input.placeholder.trim() === '')) {
+        input.setAttribute('placeholder', `Try “${phrases[0]}”`);
     }
 
-    if (form && input) {
-        form.addEventListener('submit', (event) => {
-            const value = input.value.trim();
-            if (value === '') {
-                event.preventDefault();
-                input.focus();
-            }
-        });
-    }
-
-    const attachQueryHandler = (element, valueSource) => {
-        if (!element || !input) {
-            return;
+    form.addEventListener('submit', (event) => {
+        const value = input.value.trim();
+        if (value === '') {
+            event.preventDefault();
+            input.focus();
         }
+    });
 
-        element.addEventListener('click', () => {
-            const value = typeof valueSource === 'function' ? valueSource() : valueSource;
+    document.querySelectorAll('[data-home-suggestion]').forEach((button) => {
+        button.addEventListener('click', () => {
+            const value = button.getAttribute('data-home-suggestion') || button.textContent || '';
             if (typeof value !== 'string' || value.trim() === '') {
                 return;
             }
-
-            input.value = value;
+            input.value = value.trim();
             input.focus();
         });
-    };
-
-    const chips = document.querySelectorAll('[data-home-chip]');
-    chips.forEach((chip) => {
-        const value = chip.getAttribute('data-home-chip') || chip.textContent || '';
-        attachQueryHandler(chip, value);
-    });
-
-    const tags = document.querySelectorAll('[data-home-suggestion]');
-    tags.forEach((tag) => {
-        const value = tag.getAttribute('data-home-suggestion') || tag.textContent || '';
-        attachQueryHandler(tag, value);
     });
 })();
+

@@ -40,14 +40,9 @@ $basePrefix = $directory === '' || $directory === '/' ? '' : (str_starts_with($d
 
 $homeUrl = $basePrefix . '/index.php';
 $searchUrl = $baseUrl;
-$graphUrl = $basePrefix . '/knowledge-graph.php';
-$docsUrl = $basePrefix . '/docs';
-
 $navigationPaths = [
     'home' => $homeUrl,
     'search' => $searchUrl,
-    'graph' => $graphUrl,
-    'docs' => $docsUrl,
 ];
 ?>
 <!DOCTYPE html>

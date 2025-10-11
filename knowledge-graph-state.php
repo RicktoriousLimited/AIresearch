@@ -22,7 +22,7 @@ return (static function (): array {
     $autocompleteScriptPath = PathResolver::url($assetBase, 'assets/autocomplete.js');
     $homePath = PathResolver::url($assetBase, 'index.php');
     $searchPath = PathResolver::url($assetBase, 'search.php');
-    $graphPath = PathResolver::url($assetBase, 'knowledge-graph.php');
+    $graphPath = PathResolver::url($assetBase, 'backend/knowledge-graph.php');
     $docsPath = PathResolver::url($assetBase, 'docs');
     $apiPath = PathResolver::url($assetBase, 'api/research.php');
     $scriptPath = PathResolver::url($assetBase, 'assets/knowledge-graph.js');
@@ -31,7 +31,6 @@ return (static function (): array {
         'home' => $homePath,
         'search' => $searchPath,
         'graph' => $graphPath,
-        'docs' => $docsPath,
     ];
 
     $stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();

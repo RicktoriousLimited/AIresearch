@@ -5,9 +5,6 @@ declare(strict_types=1);
 require __DIR__ . '/src/App/bootstrap.php';
 
 use App\Crawler\HiddenCrawler;
-use App\KnowledgeGraph\GraphRepository;
-use App\KnowledgeGraph\GraphResearcher;
-use App\KnowledgeGraph\ResearchService;
 use App\News\NewsSearchService;
 use App\Web\PathResolver;
 use App\Web\SiteLayout;
@@ -17,313 +14,75 @@ function esc(string $value): string
     return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
-$paths = PathResolver::resolve();
-$basePath = $paths['basePath'];
-$assetBase = $paths['assetBase'];
-
-$stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
-$scriptPath = PathResolver::url($assetBase, 'assets/home.js');
-$themePath = PathResolver::url($assetBase, 'assets/theme.css');
-$autocompleteScriptPath = PathResolver::url($assetBase, 'assets/autocomplete.js');
-$stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
-$scriptVersion = file_exists(__DIR__ . '/assets/home.js') ? (string) filemtime(__DIR__ . '/assets/home.js') : (string) time();
-$themeVersion = file_exists(__DIR__ . '/assets/theme.css') ? (string) filemtime(__DIR__ . '/assets/theme.css') : (string) time();
-$autocompleteScriptVersion = file_exists(__DIR__ . '/assets/autocomplete.js') ? (string) filemtime(__DIR__ . '/assets/autocomplete.js') : (string) time();
-
-$homePath = PathResolver::url($assetBase, 'index.php');
-$searchPath = PathResolver::url($assetBase, 'search.php');
-$graphPath = PathResolver::url($assetBase, 'knowledge-graph.php');
-$docsPath = PathResolver::url($assetBase, 'docs');
-$apiPath = PathResolver::url($assetBase, 'api');
-
-$navigationPaths = [
-    'home' => $homePath,
-    'search' => $searchPath,
-    'graph' => $graphPath,
-    'docs' => $docsPath,
-];
-
-$repository = new GraphRepository();
-$researcher = new GraphResearcher($repository);
-$service = new ResearchService($repository);
-
-$initialSearch = $researcher->searchGraph('', 18);
-$topEntities = $service->listTopEntities(12);
-$summary = isset($initialSearch['summary']) && is_array($initialSearch['summary']) ? $initialSearch['summary'] : [];
-$sources = isset($initialSearch['sources']) && is_array($initialSearch['sources']) ? $initialSearch['sources'] : [];
-$updatedAt = isset($initialSearch['updated_at']) && is_string($initialSearch['updated_at']) ? $initialSearch['updated_at'] : null;
-
-$formatNumber = static function ($value): string {
-    if (!is_numeric($value)) {
-        $value = 0;
-    }
-
-    return number_format((int) round((float) $value));
-};
-
-$formatDate = static function (?string $value): ?string {
-    if ($value === null || trim($value) === '') {
-        return null;
-    }
-
-    try {
-        $date = new DateTimeImmutable($value);
-    } catch (Exception $exception) {
-        return $value;
-    }
-
-    return $date->format('F j, Y H:i');
-};
-
-$documentsProcessed = $formatNumber($summary['documents_processed'] ?? 0);
-$triplesExtracted = $formatNumber($summary['triples'] ?? count($initialSearch['triples'] ?? []));
-$uniqueEntities = $formatNumber($summary['unique_entities'] ?? count($initialSearch['entities'] ?? []));
-$synonymGroups = $formatNumber($summary['synonym_groups'] ?? count($initialSearch['synonyms'] ?? []));
-$sourcesTracked = $formatNumber(count($sources));
-$updatedLabel = $formatDate($updatedAt) ?? $updatedAt;
-
-$entityNames = [];
-foreach ($topEntities as $entityRow) {
-    if (!is_array($entityRow)) {
-        continue;
-    }
-
-    $name = isset($entityRow['entity']) && is_string($entityRow['entity']) ? trim($entityRow['entity']) : '';
-    if ($name === '') {
-        continue;
-    }
-
-    $entityNames[] = $name;
-}
-
-$curatedQueries = [
-    'latest ai regulation briefing',
-    'chip supply chain headlines',
-    'startup funding announcements',
-    'enterprise security breaches',
-    'energy transition investments',
-    'climate risk disclosures',
-    'biotech clinical trial updates',
-];
-
-$newsResults = [];
-$newsMeta = [];
-$discoverySnapshot = [
-    'seeds' => [],
-    'total_nodes' => 0,
-    'pending' => 0,
-    'recommended' => [],
-];
-$newsTopics = [];
-$newsSuggestedQueries = [];
-$trendingQueries = [];
-
-try {
-    $crawlerStorage = __DIR__ . '/storage/backend/crawler-history.json';
-    $hiddenCrawler = new HiddenCrawler($crawlerStorage, null, null, $service);
-    $newsService = new NewsSearchService($hiddenCrawler, $repository);
-    $newsPayload = $newsService->search('', ['limit' => 16]);
-    if (is_array($newsPayload)) {
-        $newsResults = isset($newsPayload['results']) && is_array($newsPayload['results']) ? $newsPayload['results'] : [];
-        $newsMeta = isset($newsPayload['meta']) && is_array($newsPayload['meta']) ? $newsPayload['meta'] : [];
-        if (isset($newsMeta['discovery']) && is_array($newsMeta['discovery'])) {
-            $discoverySnapshot = $newsMeta['discovery'];
-        } else {
-            $discoverySnapshot = $hiddenCrawler->discoveryTree();
-        }
-    }
-} catch (Throwable $exception) {
-    $newsResults = [];
-    $newsMeta = [];
-    $discoverySnapshot = [
-        'seeds' => [],
-        'total_nodes' => 0,
-        'pending' => 0,
-        'recommended' => [],
-    ];
-}
-
-if (isset($newsMeta['topics']) && is_array($newsMeta['topics'])) {
-    foreach ($newsMeta['topics'] as $topicRow) {
-        if (!is_array($topicRow)) {
-            continue;
-        }
-
-        $topicName = isset($topicRow['topic']) ? (string) $topicRow['topic'] : '';
-        if ($topicName !== '') {
-            $newsTopics[] = $topicName;
-        }
-    }
-}
-
-if (isset($newsMeta['suggested_queries']) && is_array($newsMeta['suggested_queries'])) {
-    foreach ($newsMeta['suggested_queries'] as $suggested) {
-        if (!is_string($suggested)) {
-            continue;
-        }
-
-        $value = trim($suggested);
-        if ($value !== '') {
-            $newsSuggestedQueries[] = $value;
-        }
-    }
-}
-
-foreach ($newsSuggestedQueries as $query) {
-    $trendingQueries[] = $query;
-}
-foreach ($newsTopics as $topic) {
-    $trendingQueries[] = $topic;
-}
-foreach ($entityNames as $entityName) {
-    $trendingQueries[] = $entityName;
-}
-foreach ($curatedQueries as $query) {
-    $trendingQueries[] = $query;
-}
-$trendingQueries = array_values(array_unique(array_filter($trendingQueries, static fn(string $value): bool => trim($value) !== '')));
-$trendingQueries = array_slice($trendingQueries, 0, 12);
-
-$placeholderPhrases = $trendingQueries !== [] ? $trendingQueries : $curatedQueries;
-$placeholderJson = json_encode($placeholderPhrases, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-if (!is_string($placeholderJson)) {
-    $placeholderJson = '[]';
-}
-
-$allSuggestions = array_merge(
-    $curatedQueries,
-    $newsSuggestedQueries,
-    $newsTopics,
-    $entityNames,
-    $trendingQueries
-);
-$allSuggestions = array_values(array_filter(array_unique(array_map(static function ($value) {
-    if (!is_string($value)) {
+function relevantSnippet(string $text, string $query = ''): string
+{
+    $clean = trim($text);
+    if ($clean === '') {
         return '';
     }
 
-    return trim($value);
-}, $allSuggestions))));
-$autocompleteJson = json_encode($allSuggestions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-if (!is_string($autocompleteJson)) {
-    $autocompleteJson = '[]';
-}
-
-$topStories = array_slice($newsResults, 0, 4);
-$topSources = isset($newsMeta['sources']) && is_array($newsMeta['sources']) ? array_slice($newsMeta['sources'], 0, 3) : [];
-$newsSummaryStats = [
-    'total' => isset($newsMeta['total_matches']) ? (int) $newsMeta['total_matches'] : count($newsResults),
-    'highQuality' => isset($newsMeta['high_quality']) ? (int) $newsMeta['high_quality'] : 0,
-    'averageQuality' => isset($newsMeta['average_quality']) ? (float) $newsMeta['average_quality'] : 0.0,
-    'ingested' => isset($newsMeta['ingested']) ? (int) $newsMeta['ingested'] : 0,
-];
-
-$heroMetrics = [
-    [
-        'label' => 'Stories indexed',
-        'value' => $formatNumber($newsSummaryStats['total']),
-    ],
-    [
-        'label' => 'High-quality stories',
-        'value' => $formatNumber($newsSummaryStats['highQuality']),
-    ],
-    [
-        'label' => 'Average quality score',
-        'value' => number_format((float) $newsSummaryStats['averageQuality'], 1),
-    ],
-    [
-        'label' => 'Fresh ingests this run',
-        'value' => $formatNumber($newsSummaryStats['ingested']),
-    ],
-];
-
-$trustedSourcesSummary = [];
-foreach ($topSources as $sourceRow) {
-    if (!is_array($sourceRow)) {
-        continue;
+    $sentences = preg_split('/(?<=[.!?])\s+/u', $clean) ?: [];
+    if ($sentences === []) {
+        $sentences = [$clean];
     }
 
-    $domain = isset($sourceRow['domain']) ? (string) $sourceRow['domain'] : '';
-    if ($domain === '') {
-        continue;
+    $normalisedQuery = trim(mb_strtolower($query));
+    if ($normalisedQuery !== '') {
+        foreach ($sentences as $sentence) {
+            if (mb_strpos(mb_strtolower($sentence), $normalisedQuery) !== false) {
+                return trim($sentence);
+            }
+        }
     }
 
-    $average = isset($sourceRow['average_quality']) ? (float) $sourceRow['average_quality'] : 0.0;
-    $trustedSourcesSummary[] = $average > 0.0
-        ? sprintf('%s (%.1f)', $domain, $average)
-        : $domain;
+    return trim($sentences[0]);
 }
-$trustedSourcesSummary = array_slice($trustedSourcesSummary, 0, 3);
 
-$discoverySeeds = isset($discoverySnapshot['seeds']) && is_array($discoverySnapshot['seeds']) ? $discoverySnapshot['seeds'] : [];
-$discoveryTotal = isset($discoverySnapshot['total_nodes']) ? (int) $discoverySnapshot['total_nodes'] : count($discoverySeeds);
-$discoveryPending = isset($discoverySnapshot['pending']) ? (int) $discoverySnapshot['pending'] : 0;
-$discoveryRecommended = isset($discoverySnapshot['recommended']) && is_array($discoverySnapshot['recommended'])
-    ? $discoverySnapshot['recommended']
-    : [];
-$discoveryMetrics = [
-    [
-        'label' => 'Seeds tracked',
-        'value' => $formatNumber(count($discoverySeeds)),
-    ],
-    [
-        'label' => 'Pages mapped',
-        'value' => $formatNumber($discoveryTotal),
-    ],
-    [
-        'label' => 'Pending crawl',
-        'value' => $formatNumber($discoveryPending),
-    ],
-    [
-        'label' => 'Next crawl targets',
-        'value' => $formatNumber(count($discoveryRecommended)),
-    ],
-];
-$discoveryPreviewSeeds = array_slice($discoverySeeds, 0, 3);
-$discoveryPreviewRecommended = array_slice($discoveryRecommended, 0, 4);
+function highlightTerms(string $text, string $query = ''): string
+{
+    $escaped = esc($text);
+    $tokens = preg_split('/\s+/u', trim($query)) ?: [];
+    $patterns = [];
+    foreach ($tokens as $token) {
+        $token = trim($token);
+        if ($token === '' || mb_strlen($token) < 2) {
+            continue;
+        }
+        $patterns[] = preg_quote($token, '/');
+    }
 
-$featureHighlights = [
-    [
-        'title' => 'Live news crawl',
-        'description' => 'The autonomous crawler follows trusted sources and freshly discovered links to keep headlines current by the minute.',
-    ],
-    [
-        'title' => 'Quality scoring',
-        'description' => 'Each article is ranked on source authority, recency, and entity coverage so analysts can jump straight to decisive updates.',
-    ],
-    [
-        'title' => 'Discovery map',
-        'description' => 'Visualise which seed URLs unlocked every follow-on story and spot coverage gaps that are ready for the next crawl.',
-    ],
-];
+    if ($patterns === []) {
+        return $escaped;
+    }
 
-$workflowSteps = [
-    [
-        'title' => 'Track the live feed',
-        'description' => 'Run a search or browse trending topics to surface the freshest reporting across your portfolio.',
-    ],
-    [
-        'title' => 'Audit discovery paths',
-        'description' => 'See the crawl tree to understand which links delivered each article and decide where to expand coverage next.',
-    ],
-    [
-        'title' => 'Alert stakeholders',
-        'description' => 'Share curated digests or export citations directly from the news graph for compliance-ready updates.',
-    ],
-];
+    $pattern = '/(' . implode('|', $patterns) . ')/iu';
+    $highlighted = preg_replace($pattern, '<mark>$1</mark>', $escaped);
 
-$formatRelative = static function (?string $value) use ($formatDate): ?string {
-    if ($value === null || trim($value) === '') {
+    return is_string($highlighted) ? $highlighted : $escaped;
+}
+
+function formatRelative(?string $value): ?string
+{
+    if ($value === null) {
+        return null;
+    }
+
+    $trimmed = trim($value);
+    if ($trimmed === '') {
         return null;
     }
 
     try {
-        $timestamp = new DateTimeImmutable($value);
-    } catch (Exception $exception) {
-        return $value;
+        $date = new DateTimeImmutable($trimmed);
+    } catch (Throwable $exception) {
+        return null;
     }
 
-    $diff = time() - $timestamp->getTimestamp();
+    $diff = time() - $date->getTimestamp();
+    if ($diff < 0) {
+        $diff = 0;
+    }
+
     if ($diff < 60) {
         return 'just now';
     }
@@ -348,310 +107,169 @@ $formatRelative = static function (?string $value) use ($formatDate): ?string {
         return $weeks === 1 ? '1 week ago' : $weeks . ' weeks ago';
     }
 
-    return $formatDate($value);
-};
-?>
-<!DOCTYPE html>
+    try {
+        return $date->format('F j, Y');
+    } catch (Throwable $exception) {
+        return null;
+    }
+}
+
+function metaLine(array $entry): string
+{
+    $parts = [];
+
+    $source = trim((string) ($entry['source_site_name'] ?? $entry['source_domain'] ?? ''));
+    if ($source !== '') {
+        $parts[] = $source;
+    }
+
+    $published = formatRelative($entry['source_published_at'] ?? $entry['last_checked_at'] ?? null);
+    if ($published !== null) {
+        $parts[] = $published;
+    }
+
+    return implode(' · ', $parts);
+}
+
+$paths = PathResolver::resolve();
+$basePath = $paths['basePath'];
+$assetBase = $paths['assetBase'];
+
+$stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
+$themePath = PathResolver::url($assetBase, 'assets/theme.css');
+$homeScriptPath = PathResolver::url($assetBase, 'assets/home.js');
+$stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
+$themeVersion = file_exists(__DIR__ . '/assets/theme.css') ? (string) filemtime(__DIR__ . '/assets/theme.css') : (string) time();
+$homeScriptVersion = file_exists(__DIR__ . '/assets/home.js') ? (string) filemtime(__DIR__ . '/assets/home.js') : (string) time();
+
+$homePath = PathResolver::url($assetBase, 'index.php');
+$searchPath = PathResolver::url($assetBase, 'search.php');
+
+$navigationPaths = [
+    'home' => $homePath,
+    'search' => $searchPath,
+];
+
+$latestStories = [];
+
+try {
+    $crawlerStorage = __DIR__ . '/storage/backend/crawler-history.json';
+    $hiddenCrawler = new HiddenCrawler($crawlerStorage);
+    $newsService = new NewsSearchService($hiddenCrawler);
+    $newsPayload = $newsService->search('', ['limit' => 8]);
+    if (is_array($newsPayload) && isset($newsPayload['results']) && is_array($newsPayload['results'])) {
+        $latestStories = array_slice($newsPayload['results'], 0, 8);
+    }
+} catch (Throwable $exception) {
+    $latestStories = [];
+}
+
+$sampleQueries = [
+    'emerging ai regulation',
+    'semiconductor supply chain',
+    'climate tech investments',
+    'cybersecurity breach response',
+];
+
+$sampleQueriesJson = json_encode($sampleQueries, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+if (!is_string($sampleQueriesJson)) {
+    $sampleQueriesJson = '[]';
+}
+
+?><!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>AIresearch Newsroom</title>
+    <title>AIresearch &ndash; Live intelligence made simple</title>
     <link rel="stylesheet" href="<?= esc($themePath . '?v=' . $themeVersion) ?>">
     <link rel="stylesheet" href="<?= esc($stylesPath . '?v=' . $stylesVersion) ?>">
 </head>
-<body class="site site--home site--news">
+<body class="site site--home">
 <?php SiteLayout::renderHeader($navigationPaths, 'home'); ?>
-<main class="site-main news-home" id="main">
-    <section class="news-home__hero">
-        <div class="news-home__hero-grid">
-            <div class="news-home__lead">
-                <p class="news-home__eyebrow">Live briefing feed</p>
-                <h1 class="news-home__title">Search the AIresearch newsroom</h1>
-                <p class="news-home__subtitle">Monitor trusted headlines, rapid crawls, and graph-ranked summaries in one search bar.</p>
-                <form class="news-home__form" action="<?= esc($searchPath) ?>" method="get" role="search" data-home-search data-autocomplete-container>
-                    <label class="visually-hidden" for="home-query">Search the latest headlines</label>
+<main class="site-main simple-layout">
+    <section class="hero">
+        <div class="site-container hero__inner">
+            <div class="hero__content">
+                <p class="eyebrow">Real-time crawler summary</p>
+                <h1>Find the signal. Skip the noise.</h1>
+                <p class="lead">Our crawler condenses fresh coverage into concise briefs so you can scan the most relevant updates instantly.</p>
+                <form class="hero-search" data-home-search action="<?= esc($searchPath) ?>" method="get">
+                    <label class="visually-hidden" for="hero-query">Search the live index</label>
                     <input
-                        id="home-query"
-                        name="q"
+                        id="hero-query"
                         type="search"
-                        placeholder="Search breaking news, companies, or themes"
-                        autocomplete="off"
-                        spellcheck="false"
+                        name="q"
+                        placeholder="Search the live crawler"
                         data-home-search-input
-                        data-home-phrases='<?= esc($placeholderJson) ?>'
-                        data-autocomplete
-                        data-autocomplete-source='<?= esc($autocompleteJson) ?>'
-                    >
-                    <button type="submit" class="news-home__submit">Search headlines</button>
+                        data-home-phrases='<?= esc($sampleQueriesJson) ?>'
+                        required>
+                    <button type="submit" class="button">Search</button>
                 </form>
-                <?php if ($trendingQueries !== []): ?>
-                    <div class="news-home__suggestions" data-home-suggestions>
-                        <span class="news-home__suggestions-label">Trending:</span>
-                        <div class="news-home__chips">
-                            <?php foreach ($trendingQueries as $query): ?>
-                                <button type="button" class="news-chip" data-home-chip="<?= esc($query) ?>"><?= esc($query) ?></button>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                <?php endif; ?>
-                <?php if ($trustedSourcesSummary !== []): ?>
-                    <p class="news-home__sources">Top sources: <?= esc(implode(' · ', $trustedSourcesSummary)) ?></p>
+                <?php if ($sampleQueries !== []): ?>
+                    <ul class="hero-suggestions">
+                        <?php foreach ($sampleQueries as $query): ?>
+                            <li><button type="button" data-home-suggestion="<?= esc($query) ?>"><?= esc($query) ?></button></li>
+                        <?php endforeach; ?>
+                    </ul>
                 <?php endif; ?>
             </div>
-            <aside class="news-home__metrics" aria-label="Newsroom metrics">
-                <?php foreach ($heroMetrics as $metric): ?>
-                    <div class="news-home__metric">
-                        <span class="news-home__metric-value"><?= esc($metric['value']) ?></span>
-                        <span class="news-home__metric-label"><?= esc($metric['label']) ?></span>
-                    </div>
-                <?php endforeach; ?>
-            </aside>
         </div>
     </section>
 
-    <?php if ($topStories !== []): ?>
-        <section class="news-home__section news-home__section--stories" aria-labelledby="top-stories-heading">
-            <div class="section-heading">
-                <h2 id="top-stories-heading">Top stories this cycle</h2>
-                <p>Curated from <?= esc((string) max(1, count($trustedSourcesSummary))) ?> trusted sources and refreshed automatically.</p>
+    <?php if ($latestStories !== []): ?>
+        <section class="story-section">
+            <div class="site-container">
+                <div class="section-heading">
+                    <h2>Latest coverage briefs</h2>
+                    <p>Summaries pulled straight from the crawler. Each card highlights the most relevant takeaway from the source.</p>
+                </div>
+                <ul class="story-list">
+                    <?php foreach ($latestStories as $story): ?>
+                        <?php
+                            $title = trim((string) ($story['title'] ?? $story['url'] ?? 'Untitled source'));
+                            $url = trim((string) ($story['url'] ?? ''));
+                            $snippetSource = (string) ($story['summary'] ?? $story['preview'] ?? '');
+                            $snippet = relevantSnippet($snippetSource);
+                            if ($snippet === '' && $snippetSource !== '') {
+                                $snippet = trim($snippetSource);
+                            }
+                            if ($snippet !== '' && mb_strlen($snippet) > 320) {
+                                $snippet = rtrim(mb_substr($snippet, 0, 317)) . '…';
+                            }
+                            $meta = metaLine($story);
+                        ?>
+                        <li class="story-card">
+                            <h3 class="story-card__title">
+                                <?php if ($url !== ''): ?>
+                                    <a href="<?= esc($url) ?>" target="_blank" rel="noopener noreferrer"><?= esc($title) ?></a>
+                                <?php else: ?>
+                                    <?= esc($title) ?>
+                                <?php endif; ?>
+                            </h3>
+                            <?php if ($snippet !== ''): ?>
+                                <p class="story-card__snippet"><?= highlightTerms($snippet) ?></p>
+                            <?php endif; ?>
+                            <?php if ($meta !== ''): ?>
+                                <p class="story-card__meta"><?= esc($meta) ?></p>
+                            <?php endif; ?>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
             </div>
-            <div class="news-story-grid">
-                <?php foreach ($topStories as $story): ?>
-                    <?php
-                    if (!is_array($story)) {
-                        continue;
-                    }
-
-                    $storyUrl = isset($story['url']) ? (string) $story['url'] : '';
-                    if ($storyUrl === '') {
-                        continue;
-                    }
-
-                    $storyTitle = trim((string) ($story['title'] ?? $storyUrl));
-                    if ($storyTitle === '') {
-                        $storyTitle = $storyUrl;
-                    }
-
-                    $storySummary = trim((string) ($story['summary'] ?? $story['preview'] ?? ''));
-                    if ($storySummary !== '' && mb_strlen($storySummary) > 220) {
-                        $storySummary = rtrim(mb_substr($storySummary, 0, 220)) . '…';
-                    }
-
-                    $storyDomain = isset($story['source_domain']) ? (string) $story['source_domain'] : '';
-                    $storyRelative = $formatRelative($story['last_checked_at'] ?? $story['fetched_at'] ?? null);
-                    $storyTopics = isset($story['topics']) && is_array($story['topics'])
-                        ? array_slice(array_filter(array_map(static fn($topic) => is_string($topic) ? trim($topic) : '', $story['topics'])), 0, 3)
-                        : [];
-                    $storyQuality = isset($story['quality_score']) ? number_format((float) $story['quality_score'], 1) : '0.0';
-                    $storyIngest = !empty($story['ingest']);
-                    ?>
-                    <article class="news-story-card">
-                        <div class="news-story-card__header">
-                            <span class="news-story-card__quality<?= $storyIngest ? ' news-story-card__quality--ingested' : '' ?>">Quality <?= esc($storyQuality) ?></span>
-                            <?php if ($storyDomain !== ''): ?>
-                                <span class="news-story-card__domain"><?= esc($storyDomain) ?></span>
-                            <?php endif; ?>
-                        </div>
-                        <h3 class="news-story-card__title">
-                            <a href="<?= esc($storyUrl) ?>" target="_blank" rel="noopener">
-                                <?= esc($storyTitle) ?>
-                            </a>
-                        </h3>
-                        <?php if ($storySummary !== ''): ?>
-                            <p class="news-story-card__summary"><?= esc($storySummary) ?></p>
-                        <?php endif; ?>
-                        <div class="news-story-card__footer">
-                            <?php if ($storyRelative !== null): ?>
-                                <span class="news-story-card__time"><?= esc($storyRelative) ?></span>
-                            <?php endif; ?>
-                            <?php if ($storyTopics !== []): ?>
-                                <div class="news-story-card__topics" aria-label="Topics">
-                                    <?php foreach ($storyTopics as $topic): ?>
-                                        <span><?= esc($topic) ?></span>
-                                    <?php endforeach; ?>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    </article>
-                <?php endforeach; ?>
+        </section>
+    <?php else: ?>
+        <section class="story-section">
+            <div class="site-container">
+                <div class="section-heading">
+                    <h2>Latest coverage briefs</h2>
+                    <p>The crawler is warming up. Try a search to trigger a fresh crawl.</p>
+                </div>
             </div>
         </section>
     <?php endif; ?>
-
-    <section class="news-home__section news-home__section--discovery" aria-labelledby="discovery-heading">
-        <div class="section-heading">
-            <h2 id="discovery-heading">Discovery map snapshot</h2>
-            <p>Review how the crawler expanded coverage and queue the next wave of pages to fetch.</p>
-        </div>
-        <div class="news-discovery">
-            <div class="news-discovery__metrics">
-                <?php foreach ($discoveryMetrics as $metric): ?>
-                    <div class="news-discovery__metric">
-                        <span class="news-discovery__metric-value"><?= esc($metric['value']) ?></span>
-                        <span class="news-discovery__metric-label"><?= esc($metric['label']) ?></span>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-            <div class="news-discovery__content">
-                <?php if ($discoveryPreviewSeeds !== []): ?>
-                    <ul class="news-discovery__list">
-                        <?php foreach ($discoveryPreviewSeeds as $seed): ?>
-                            <?php
-                            if (!is_array($seed)) {
-                                continue;
-                            }
-
-                            $seedUrl = isset($seed['url']) ? (string) $seed['url'] : '';
-                            if ($seedUrl === '') {
-                                continue;
-                            }
-
-                            $seedTitle = trim((string) ($seed['title'] ?? $seedUrl));
-                            if ($seedTitle === '') {
-                                $seedTitle = $seedUrl;
-                            }
-
-                            $seedChildren = isset($seed['children']) && is_array($seed['children'])
-                                ? array_slice($seed['children'], 0, 3)
-                                : [];
-                            $seedChildCount = isset($seed['child_count']) ? (int) $seed['child_count'] : count($seedChildren);
-                            $seedRelative = $formatRelative($seed['last_seen_at'] ?? $seed['first_seen_at'] ?? null);
-                            ?>
-                            <li class="news-discovery__item">
-                                <h3 class="news-discovery__item-title">
-                                    <a href="<?= esc($seedUrl) ?>" target="_blank" rel="noopener"><?= esc($seedTitle) ?></a>
-                                </h3>
-                                <p class="news-discovery__item-meta">
-                                    <?= esc((string) $seedChildCount) ?> linked page<?= $seedChildCount === 1 ? '' : 's' ?>
-                                    <?php if ($seedRelative !== null): ?>
-                                        · <?= esc($seedRelative) ?>
-                                    <?php endif; ?>
-                                </p>
-                                <?php if ($seedChildren !== []): ?>
-                                    <ul class="news-discovery__children">
-                                        <?php foreach ($seedChildren as $child): ?>
-                                            <?php
-                                            if (!is_array($child)) {
-                                                continue;
-                                            }
-
-                                            $childUrl = isset($child['url']) ? (string) $child['url'] : '';
-                                            if ($childUrl === '') {
-                                                continue;
-                                            }
-
-                                            $childTitle = trim((string) ($child['title'] ?? $childUrl));
-                                            if ($childTitle === '') {
-                                                $childTitle = $childUrl;
-                                            }
-
-                                            $childStatus = isset($child['status']) ? (string) $child['status'] : '';
-                                            $childRelative = $formatRelative($child['last_seen_at'] ?? $child['first_seen_at'] ?? null);
-                                            ?>
-                                            <li>
-                                                <a href="<?= esc($childUrl) ?>" target="_blank" rel="noopener"><?= esc($childTitle) ?></a>
-                                                <?php if ($childStatus === 'pending'): ?>
-                                                    <span class="news-discovery__badge">Pending</span>
-                                                <?php endif; ?>
-                                                <?php if ($childRelative !== null): ?>
-                                                    <span class="news-discovery__time"><?= esc($childRelative) ?></span>
-                                                <?php endif; ?>
-                                            </li>
-                                        <?php endforeach; ?>
-                                    </ul>
-                                <?php endif; ?>
-                            </li>
-                        <?php endforeach; ?>
-                    </ul>
-                <?php else: ?>
-                    <p class="news-discovery__empty">Seed URLs have not been crawled yet. Start a discovery run from the newsroom search console.</p>
-                <?php endif; ?>
-
-                <?php if ($discoveryPreviewRecommended !== []): ?>
-                    <div class="news-discovery__queue">
-                        <h3>Ready for the next crawl</h3>
-                        <ul>
-                            <?php foreach ($discoveryPreviewRecommended as $recommendation): ?>
-                                <?php
-                                if (!is_array($recommendation)) {
-                                    continue;
-                                }
-                                $recDomain = isset($recommendation['domain']) ? (string) $recommendation['domain'] : '';
-                                $recUrl = isset($recommendation['url']) ? (string) $recommendation['url'] : '';
-                                $recLabel = $recDomain !== '' ? $recDomain : $recUrl;
-                                if ($recLabel === '') {
-                                    continue;
-                                }
-                                $recRelative = $formatRelative($recommendation['last_seen_at'] ?? null);
-                                ?>
-                                <li>
-                                    <span class="news-discovery__queue-domain"><?= esc($recLabel) ?></span>
-                                    <?php if ($recRelative !== null): ?>
-                                        <span class="news-discovery__queue-time"><?= esc($recRelative) ?></span>
-                                    <?php endif; ?>
-                                </li>
-                            <?php endforeach; ?>
-                        </ul>
-                        <a class="button button--ghost" href="<?= esc($searchPath) ?>">Open discovery console</a>
-                    </div>
-                <?php endif; ?>
-            </div>
-        </div>
-    </section>
-
-    <section class="news-home__section news-home__section--features" aria-labelledby="feature-heading">
-        <div class="section-heading">
-            <h2 id="feature-heading">Why analysts trust the news graph</h2>
-            <p>Blend automated crawling with knowledge graph scoring to stay ahead of market-moving headlines.</p>
-        </div>
-        <div class="news-feature-grid">
-            <?php foreach ($featureHighlights as $feature): ?>
-                <article class="news-feature-card">
-                    <h3><?= esc($feature['title']) ?></h3>
-                    <p><?= esc($feature['description']) ?></p>
-                </article>
-            <?php endforeach; ?>
-        </div>
-    </section>
-
-    <section class="news-home__section news-home__section--workflow" aria-labelledby="workflow-heading">
-        <div class="section-heading">
-            <h2 id="workflow-heading">From alert to action in three steps</h2>
-            <p>Use the newsroom workflow to triage breaking updates and move insight into stakeholder hands faster.</p>
-        </div>
-        <ol class="news-workflow">
-            <?php foreach ($workflowSteps as $index => $step): ?>
-                <li class="news-workflow__step">
-                    <span class="news-workflow__index">0<?= esc((string) ($index + 1)) ?></span>
-                    <div class="news-workflow__body">
-                        <h3><?= esc($step['title']) ?></h3>
-                        <p><?= esc($step['description']) ?></p>
-                    </div>
-                </li>
-            <?php endforeach; ?>
-        </ol>
-        <div class="news-workflow__actions">
-            <a class="button" href="<?= esc($searchPath) ?>">Launch news search</a>
-            <a class="button button--subtle" href="<?= esc($graphPath) ?>">Explore the knowledge graph</a>
-        </div>
-    </section>
-
-    <section class="news-home__section news-home__section--cta" aria-labelledby="cta-heading">
-        <div class="news-cta">
-            <div>
-                <h2 id="cta-heading">Bring your feeds into the newsroom</h2>
-                <p>Schedule crawls, push proprietary updates, or trigger discovery directly from the API. Every article is scored, cited, and searchable.</p>
-            </div>
-            <div class="news-cta__actions">
-                <a class="button" href="<?= esc($docsPath) ?>">View API docs</a>
-                <a class="button button--subtle" href="<?= esc($apiPath) ?>">Browse endpoints</a>
-            </div>
-        </div>
-    </section>
 </main>
 <?php SiteLayout::renderFooter($navigationPaths); ?>
-<script src="<?= esc($autocompleteScriptPath . '?v=' . $autocompleteScriptVersion) ?>" defer></script>
-<script src="<?= esc($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
+<script src="<?= esc($homeScriptPath . '?v=' . $homeScriptVersion) ?>" defer></script>
 </body>
 </html>
