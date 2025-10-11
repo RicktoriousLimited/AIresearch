@@ -7,29 +7,30 @@ require __DIR__ . '/src/App/bootstrap.php';
 use App\KnowledgeGraph\GraphRepository;
 use App\KnowledgeGraph\GraphResearcher;
 use App\KnowledgeGraph\ResearchService;
+use App\Web\PathResolver;
 
 function esc(string $value): string
 {
     return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
-$scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '/index.php');
-$scriptDir = str_replace('\\', '/', dirname($scriptName));
-if ($scriptDir === '.' || $scriptDir === '/' || $scriptDir === '\\\\') {
-    $scriptDir = '';
-}
+$paths = PathResolver::resolve();
+$basePath = $paths['basePath'];
+$assetBase = $paths['assetBase'];
 
-$basePath = rtrim($scriptDir, '/');
-if ($basePath !== '') {
-    $basePath = '/' . ltrim($basePath, '/');
-}
-
-$assetBase = $basePath === '' ? '' : $basePath;
-
-$stylesPath = $assetBase . '/assets/styles.css';
-$scriptPath = $assetBase . '/assets/home.js';
+$stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
+$scriptPath = PathResolver::url($assetBase, 'assets/home.js');
 $stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
 $scriptVersion = file_exists(__DIR__ . '/assets/home.js') ? (string) filemtime(__DIR__ . '/assets/home.js') : (string) time();
+
+$homePath = PathResolver::url($assetBase, 'index.php');
+$searchPath = PathResolver::url($assetBase, 'search.php');
+$graphPath = PathResolver::url($assetBase, 'knowledge-graph.php');
+$docsPath = PathResolver::url($assetBase, 'docs');
+$getStartedPath = PathResolver::url($assetBase, 'docs/guides/getting-started.md');
+$apiPath = PathResolver::url($assetBase, 'api');
+$researchCliPath = PathResolver::url($assetBase, 'research.php');
+$healthPath = PathResolver::url($assetBase, 'health.php');
 
 $repository = new GraphRepository();
 $researcher = new GraphResearcher($repository);
@@ -70,6 +71,12 @@ $triplesExtracted = $formatNumber($summary['triples'] ?? count($initialSearch['t
 $uniqueEntities = $formatNumber($summary['unique_entities'] ?? count($initialSearch['entities'] ?? []));
 $synonymGroups = $formatNumber($summary['synonym_groups'] ?? count($initialSearch['synonyms'] ?? []));
 $updatedLabel = $formatDate($updatedAt) ?? $updatedAt;
+$homeStatus = sprintf(
+    'Tracking %s sources · %s documents analysed%s',
+    $sourcesTracked,
+    $documentsProcessed,
+    $updatedLabel !== null ? ' · Updated ' . $updatedLabel : ''
+);
 
 $entityNames = [];
 foreach ($topEntities as $entityRow) {
@@ -159,15 +166,15 @@ $featureHighlights = [
 $quickLinks = [
     [
         'label' => 'Run an Autopilot brief',
-        'href' => $assetBase . '/search.php',
+        'href' => $searchPath,
     ],
     [
         'label' => 'Explore the knowledge graph',
-        'href' => $assetBase . '/knowledge-graph.php',
+        'href' => $graphPath,
     ],
     [
         'label' => 'Read the documentation',
-        'href' => $assetBase . '/docs',
+        'href' => $docsPath,
     ],
 ];
 
@@ -265,17 +272,16 @@ $evidencePillars = [
     <link rel="stylesheet" href="<?= esc($stylesPath . '?v=' . $stylesVersion); ?>">
 </head>
 <body class="home-page">
-<header class="site-header">
-    <div class="shell header-shell">
-        <a class="brand" href="<?= esc($assetBase . '/index.php'); ?>">AIresearch</a>
+<header class="site-header site-header--compact">
+    <div class="shell header-shell header-shell--compact">
+        <a class="brand" href="<?= esc($homePath); ?>">AIresearch</a>
         <nav class="primary-nav" aria-label="Primary">
-            <a href="#search" class="primary-nav__link">Home</a>
-            <a href="<?= esc($assetBase . '/search.php'); ?>" class="primary-nav__link">Graph search</a>
-            <a href="<?= esc($assetBase . '/knowledge-graph.php'); ?>" class="primary-nav__link">Knowledge graph</a>
-            <a href="<?= esc($assetBase . '/docs'); ?>" class="primary-nav__link">Documentation</a>
+            <a href="<?= esc($searchPath); ?>" class="primary-nav__link">Autopilot search</a>
+            <a href="<?= esc($graphPath); ?>" class="primary-nav__link">Knowledge graph</a>
+            <a href="<?= esc($docsPath); ?>" class="primary-nav__link">Documentation</a>
         </nav>
         <div class="header-actions">
-            <a class="button primary" href="<?= esc($assetBase . '/search.php'); ?>">Launch search</a>
+            <a class="button primary" href="<?= esc($searchPath); ?>">Launch search</a>
         </div>
     </div>
 </header>
@@ -286,16 +292,20 @@ $evidencePillars = [
             <div class="home-search__grid">
                 <div class="home-search__column home-search__column--primary">
                     <div class="home-search__brand">
-                        <span class="home-search__logo">AIresearch</span>
-                        <p class="home-search__tagline">Autopilot search that generates research briefs in seconds.</p>
+                        <p class="home-search__eyebrow">Autopilot workspace</p>
+                        <h1 class="home-search__title">Research autopilot for live intelligence</h1>
+                        <p class="home-search__lead">Blend live coverage with the shared knowledge graph to brief stakeholders in seconds.</p>
                     </div>
-                    <form class="search-form home-search__form" method="get" action="<?= esc($assetBase . '/search.php'); ?>" role="search" data-home-search>
-                        <label class="visually-hidden" for="home-search-input">Search the AIresearch graph</label>
-                        <div class="search-form__field">
-                            <input id="home-search-input" name="q" type="search" placeholder="Try &ldquo;<?= esc($placeholderPhrases[0] ?? 'emerging AI research hubs'); ?>&rdquo;" autocomplete="off" spellcheck="false" data-home-search-input data-home-phrases='<?= esc($placeholderJson); ?>'>
-                            <button type="submit" class="button primary">Autopilot brief</button>
-                        </div>
-                    </form>
+                    <div class="home-search__controls">
+                        <form class="search-form home-search__form" method="get" action="<?= esc($searchPath); ?>" role="search" data-home-search>
+                            <label class="visually-hidden" for="home-search-input">Search the AIresearch graph</label>
+                            <div class="search-form__field">
+                                <input id="home-search-input" name="q" type="search" placeholder="Try &ldquo;<?= esc($placeholderPhrases[0] ?? 'emerging AI research hubs'); ?>&rdquo;" autocomplete="off" spellcheck="false" data-home-search-input data-home-phrases='<?= esc($placeholderJson); ?>'>
+                                <button type="submit" class="button primary">Autopilot brief</button>
+                            </div>
+                        </form>
+                        <p class="home-search__status"><?= esc($homeStatus); ?></p>
+                    </div>
                     <?php if ($trendingQueries !== []): ?>
                     <div class="home-search__chips" data-home-trending>
                         <span class="home-search__label">Popular queries</span>
@@ -436,30 +446,30 @@ $evidencePillars = [
 <footer class="site-footer">
     <div class="shell footer-shell">
         <div class="footer-brand">
-            <a href="<?= esc($assetBase . '/index.php'); ?>">AIresearch</a>
+            <a href="<?= esc($homePath); ?>">AIresearch</a>
             <p class="muted">Search, trace, and export the insights that matter. Built for research teams that demand transparent evidence.</p>
         </div>
         <div class="footer-links">
             <div>
                 <h4>Platform</h4>
                 <ul>
-                    <li><a href="<?= esc($assetBase . '/search.php'); ?>">Graph search</a></li>
-                    <li><a href="<?= esc($assetBase . '/knowledge-graph.php'); ?>">Knowledge graph</a></li>
-                    <li><a href="<?= esc($assetBase . '/research.php'); ?>">Research CLI</a></li>
+                    <li><a href="<?= esc($searchPath); ?>">Graph search</a></li>
+                    <li><a href="<?= esc($graphPath); ?>">Knowledge graph</a></li>
+                    <li><a href="<?= esc($researchCliPath); ?>">Research CLI</a></li>
                 </ul>
             </div>
             <div>
                 <h4>Resources</h4>
                 <ul>
-                    <li><a href="<?= esc($assetBase . '/docs'); ?>">Documentation</a></li>
-                    <li><a href="<?= esc($assetBase . '/docs/guides/getting-started.md'); ?>">Getting started</a></li>
-                    <li><a href="<?= esc($assetBase . '/api'); ?>">API</a></li>
+                    <li><a href="<?= esc($docsPath); ?>">Documentation</a></li>
+                    <li><a href="<?= esc($getStartedPath); ?>">Getting started</a></li>
+                    <li><a href="<?= esc($apiPath); ?>">API</a></li>
                 </ul>
             </div>
             <div>
                 <h4>Support</h4>
                 <ul>
-                    <li><a href="<?= esc($assetBase . '/health.php'); ?>">System health</a></li>
+                    <li><a href="<?= esc($healthPath); ?>">System health</a></li>
                     <li><a href="mailto:support@airesearch.local">Contact</a></li>
                 </ul>
             </div>

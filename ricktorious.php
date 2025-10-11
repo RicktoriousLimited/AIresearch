@@ -2,27 +2,21 @@
 
 declare(strict_types=1);
 
+require __DIR__ . '/src/App/bootstrap.php';
+
+use App\Web\PathResolver;
+
 function esc(string $value): string
 {
     return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
-$scriptName = (string) ($_SERVER['SCRIPT_NAME'] ?? '/ricktorious.php');
-$scriptDir = str_replace('\\', '/', dirname($scriptName));
-if ($scriptDir === '.' || $scriptDir === '/' || $scriptDir === '\\') {
-    $scriptDir = '';
-}
-
-$basePath = rtrim($scriptDir, '/');
-if ($basePath !== '') {
-    $basePath = '/' . ltrim($basePath, '/');
-}
-
-$assetBase = $basePath === '' ? '' : $basePath;
-$stylesPath = $assetBase . '/assets/styles.css';
+$paths = PathResolver::resolve();
+$assetBase = $paths['assetBase'];
+$stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
 $stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
-$archiveReadme = $assetBase . '/archive/README.md';
-$homePath = $assetBase . '/index.php';
+$archiveReadme = PathResolver::url($assetBase, 'archive/README.md');
+$homePath = PathResolver::url($assetBase, 'index.php');
 
 http_response_code(410);
 header('Content-Type: text/html; charset=utf-8');
