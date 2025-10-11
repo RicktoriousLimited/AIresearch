@@ -21,6 +21,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>News Intelligence Search</title>
+    <link rel="stylesheet" href="/assets/theme.css" />
     <link rel="stylesheet" href="/assets/styles.css" />
 </head>
 <body>

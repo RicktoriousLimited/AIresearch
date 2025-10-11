@@ -22,8 +22,12 @@ $assetBase = $paths['assetBase'];
 
 $stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
 $scriptPath = PathResolver::url($assetBase, 'assets/home.js');
+$themePath = PathResolver::url($assetBase, 'assets/theme.css');
+$autocompleteScriptPath = PathResolver::url($assetBase, 'assets/autocomplete.js');
 $stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
 $scriptVersion = file_exists(__DIR__ . '/assets/home.js') ? (string) filemtime(__DIR__ . '/assets/home.js') : (string) time();
+$themeVersion = file_exists(__DIR__ . '/assets/theme.css') ? (string) filemtime(__DIR__ . '/assets/theme.css') : (string) time();
+$autocompleteScriptVersion = file_exists(__DIR__ . '/assets/autocomplete.js') ? (string) filemtime(__DIR__ . '/assets/autocomplete.js') : (string) time();
 
 $homePath = PathResolver::url($assetBase, 'index.php');
 $searchPath = PathResolver::url($assetBase, 'search.php');
@@ -93,6 +97,25 @@ $curatedQueries = [
     'climate risk disclosures',
     'biotech clinical trial updates',
 ];
+
+$allSuggestions = array_merge(
+    $curatedQueries,
+    $newsSuggestedQueries,
+    $newsTopics,
+    $entityNames,
+    $trendingQueries
+);
+$allSuggestions = array_values(array_filter(array_unique(array_map(static function ($value) {
+    if (!is_string($value)) {
+        return '';
+    }
+
+    return trim($value);
+}))));
+$autocompleteJson = json_encode($allSuggestions, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+if (!is_string($autocompleteJson)) {
+    $autocompleteJson = '[]';
+}
 
 $newsResults = [];
 $newsMeta = [];
@@ -326,6 +349,7 @@ $formatRelative = static function (?string $value) use ($formatDate): ?string {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AIresearch Newsroom</title>
+    <link rel="stylesheet" href="<?= esc($themePath . '?v=' . $themeVersion) ?>">
     <link rel="stylesheet" href="<?= esc($stylesPath . '?v=' . $stylesVersion) ?>">
 </head>
 <body class="site site--home site--news">
@@ -347,7 +371,7 @@ $formatRelative = static function (?string $value) use ($formatDate): ?string {
                 <p class="news-home__eyebrow">Live briefing feed</p>
                 <h1 class="news-home__title">Search the AIresearch newsroom</h1>
                 <p class="news-home__subtitle">Monitor trusted headlines, rapid crawls, and graph-ranked summaries in one search bar.</p>
-                <form class="news-home__form" action="<?= esc($searchPath) ?>" method="get" role="search" data-home-search>
+                <form class="news-home__form" action="<?= esc($searchPath) ?>" method="get" role="search" data-home-search data-autocomplete-container>
                     <label class="visually-hidden" for="home-query">Search the latest headlines</label>
                     <input
                         id="home-query"
@@ -358,6 +382,8 @@ $formatRelative = static function (?string $value) use ($formatDate): ?string {
                         spellcheck="false"
                         data-home-search-input
                         data-home-phrases='<?= esc($placeholderJson) ?>'
+                        data-autocomplete
+                        data-autocomplete-source='<?= esc($autocompleteJson) ?>'
                     >
                     <button type="submit" class="news-home__submit">Search headlines</button>
                 </form>
@@ -626,6 +652,7 @@ $formatRelative = static function (?string $value) use ($formatDate): ?string {
         </div>
     </section>
 </main>
+<script src="<?= esc($autocompleteScriptPath . '?v=' . $autocompleteScriptVersion) ?>" defer></script>
 <script src="<?= esc($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
 </body>
 </html>

@@ -14,7 +14,9 @@ function esc(string $value): string
 $paths = PathResolver::resolve();
 $assetBase = $paths['assetBase'];
 $stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
+$themePath = PathResolver::url($assetBase, 'assets/theme.css');
 $stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
+$themeVersion = file_exists(__DIR__ . '/assets/theme.css') ? (string) filemtime(__DIR__ . '/assets/theme.css') : (string) time();
 $archiveReadme = PathResolver::url($assetBase, 'archive/README.md');
 $homePath = PathResolver::url($assetBase, 'index.php');
 
@@ -29,11 +31,12 @@ $archivedDate = (new DateTimeImmutable())->format('F j, Y');
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AIresearch · Commerce demo archived</title>
+    <link rel="stylesheet" href="<?= esc($themePath . '?v=' . $themeVersion); ?>">
     <link rel="stylesheet" href="<?= esc($stylesPath . '?v=' . $stylesVersion); ?>">
     <style>
         body.archive-body {
-            background: linear-gradient(155deg, rgba(15, 23, 42, 0.86), rgba(30, 64, 175, 0.9));
-            color: #f8fafc;
+            background: radial-gradient(circle at top, rgba(76, 143, 255, 0.12), transparent 55%), var(--ai-color-bg);
+            color: var(--ai-color-text);
             min-height: 100vh;
             margin: 0;
             display: flex;
@@ -45,11 +48,11 @@ $archivedDate = (new DateTimeImmutable())->format('F j, Y');
 
         .archive-panel {
             max-width: 560px;
-            background: rgba(15, 23, 42, 0.78);
+            background: rgba(10, 17, 33, 0.88);
             border-radius: 28px;
             padding: 2.6rem 2.4rem;
-            border: 1px solid rgba(148, 163, 184, 0.25);
-            box-shadow: 0 28px 60px rgba(15, 23, 42, 0.35);
+            border: 1px solid var(--ai-color-border);
+            box-shadow: 0 28px 60px rgba(6, 11, 24, 0.4);
             display: grid;
             gap: 1.25rem;
         }
@@ -62,12 +65,12 @@ $archivedDate = (new DateTimeImmutable())->format('F j, Y');
 
         .archive-panel p {
             margin: 0;
-            color: rgba(226, 232, 240, 0.85);
+            color: var(--ai-color-text-soft);
             line-height: 1.7;
         }
 
         .archive-panel a {
-            color: #93c5fd;
+            color: var(--ai-color-accent);
         }
 
         .archive-actions {
@@ -88,20 +91,20 @@ $archivedDate = (new DateTimeImmutable())->format('F j, Y');
         }
 
         .archive-actions a.primary {
-            background: #2563eb;
-            color: #f8fafc;
-            box-shadow: 0 18px 45px rgba(37, 99, 235, 0.28);
+            background: var(--ai-color-accent);
+            color: #02060f;
+            box-shadow: 0 18px 45px rgba(76, 143, 255, 0.32);
         }
 
         .archive-actions a.secondary {
-            border: 1px solid rgba(148, 163, 184, 0.35);
-            color: rgba(226, 232, 240, 0.9);
-            background: transparent;
+            border: 1px solid var(--ai-color-border);
+            color: var(--ai-color-text-muted);
+            background: rgba(76, 143, 255, 0.12);
         }
 
         .archive-meta {
             font-size: 0.85rem;
-            color: rgba(148, 163, 184, 0.75);
+            color: var(--ai-color-text-soft);
         }
 
         @media (max-width: 520px) {

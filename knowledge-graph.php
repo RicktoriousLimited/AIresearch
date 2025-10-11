@@ -14,6 +14,7 @@ $basePath = $paths['basePath'];
 $assetBase = $paths['assetBase'];
 
 $stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
+$themePath = PathResolver::url($assetBase, 'assets/theme.css');
 $researchStylesPath = PathResolver::url($assetBase, 'assets/research.css');
 $homePath = PathResolver::url($assetBase, 'index.php');
 $searchPath = PathResolver::url($assetBase, 'search.php');
@@ -23,6 +24,7 @@ $apiPath = PathResolver::url($assetBase, 'api/research.php');
 $scriptPath = PathResolver::url($assetBase, 'assets/knowledge-graph.js');
 
 $stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
+$themeVersion = file_exists(__DIR__ . '/assets/theme.css') ? (string) filemtime(__DIR__ . '/assets/theme.css') : (string) time();
 $researchStylesVersion = file_exists(__DIR__ . '/assets/research.css') ? (string) filemtime(__DIR__ . '/assets/research.css') : (string) time();
 $scriptVersion = file_exists(__DIR__ . '/assets/knowledge-graph.js') ? (string) filemtime(__DIR__ . '/assets/knowledge-graph.js') : (string) time();
 
@@ -94,6 +96,7 @@ if (!is_string($initialJson)) {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Knowledge graph workspace &ndash; AIresearch</title>
+    <link rel="stylesheet" href="<?= $escape($themePath . '?v=' . $themeVersion) ?>">
     <link rel="stylesheet" href="<?= $escape($stylesPath . '?v=' . $stylesVersion) ?>">
     <link rel="stylesheet" href="<?= $escape($researchStylesPath . '?v=' . $researchStylesVersion) ?>">
 </head>

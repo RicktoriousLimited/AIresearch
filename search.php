@@ -21,9 +21,13 @@ $basePath = $paths['basePath'];
 $stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
 $newsStylesPath = PathResolver::url($assetBase, 'assets/news-search.css');
 $scriptPath = PathResolver::url($assetBase, 'assets/news-search.js');
+$themePath = PathResolver::url($assetBase, 'assets/theme.css');
+$autocompleteScriptPath = PathResolver::url($assetBase, 'assets/autocomplete.js');
 $stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
 $newsStylesVersion = file_exists(__DIR__ . '/assets/news-search.css') ? (string) filemtime(__DIR__ . '/assets/news-search.css') : (string) time();
 $scriptVersion = file_exists(__DIR__ . '/assets/news-search.js') ? (string) filemtime(__DIR__ . '/assets/news-search.js') : (string) time();
+$themeVersion = file_exists(__DIR__ . '/assets/theme.css') ? (string) filemtime(__DIR__ . '/assets/theme.css') : (string) time();
+$autocompleteScriptVersion = file_exists(__DIR__ . '/assets/autocomplete.js') ? (string) filemtime(__DIR__ . '/assets/autocomplete.js') : (string) time();
 
 $homePath = PathResolver::url($assetBase, 'index.php');
 $searchPath = PathResolver::url($assetBase, 'search.php');
@@ -92,6 +96,11 @@ if (isset($initialMeta['suggested_queries']) && is_array($initialMeta['suggested
 
 $trendingTopics = array_values(array_unique(array_filter(array_merge($suggestedQueries, $topics), static fn(string $value): bool => trim($value) !== '')));
 $trendingTopics = array_slice($trendingTopics, 0, 12);
+
+$autocompleteJson = json_encode($trendingTopics, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+if (!is_string($autocompleteJson)) {
+    $autocompleteJson = '[]';
+}
 
 $formatDate = static function (?string $value): ?string {
     if ($value === null || trim($value) === '') {
@@ -190,6 +199,7 @@ $discoveryStatusText = sprintf('Tracking %s page%s · %s pending', number_format
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>News search &ndash; AIresearch</title>
+    <link rel="stylesheet" href="<?= esc($themePath . '?v=' . $themeVersion) ?>">
     <link rel="stylesheet" href="<?= esc($stylesPath . '?v=' . $stylesVersion) ?>">
     <link rel="stylesheet" href="<?= esc($newsStylesPath . '?v=' . $newsStylesVersion) ?>">
 </head>
@@ -212,9 +222,9 @@ $discoveryStatusText = sprintf('Tracking %s page%s · %s pending', number_format
                 <h1 class="news-search__title">Discover trusted coverage in seconds</h1>
                 <p class="news-search__lead">Query the continuously updating news graph, score sources by authority, and trigger fresh crawls when gaps appear.</p>
             </div>
-            <form class="news-search__form" data-news-search-form role="search">
+            <form class="news-search__form" data-news-search-form role="search" data-autocomplete-container>
                 <label class="visually-hidden" for="news-query">Search the latest headlines</label>
-                <input id="news-query" name="q" type="search" placeholder="Search companies, themes, or breaking events" autocomplete="off" spellcheck="false" data-news-query>
+                <input id="news-query" name="q" type="search" placeholder="Search companies, themes, or breaking events" autocomplete="off" spellcheck="false" data-news-query data-autocomplete data-autocomplete-source='<?= esc($autocompleteJson) ?>'>
                 <button type="submit" class="news-search__submit">Search</button>
             </form>
             <div class="news-search__masthead-meta">
@@ -376,6 +386,7 @@ $discoveryStatusText = sprintf('Tracking %s page%s · %s pending', number_format
         </div>
     </div>
 </main>
+<script src="<?= esc($autocompleteScriptPath . '?v=' . $autocompleteScriptVersion) ?>" defer></script>
 <script src="<?= esc($scriptPath . '?v=' . $scriptVersion) ?>" defer></script>
 </body>
 </html>
