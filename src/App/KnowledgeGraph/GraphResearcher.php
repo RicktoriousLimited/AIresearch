@@ -182,6 +182,8 @@ final class GraphResearcher
         $snapshot = $this->snapshot();
         $metadata = $this->metadata();
 
+        $sources = $this->filterSourcesForQuery($metadata['sources'], $query, max(6, $limit));
+
         $result = [
             'query' => $query,
             'entities' => [],
@@ -189,7 +191,7 @@ final class GraphResearcher
             'synonyms' => [],
             'triples' => [],
             'summary' => $snapshot['summary'],
-            'sources' => $this->sanitiseSources($metadata['sources']),
+            'sources' => $this->sanitiseSources($sources),
             'updated_at' => $metadata['updated_at'],
         ];
 
@@ -706,6 +708,135 @@ final class GraphResearcher
         }
 
         return $filtered;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $sources
+     * @return array<int, array<string, mixed>>
+     */
+    private function filterSourcesForQuery(array $sources, string $query, int $limit): array
+    {
+        $limit = max(1, $limit);
+        if ($sources === []) {
+            return [];
+        }
+
+        $query = trim($query);
+        if ($query === '') {
+            return array_slice($sources, 0, $limit);
+        }
+
+        $tokens = $this->tokenize($this->normaliseName($query));
+        if ($tokens === []) {
+            return array_slice($sources, 0, $limit);
+        }
+
+        $scored = [];
+        foreach ($sources as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+
+            $score = $this->scoreSourceAgainstTokens($source, $tokens);
+            if ($score <= 0.0) {
+                continue;
+            }
+
+            $scored[] = ['score' => $score, 'source' => $source];
+        }
+
+        if ($scored === []) {
+            return array_slice($sources, 0, $limit);
+        }
+
+        usort(
+            $scored,
+            static function (array $left, array $right): int {
+                if ($left['score'] === $right['score']) {
+                    $leftTitle = isset($left['source']['title']) && is_string($left['source']['title'])
+                        ? $left['source']['title']
+                        : '';
+                    $rightTitle = isset($right['source']['title']) && is_string($right['source']['title'])
+                        ? $right['source']['title']
+                        : '';
+
+                    return $leftTitle <=> $rightTitle;
+                }
+
+                return ($left['score'] < $right['score']) ? 1 : -1;
+            }
+        );
+
+        $filtered = array_slice($scored, 0, $limit);
+
+        return array_map(
+            static function (array $entry): array {
+                /** @var array<string, mixed> $source */
+                $source = $entry['source'];
+                return $source;
+            },
+            $filtered
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $source
+     * @param array<int, string> $tokens
+     */
+    private function scoreSourceAgainstTokens(array $source, array $tokens): float
+    {
+        $title = isset($source['title']) && is_string($source['title']) ? $source['title'] : '';
+        $preview = isset($source['preview']) && is_string($source['preview']) ? $source['preview'] : '';
+        $content = isset($source['content']) && is_string($source['content']) ? $source['content'] : '';
+        $url = isset($source['url']) && is_string($source['url']) ? $source['url'] : '';
+
+        $titleScore = $this->tokenCoverage($title, $tokens);
+        $previewScore = $this->tokenCoverage($preview, $tokens);
+        $contentScore = $this->tokenCoverage($content, $tokens);
+        $urlScore = $this->tokenCoverage($url, $tokens);
+
+        $boost = 0.0;
+        if ($titleScore > 0.0) {
+            $boost += 0.2;
+        }
+        if ($previewScore > 0.0 && $titleScore === 0.0) {
+            $boost += 0.1;
+        }
+
+        $score = ($titleScore * 0.5)
+            + ($previewScore * 0.25)
+            + ($contentScore * 0.2)
+            + ($urlScore * 0.05)
+            + $boost;
+
+        return max(0.0, min(1.0, $score));
+    }
+
+    /**
+     * @param array<int, string> $tokens
+     */
+    private function tokenCoverage(string $text, array $tokens): float
+    {
+        if ($text === '' || $tokens === []) {
+            return 0.0;
+        }
+
+        $normalised = $this->normaliseName($text);
+        if ($normalised === '') {
+            return 0.0;
+        }
+
+        $haystack = $this->tokenize($normalised);
+        if ($haystack === []) {
+            return 0.0;
+        }
+
+        $matches = array_intersect($tokens, $haystack);
+        if ($matches === []) {
+            return 0.0;
+        }
+
+        return count($matches) / count($tokens);
     }
 
     /**

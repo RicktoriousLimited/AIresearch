@@ -7,7 +7,9 @@ namespace App\KnowledgeGraph;
 use App\Text\TextRefiner;
 use DateTimeImmutable;
 
+use function array_flip;
 use function array_intersect;
+use function array_keys;
 use function array_map;
 use function array_merge;
 use function array_slice;
@@ -171,6 +173,8 @@ final class ReportBuilder
         $queryTokens = $this->tokeniseQuery($query);
 
         $highlights = [];
+        $matchedIndices = [];
+        $matchedRecords = [];
         foreach ($records as $index => $record) {
             $identifier = 'S' . ($index + 1);
             $keywordMatches = $queryTokens === []
@@ -194,7 +198,15 @@ final class ReportBuilder
             $uniquenessScore = $uniqueness[$index] ?? 0.0;
             $relevance = $this->clampScore(($queryScore * 0.5) + ($keywordCoverage * 0.2) + ($certainty * 0.2) + ($uniquenessScore * 0.1));
 
+            if ($queryTokens !== [] && $keywordMatches === 0) {
+                continue;
+            }
+
+            $matchedIndices[] = $index;
+            $matchedRecords[$index] = $record;
+
             $highlights[] = [
+                'record_index' => $index,
                 'id' => $identifier,
                 'title' => $record['title'] !== '' ? $record['title'] : $record['url'],
                 'summary' => $this->summariseText($record['summary'], 360),
@@ -225,6 +237,14 @@ final class ReportBuilder
         );
 
         $highlights = array_slice($highlights, 0, max(1, $limit));
+
+        $highlightedIndices = [];
+        foreach ($highlights as $key => $highlight) {
+            if (isset($highlight['record_index'])) {
+                $highlightedIndices[] = (int) $highlight['record_index'];
+                unset($highlights[$key]['record_index']);
+            }
+        }
 
         $combined = [];
         foreach ($highlights as $highlight) {
@@ -262,12 +282,41 @@ final class ReportBuilder
             }
         }
 
-        $topics = $this->summariseTopics($records);
+        $recordsForTopics = [];
+        if ($queryTokens === []) {
+            $recordsForTopics = $records;
+        } elseif ($highlightedIndices !== []) {
+            foreach ($highlightedIndices as $recordIndex) {
+                if (isset($records[$recordIndex])) {
+                    $recordsForTopics[] = $records[$recordIndex];
+                }
+            }
+        } else {
+            $recordsForTopics = array_values($matchedRecords);
+        }
+
+        $topics = $this->summariseTopics($recordsForTopics);
 
         $related = [];
+        if ($queryTokens === []) {
+            $allowedIndices = array_keys($records);
+        } elseif ($highlightedIndices !== []) {
+            $allowedIndices = $highlightedIndices;
+        } else {
+            $allowedIndices = $matchedIndices;
+        }
+        $allowedSet = $allowedIndices !== [] ? array_flip($allowedIndices) : [];
         $matrixSize = count($matrix);
         for ($i = 0; $i < $matrixSize; $i++) {
+            if ($allowedSet !== [] && !isset($allowedSet[$i])) {
+                continue;
+            }
+
             for ($j = $i + 1; $j < $matrixSize; $j++) {
+                if ($allowedSet !== [] && !isset($allowedSet[$j])) {
+                    continue;
+                }
+
                 $entry = $matrix[$i][$j];
                 if ($entry['score'] < 0.2) {
                     continue;
@@ -294,7 +343,19 @@ final class ReportBuilder
         );
 
         $citations = [];
-        foreach ($records as $index => $record) {
+        if ($queryTokens === []) {
+            $citationIndices = array_keys($records);
+        } elseif ($allowedIndices !== []) {
+            $citationIndices = $allowedIndices;
+        } else {
+            $citationIndices = array_keys($matchedRecords);
+        }
+        foreach ($citationIndices as $index) {
+            if (!isset($records[$index])) {
+                continue;
+            }
+
+            $record = $records[$index];
             $citations[] = [
                 'id' => 'S' . ($index + 1),
                 'title' => $record['title'] !== '' ? $record['title'] : $record['url'],
@@ -308,7 +369,7 @@ final class ReportBuilder
         return [
             'query' => $query,
             'generated_at' => (new DateTimeImmutable())->format(DATE_ATOM),
-            'document_count' => count($records),
+            'document_count' => count($matchedRecords),
             'highlights' => $highlights,
             'combined_summary' => $combined,
             'topics' => array_slice($topics, 0, 12),
