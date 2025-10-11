@@ -15,78 +15,41 @@ $escape = $state['escape'];
 $formatNumber = $state['formatNumber'];
 $formatDate = $state['formatDate'];
 $heroDigest = $state['heroDigest'];
+$trendingTopics = array_slice($state['trendingTopics'], 0, 8);
 $graphCoverageSignals = $state['graphCoverageSignals'];
 $graphTimeline = $state['graphTimeline'];
 $spotlight = $state['spotlight'];
-$trendingTopics = array_slice($state['trendingTopics'], 0, 6);
+$summary = $state['summary'];
+$sources = $state['sources'];
+$entities = $state['entities'];
+$relations = $state['relations'];
+$synonymGroups = $state['synonymGroups'];
+$triples = $state['triples'];
 $hasGraph = (bool) $state['hasGraph'];
 $initialJson = $state['initialJson'];
 $autocompleteJson = $state['autocompleteJson'];
-$initialState = $state['initialState'];
+$graphRepositoryPath = (string) ($state['initialState']['paths']['graph'] ?? '');
 
+$hubPath = PathResolver::url($assetBase, 'knowledge-graph.php');
 $overviewPath = PathResolver::url($assetBase, 'knowledge-graph-overview.php');
 $autopilotPath = PathResolver::url($assetBase, 'knowledge-graph-autopilot.php');
 $researchPath = PathResolver::url($assetBase, 'knowledge-graph-research.php');
-
-$graphRepositoryPath = (string) ($initialState['paths']['graph'] ?? '');
-
-$graphIntegrations = [
-    [
-        'title' => 'Insight overview',
-        'description' => 'Dive into entity discovery, relation density, and supporting evidence curated from recent crawls.',
-        'href' => $overviewPath,
-        'action' => 'Open overview',
-    ],
-    [
-        'title' => 'Autopilot briefs',
-        'description' => 'Compose instant research briefs that fuse citations, highlights, and unique insights from the graph.',
-        'href' => $autopilotPath,
-        'action' => 'Launch brief builder',
-    ],
-    [
-        'title' => 'Research console',
-        'description' => 'Run guided crawls, manage ingestion jobs, and review recommended leads in the operations console.',
-        'href' => $researchPath,
-        'action' => 'Visit console',
-    ],
-];
-
-$siteIntegrations = [
-    [
-        'title' => 'Search workspace',
-        'description' => 'Query the knowledge base, autocomplete trending topics, and compare graph-backed sources side-by-side.',
-        'href' => $state['searchPath'],
-        'action' => 'Launch search',
-    ],
-    [
-        'title' => 'Data preparation studio',
-        'description' => 'Scrape fresh URLs, clean content, and push structured data directly into the shared knowledge graph.',
-        'href' => $state['homePath'],
-        'action' => 'Open studio',
-    ],
-    [
-        'title' => 'Graph documentation',
-        'description' => 'Review API endpoints, schema guidance, and automation workflows that extend the knowledge graph.',
-        'href' => $state['docsPath'],
-        'action' => 'Read docs',
-    ],
-];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Knowledge graph workspace &ndash; AIresearch</title>
+    <title>Knowledge graph research console &ndash; AIresearch</title>
     <link rel="stylesheet" href="<?= $escape($assets['theme'] . '?v=' . $versions['theme']) ?>">
     <link rel="stylesheet" href="<?= $escape($assets['styles'] . '?v=' . $versions['styles']) ?>">
     <link rel="stylesheet" href="<?= $escape($assets['research'] . '?v=' . $versions['research']) ?>">
 </head>
 <body class="site site--graph">
 <?php SiteLayout::renderHeader($navigationPaths, 'graph', [
+    ['label' => 'Graph hub', 'href' => $hubPath],
     ['label' => 'Graph overview', 'href' => $overviewPath],
     ['label' => 'Autopilot brief', 'href' => $autopilotPath],
-    ['label' => 'Research console', 'href' => $researchPath],
     ['label' => 'Launch search', 'href' => $state['searchPath']],
 ]); ?>
 <main class="site-main graph-main">
@@ -94,9 +57,9 @@ $siteIntegrations = [
         <div class="site-container">
             <div class="graph-hero__content">
                 <div>
-                    <p class="eyebrow">Unified intelligence workspace</p>
-                    <h1>Explore the knowledge graph hub</h1>
-                    <p class="lead">Track the freshest entities, relationships, and supporting sources powering AIresearch experiences. Jump into a focused workspace or run a quick search below.</p>
+                    <p class="eyebrow">Operations console</p>
+                    <h1>Grow the knowledge graph</h1>
+                    <p class="lead">Schedule crawls, monitor ingestion runs, and surface recommended leads that keep the graph fresh.</p>
                     <?php if ($heroDigest !== []): ?>
                         <ul class="graph-hero__metrics">
                             <?php foreach ($heroDigest as $metric): ?>
@@ -128,9 +91,10 @@ $siteIntegrations = [
                     </form>
                     <nav class="graph-subnav" aria-label="Knowledge graph sections">
                         <ul class="graph-subnav__list">
-                            <li><a class="graph-subnav__link" href="<?= $escape($overviewPath) ?>">Graph overview</a></li>
+                            <li><a class="graph-subnav__link" href="<?= $escape($hubPath) ?>">Graph hub</a></li>
+                            <li><a class="graph-subnav__link" href="<?= $escape($overviewPath) ?>">Overview</a></li>
                             <li><a class="graph-subnav__link" href="<?= $escape($autopilotPath) ?>">Autopilot brief</a></li>
-                            <li><a class="graph-subnav__link" href="<?= $escape($researchPath) ?>">Research console</a></li>
+                            <li><a class="graph-subnav__link is-active" aria-current="page" href="<?= $escape($researchPath) ?>">Research console</a></li>
                         </ul>
                     </nav>
                 </div>
@@ -138,39 +102,88 @@ $siteIntegrations = [
         </div>
     </section>
     <div class="graph-shell site-container">
-        <section class="panel">
+        <?php if ($trendingTopics !== []): ?>
+            <section class="graph-suggestions">
+                <div class="graph-suggestions__header">
+                    <h2>Seed the crawler</h2>
+                    <p>Use analyst-curated topics as starting points for new ingestion jobs.</p>
+                </div>
+                <div class="graph-suggestions__chips">
+                    <?php foreach ($trendingTopics as $topic): ?>
+                        <button type="button" class="graph-suggestions__chip" data-graph-suggestion data-query="<?= $escape($topic) ?>"><?= $escape($topic) ?></button>
+                    <?php endforeach; ?>
+                </div>
+            </section>
+        <?php endif; ?>
+        <section class="panel research-console">
             <header class="panel-header">
                 <div>
-                    <h2>Choose a focused workspace</h2>
-                    <p class="panel-subtitle">Each workspace pairs the shared graph with dedicated tooling for analysis, briefing, or ingestion.</p>
+                    <h2>Research console</h2>
+                    <p class="panel-subtitle">Monitor the top-ranked entities and orchestrate automated crawls that expand the shared knowledge graph.</p>
+                </div>
+                <div class="panel-actions">
+                    <button type="button" class="button ghost" data-refresh-sources>Refresh stored sources</button>
                 </div>
             </header>
-            <div class="grid graph-hub-grid">
-                <?php foreach ($graphIntegrations as $card): ?>
-                    <article class="card span-2">
-                        <h3><?= $escape($card['title']) ?></h3>
-                        <p class="card-subtle"><?= $escape($card['description']) ?></p>
-                        <a class="button ghost" href="<?= $escape($card['href']) ?>"><?= $escape($card['action']) ?></a>
-                    </article>
-                <?php endforeach; ?>
-            </div>
-        </section>
-        <section class="graph-suggestions" data-graph-suggestions<?= $trendingTopics === [] ? ' hidden' : '' ?>>
-            <div class="graph-suggestions__header">
-                <h2>Jump-start discovery</h2>
-                <p>Run a graph search with analyst-tested prompts that surface dense entity clusters.</p>
-            </div>
-            <div class="graph-suggestions__chips">
-                <?php foreach ($trendingTopics as $topic): ?>
-                    <button type="button" class="graph-suggestions__chip" data-graph-suggestion data-query="<?= $escape($topic) ?>"><?= $escape($topic) ?></button>
-                <?php endforeach; ?>
+            <div class="grid research-grid">
+                <article class="card span-2">
+                    <h3>Recommended leads</h3>
+                    <p class="card-subtle" data-top-empty>No enriched entities yet. Run a crawl or scrape a page to surface suggestions.</p>
+                    <div class="entity-results entity-results--top" data-top-entities></div>
+                </article>
+                <article class="card span-3">
+                    <h3>Auto crawler</h3>
+                    <form class="crawler-form" data-crawl-form>
+                        <div class="form-group">
+                            <label for="crawl-seeds">Seed URLs</label>
+                            <textarea id="crawl-seeds" data-crawl-seeds placeholder="https://example.com/news&#10;https://labs.example.org/blog" spellcheck="false" required></textarea>
+                            <p class="help-text">Provide one URL per line. The crawler fetches each page, follows in-domain links, and merges new triples into the shared graph.</p>
+                        </div>
+                        <div class="crawler-inline">
+                            <label>
+                                <span>Pages to crawl</span>
+                                <input type="number" min="1" max="50" value="5" data-crawl-limit>
+                            </label>
+                            <label>
+                                <span>Depth</span>
+                                <input type="number" min="0" max="5" value="2" data-crawl-depth>
+                            </label>
+                        </div>
+                        <label class="toggle crawler-toggle">
+                            <input type="checkbox" data-crawl-cross-domain>
+                            <span>Allow cross-domain crawling</span>
+                        </label>
+                        <div class="crawler-actions">
+                            <button type="submit" class="button primary">Start crawl</button>
+                        </div>
+                    </form>
+                    <div class="status crawler-status" data-crawl-status></div>
+                    <div class="crawler-results" data-crawl-results hidden>
+                        <h4>Latest crawl</h4>
+                        <ul class="list-block" data-crawl-ingested></ul>
+                        <div class="crawler-errors" data-crawl-errors hidden>
+                            <h5>Errors</h5>
+                            <ul></ul>
+                        </div>
+                    </div>
+                </article>
+                <article class="card span-2">
+                    <h3>Crawl summary</h3>
+                    <p class="card-subtle" data-crawl-summary-empty>No automated crawl has been run yet.</p>
+                    <dl class="summary-list" data-crawl-summary hidden></dl>
+                    <div class="crawler-queue" data-crawl-queue hidden>
+                        <h4>Remaining queue</h4>
+                        <p class="card-subtle" data-crawl-queue-empty>No queued URLs.</p>
+                        <ul></ul>
+                    </div>
+                </article>
             </div>
         </section>
         <section class="panel graph-analytics">
             <header class="panel-header">
                 <div>
-                    <h2>Graph analytics snapshot</h2>
-                    <p class="panel-subtitle">A quick readout of ingestion velocity, coverage health, and a spotlight fact.</p>
+                    <h2>Operational telemetry</h2>
+                    <p class="panel-subtitle">Check ingestion velocity and coverage trends before launching new jobs.</p>
                 </div>
             </header>
             <div class="graph-analytics__grid">
@@ -222,7 +235,7 @@ $siteIntegrations = [
                 </article>
                 <article class="card span-3">
                     <h3>Graph spotlight</h3>
-                    <p class="card-subtle">A headline fact and supporting source selected from the freshest crawl.</p>
+                    <p class="card-subtle">Confirm that the freshest fact aligns with your research focus before kicking off another crawl.</p>
                     <div class="graph-spotlight" data-graph-spotlight>
                         <?php if ($spotlight !== null): ?>
                             <?php
@@ -260,23 +273,6 @@ $siteIntegrations = [
                     </div>
                     <p class="card-subtle" data-graph-spotlight-empty<?= $spotlight !== null ? ' hidden' : '' ?>>Run a search to surface a headline fact from the graph.</p>
                 </article>
-            </div>
-        </section>
-        <section class="panel">
-            <header class="panel-header">
-                <div>
-                    <h2>Where the graph shows up</h2>
-                    <p class="panel-subtitle">Cross-site features that plug into the shared intelligence layer.</p>
-                </div>
-            </header>
-            <div class="grid graph-hub-grid">
-                <?php foreach ($siteIntegrations as $card): ?>
-                    <article class="card span-2">
-                        <h3><?= $escape($card['title']) ?></h3>
-                        <p class="card-subtle"><?= $escape($card['description']) ?></p>
-                        <a class="button ghost" href="<?= $escape($card['href']) ?>"><?= $escape($card['action']) ?></a>
-                    </article>
-                <?php endforeach; ?>
             </div>
         </section>
     </div>
