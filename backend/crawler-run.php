@@ -10,6 +10,7 @@ require_once __DIR__ . '/../src/App/Crawler/HiddenCrawler.php';
 
 use App\Crawler\HiddenCrawler;
 use App\KnowledgeGraph\ResearchService;
+use Throwable;
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate');
@@ -31,6 +32,9 @@ if (!isset($_SESSION['backend_user'])) {
     ]);
     return;
 }
+
+$crawlerStorage = __DIR__ . '/../storage/backend/crawler-history.json';
+$crawler = new HiddenCrawler($crawlerStorage, null, null, new ResearchService());
 
 $payload = $_POST;
 $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
@@ -68,6 +72,31 @@ if (is_array($targetsRaw)) {
     }
 }
 
+$progress = null;
+
+if ($targets === []) {
+    try {
+        $progress = $crawler->progress();
+    } catch (Throwable $exception) {
+        $progress = null;
+    }
+
+    if (is_array($progress['seed_urls'] ?? null)) {
+        foreach ($progress['seed_urls'] as $seed) {
+            if (!is_string($seed)) {
+                continue;
+            }
+
+            $candidate = trim($seed);
+            if ($candidate === '') {
+                continue;
+            }
+
+            $targets[] = $candidate;
+        }
+    }
+}
+
 if ($targets === []) {
     http_response_code(422);
     echo json_encode([
@@ -77,14 +106,37 @@ if ($targets === []) {
     return;
 }
 
-$depth = isset($payload['depth']) ? (int) $payload['depth'] : (int) ($_SESSION['backend_depth'] ?? 0);
+if ($progress === null) {
+    try {
+        $progress = $crawler->progress();
+    } catch (Throwable $exception) {
+        $progress = null;
+    }
+}
+
+$progressOptions = is_array($progress['options'] ?? null) ? $progress['options'] : [];
+
+$depth = array_key_exists('depth', $payload)
+    ? (int) $payload['depth']
+    : (int) ($_SESSION['backend_depth'] ?? ($progressOptions['depth'] ?? 0));
 $depth = max(0, $depth);
-$autoInterval = isset($payload['auto_interval']) ? (int) $payload['auto_interval'] : (int) ($_SESSION['backend_auto_interval'] ?? 0);
+
+$autoInterval = array_key_exists('auto_interval', $payload)
+    ? (int) $payload['auto_interval']
+    : (int) ($_SESSION['backend_auto_interval'] ?? ($progressOptions['auto_interval'] ?? $progress['auto_interval'] ?? 0));
 $autoInterval = max(0, $autoInterval);
-$autoStart = isset($payload['auto_start'])
-    ? in_array(strtolower((string) $payload['auto_start']), ['1', 'true', 'yes', 'on'], true)
-    : (bool) ($_SESSION['backend_auto_start'] ?? false);
-$refreshAfter = isset($payload['refresh_after']) ? (int) $payload['refresh_after'] : (int) ($_SESSION['backend_refresh_after'] ?? 0);
+
+if (array_key_exists('auto_start', $payload)) {
+    $autoStart = in_array(strtolower((string) $payload['auto_start']), ['1', 'true', 'yes', 'on'], true);
+} elseif (isset($_SESSION['backend_auto_start'])) {
+    $autoStart = (bool) $_SESSION['backend_auto_start'];
+} else {
+    $autoStart = (bool) ($progressOptions['auto_start'] ?? $progress['auto_start'] ?? false);
+}
+
+$refreshAfter = array_key_exists('refresh_after', $payload)
+    ? (int) $payload['refresh_after']
+    : (int) ($_SESSION['backend_refresh_after'] ?? ($progressOptions['refresh_after'] ?? $progress['refresh_after'] ?? 0));
 $refreshAfter = max(0, $refreshAfter);
 
 $_SESSION['backend_urls'] = implode("\n", $targets);
@@ -92,9 +144,6 @@ $_SESSION['backend_depth'] = $depth;
 $_SESSION['backend_auto_interval'] = $autoInterval;
 $_SESSION['backend_auto_start'] = $autoStart;
 $_SESSION['backend_refresh_after'] = $refreshAfter;
-
-$crawlerStorage = __DIR__ . '/../storage/backend/crawler-history.json';
-$crawler = new HiddenCrawler($crawlerStorage, null, null, new ResearchService());
 
 try {
     $results = $crawler->crawl($targets, $depth, $autoInterval, $autoStart, $refreshAfter);
