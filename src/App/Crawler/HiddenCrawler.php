@@ -1441,6 +1441,10 @@ final class HiddenCrawler
             }
         }
 
+        if ($queue === []) {
+            $this->buildQueueFromExistingKnowledge($queue, $seen, $seeds);
+        }
+
         $this->sortQueueByPriority($queue);
 
         if (count($queue) > self::MAX_QUEUE_SIZE) {
@@ -1448,6 +1452,323 @@ final class HiddenCrawler
         }
 
         return [$queue, $seen, $seeds];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $queue
+     * @param array<string, bool> $seen
+     * @param array<int, string> $seeds
+     */
+    private function buildQueueFromExistingKnowledge(array &$queue, array &$seen, array &$seeds): void
+    {
+        $availableSlots = self::MAX_QUEUE_SIZE - count($queue);
+        if ($availableSlots <= 0) {
+            return;
+        }
+
+        $candidates = $this->deriveStoredQueueCandidates($seen, $availableSlots);
+        if ($candidates === []) {
+            return;
+        }
+
+        foreach ($candidates as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+
+            $url = isset($candidate['url']) ? (string) $candidate['url'] : '';
+            if ($url === '') {
+                continue;
+            }
+
+            $key = $this->queueKey($url);
+            if ($key === '' || isset($seen[$key])) {
+                continue;
+            }
+
+            $queue[] = [
+                'url' => $url,
+                'depth' => isset($candidate['depth']) ? max(0, (int) $candidate['depth']) : 0,
+                'priority' => isset($candidate['priority'])
+                    ? (float) $candidate['priority']
+                    : $this->baseScoreForDomain($this->extractDomain($url)),
+                'seed' => !empty($candidate['seed']),
+                'refresh' => !empty($candidate['refresh']),
+            ];
+
+            $seen[$key] = true;
+            if (!empty($candidate['seed'])) {
+                $seeds[] = $url;
+            }
+
+            if (count($queue) >= self::MAX_QUEUE_SIZE) {
+                break;
+            }
+        }
+    }
+
+    /**
+     * @param array<string, bool> $seen
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function deriveStoredQueueCandidates(array $seen, int $limit): array
+    {
+        $limit = max(0, $limit);
+        if ($limit === 0) {
+            return [];
+        }
+
+        $historyEntries = $this->loadStoredEntries();
+        if ($historyEntries === []) {
+            return [];
+        }
+
+        $ledger = $this->initialiseDiscoveryLedger($historyEntries);
+        if ($ledger === []) {
+            return [];
+        }
+
+        try {
+            $reference = new DateTimeImmutable();
+        } catch (Throwable $exception) {
+            $reference = null;
+        }
+
+        $candidates = [];
+        $existingKeys = [];
+
+        foreach ($ledger as $key => $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $url = isset($entry['url']) ? (string) $entry['url'] : '';
+            if ($url === '') {
+                continue;
+            }
+
+            if (isset($seen[$key]) || isset($existingKeys[$key])) {
+                continue;
+            }
+
+            $schedule = $this->normaliseSchedule($entry['schedule'] ?? []);
+            $lastSeenRaw = isset($entry['last_seen_at']) ? (string) $entry['last_seen_at'] : '';
+            $lastSeen = $lastSeenRaw !== '' ? $this->parseDateTime($lastSeenRaw) : null;
+            $nextDueRaw = isset($schedule['next_due_at']) ? (string) $schedule['next_due_at'] : '';
+            $nextDue = $nextDueRaw !== '' ? $this->parseDateTime($nextDueRaw) : null;
+
+            $score = $this->scoreDiscoveryCandidate($entry);
+            $priority = max(0.0, $score / 100.0);
+
+            if (!empty($entry['seed'])) {
+                $priority += 0.25;
+            }
+
+            $priority += $this->computeStoredTargetDueBoost($reference, $nextDue);
+            $priority += $this->computeStoredTargetRecencyBoost($reference, $lastSeen);
+
+            $sources = isset($entry['sources']) && is_array($entry['sources']) ? $entry['sources'] : [];
+            $sourceCount = count($sources);
+            if ($sourceCount >= 4) {
+                $priority += 0.12;
+            } elseif ($sourceCount >= 2) {
+                $priority += 0.05;
+            }
+
+            if ((int) ($schedule['total_runs'] ?? 0) === 0) {
+                $priority += 0.08;
+            }
+
+            $candidates[] = [
+                'key' => $key,
+                'url' => $url,
+                'seed' => !empty($entry['seed']),
+                'priority' => $priority,
+                'last_seen' => $lastSeen instanceof DateTimeImmutable ? $lastSeen->getTimestamp() : null,
+                'due' => $nextDue instanceof DateTimeImmutable ? $nextDue->getTimestamp() : null,
+                'depth' => 0,
+                'refresh' => ($nextDue !== null) || ((int) ($schedule['total_runs'] ?? 0) > 0),
+                'score' => $score,
+            ];
+            $existingKeys[$key] = true;
+        }
+
+        if ($candidates !== []) {
+            usort($candidates, static function (array $left, array $right): int {
+                $priorityCompare = ($right['priority'] ?? 0.0) <=> ($left['priority'] ?? 0.0);
+                if ($priorityCompare !== 0) {
+                    return $priorityCompare;
+                }
+
+                $leftDue = $left['due'] ?? null;
+                $rightDue = $right['due'] ?? null;
+                if ($leftDue !== $rightDue) {
+                    if ($leftDue === null) {
+                        return 1;
+                    }
+                    if ($rightDue === null) {
+                        return -1;
+                    }
+
+                    return $leftDue <=> $rightDue;
+                }
+
+                $leftSeen = $left['last_seen'] ?? null;
+                $rightSeen = $right['last_seen'] ?? null;
+                if ($leftSeen !== $rightSeen) {
+                    if ($leftSeen === null) {
+                        return -1;
+                    }
+                    if ($rightSeen === null) {
+                        return 1;
+                    }
+
+                    return $leftSeen <=> $rightSeen;
+                }
+
+                return ($right['score'] ?? 0.0) <=> ($left['score'] ?? 0.0);
+            });
+        }
+
+        $results = [];
+        $resultKeys = [];
+
+        foreach (array_slice($candidates, 0, $limit) as $candidate) {
+            $url = (string) ($candidate['url'] ?? '');
+            if ($url === '') {
+                continue;
+            }
+
+            $results[] = [
+                'url' => $url,
+                'depth' => (int) ($candidate['depth'] ?? 0),
+                'priority' => (float) ($candidate['priority'] ?? 0.0),
+                'seed' => !empty($candidate['seed']),
+                'refresh' => !empty($candidate['refresh']),
+            ];
+
+            $key = $this->queueKey($url);
+            if ($key !== '') {
+                $resultKeys[$key] = true;
+            }
+        }
+
+        if (count($results) < $limit) {
+            $scheduledQueue = $this->loadScheduledQueue();
+            foreach ($scheduledQueue as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                $url = isset($entry['url']) ? (string) $entry['url'] : '';
+                if ($url === '') {
+                    continue;
+                }
+
+                $key = $this->queueKey($url);
+                if ($key === '' || isset($seen[$key]) || isset($resultKeys[$key])) {
+                    continue;
+                }
+
+                $results[] = [
+                    'url' => $url,
+                    'depth' => isset($entry['depth']) ? max(0, (int) $entry['depth']) : 0,
+                    'priority' => isset($entry['priority'])
+                        ? (float) $entry['priority']
+                        : $this->baseScoreForDomain($this->extractDomain($url)),
+                    'seed' => !empty($entry['seed']),
+                    'refresh' => !empty($entry['seed']) ? false : !empty($entry['refresh']),
+                ];
+
+                if ($key !== '') {
+                    $resultKeys[$key] = true;
+                }
+
+                if (count($results) >= $limit) {
+                    break;
+                }
+            }
+        }
+
+        return $results;
+    }
+
+    private function computeStoredTargetDueBoost(?DateTimeImmutable $reference, ?DateTimeImmutable $nextDue): float
+    {
+        if ($reference === null || $nextDue === null) {
+            return 0.0;
+        }
+
+        $difference = ($nextDue->getTimestamp() - $reference->getTimestamp()) / 60.0;
+
+        if ($difference <= -240.0) {
+            return 0.4;
+        }
+
+        if ($difference <= -60.0) {
+            return 0.32;
+        }
+
+        if ($difference <= 0.0) {
+            return 0.28;
+        }
+
+        if ($difference <= 120.0) {
+            return 0.22;
+        }
+
+        if ($difference <= 360.0) {
+            return 0.14;
+        }
+
+        if ($difference <= 720.0) {
+            return 0.07;
+        }
+
+        if ($difference <= 1440.0) {
+            return 0.03;
+        }
+
+        return 0.0;
+    }
+
+    private function computeStoredTargetRecencyBoost(?DateTimeImmutable $reference, ?DateTimeImmutable $lastSeen): float
+    {
+        if ($reference === null) {
+            return 0.0;
+        }
+
+        if ($lastSeen === null) {
+            return 0.18;
+        }
+
+        $difference = ($reference->getTimestamp() - $lastSeen->getTimestamp()) / 60.0;
+        if ($difference <= 0.0) {
+            return 0.0;
+        }
+
+        if ($difference >= 10080.0) {
+            return 0.24;
+        }
+
+        if ($difference >= 4320.0) {
+            return 0.18;
+        }
+
+        if ($difference >= 1440.0) {
+            return 0.12;
+        }
+
+        if ($difference >= 360.0) {
+            return 0.06;
+        }
+
+        if ($difference >= 120.0) {
+            return 0.03;
+        }
+
+        return 0.0;
     }
 
     private function normaliseSeedTarget(string $target): ?string
