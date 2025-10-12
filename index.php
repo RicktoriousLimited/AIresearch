@@ -5,7 +5,6 @@ declare(strict_types=1);
 require __DIR__ . '/src/App/bootstrap.php';
 
 use App\Web\PathResolver;
-use App\Web\SiteLayout;
 
 function esc(string $value): string
 {
@@ -16,11 +15,9 @@ $paths = PathResolver::resolve();
 $basePath = $paths['basePath'];
 $assetBase = $paths['assetBase'];
 
-$stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
-$themePath = PathResolver::url($assetBase, 'assets/theme.css');
+$homeStylesPath = PathResolver::url($assetBase, 'assets/home-page.css');
 $homeScriptPath = PathResolver::url($assetBase, 'assets/home.js');
-$stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
-$themeVersion = file_exists(__DIR__ . '/assets/theme.css') ? (string) filemtime(__DIR__ . '/assets/theme.css') : (string) time();
+$homeStylesVersion = file_exists(__DIR__ . '/assets/home-page.css') ? (string) filemtime(__DIR__ . '/assets/home-page.css') : (string) time();
 $homeScriptVersion = file_exists(__DIR__ . '/assets/home.js') ? (string) filemtime(__DIR__ . '/assets/home.js') : (string) time();
 
 $homePath = PathResolver::url($assetBase, 'index.php');
@@ -49,41 +46,54 @@ if (!is_string($sampleQueriesJson)) {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>AIresearch – Search intelligence</title>
-    <link rel="stylesheet" href="<?= esc($themePath . '?v=' . $themeVersion) ?>">
-    <link rel="stylesheet" href="<?= esc($stylesPath . '?v=' . $stylesVersion) ?>">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+    <link rel="stylesheet" href="<?= esc($homeStylesPath . '?v=' . $homeStylesVersion) ?>">
 </head>
-<body class="site site--home">
-<?php SiteLayout::renderHeader($navigationPaths, 'home'); ?>
-<main class="site-main home-main">
-    <section class="home-focus">
-        <div class="home-focus__logo" aria-hidden="true">AIresearch</div>
-        <h1 class="home-focus__headline">Search the live intelligence index</h1>
-        <p class="home-focus__lead">A lightweight, private window into market-moving news and analysis.</p>
-        <form class="home-focus__form" data-home-search action="<?= esc($searchPath) ?>" method="get">
-            <label class="visually-hidden" for="home-query">Search AIresearch</label>
-            <div class="home-focus__field">
-                <span class="home-focus__icon" aria-hidden="true"></span>
-                <input
-                    id="home-query"
-                    type="search"
-                    name="q"
-                    placeholder="Search AIresearch"
-                    data-home-search-input
-                    data-home-phrases='<?= esc($sampleQueriesJson) ?>'
-                    required>
-                <button type="submit" class="home-focus__submit" aria-label="Search"></button>
-            </div>
-        </form>
-        <?php if ($sampleQueries !== []): ?>
-            <ul class="home-focus__suggestions">
-                <?php foreach ($sampleQueries as $query): ?>
-                    <li><button type="button" class="home-focus__chip" data-home-suggestion="<?= esc($query) ?>"><?= esc($query) ?></button></li>
-                <?php endforeach; ?>
-            </ul>
-        <?php endif; ?>
-    </section>
-</main>
-<?php SiteLayout::renderFooter($navigationPaths); ?>
+<body class="home-page">
+    <header class="topbar" id="topbar" hidden>
+        <div class="topbar__inner">
+            <a class="brand" href="<?= esc($homePath) ?>" aria-label="AIresearch home">AI<span>research</span></a>
+            <form class="searchbox" action="<?= esc($searchPath) ?>" method="get" role="search" aria-label="Search AIresearch" data-home-search>
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79L20 21.5 21.5 20l-6-6zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                <label for="q" class="sr-only">Search</label>
+                <input id="q" type="search" name="q" placeholder="Search the web" value="" data-home-search-input data-home-phrases='<?= esc($sampleQueriesJson) ?>' required />
+                <button class="btn pill" type="submit">Search</button>
+            </form>
+            <div class="pill" aria-hidden="true">Safe results</div>
+        </div>
+    </header>
+    <main class="home" id="home">
+        <div class="home__inner">
+            <div class="logo" aria-label="AIresearch">AIresearch<span class="dot">.</span></div>
+            <form class="searchbox" action="<?= esc($searchPath) ?>" method="get" role="search" aria-label="Search AIresearch" data-home-search>
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79L20 21.5 21.5 20l-6-6zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                <label for="home-query" class="sr-only">Search</label>
+                <input id="home-query" type="search" name="q" placeholder="Search AIresearch" autofocus data-home-search-input data-home-phrases='<?= esc($sampleQueriesJson) ?>' required />
+                <button class="btn pill" type="submit">Google‑like Search</button>
+            </form>
+            <?php if ($sampleQueries !== []): ?>
+                <div class="sub">Try:
+                    <div class="chips">
+                        <?php foreach ($sampleQueries as $query): ?>
+                            <button type="button" class="pill" data-home-suggestion="<?= esc($query) ?>"><?= esc($query) ?></button>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
+        </div>
+    </main>
+    <footer class="footer">© <?= date('Y') ?> AIresearch · Fast briefings from your crawler</footer>
+    <script>
+        (function(){
+            const params = new URLSearchParams(window.location.search);
+            const hasQuery = params.get('q');
+            const topbar = document.getElementById('topbar');
+            if (hasQuery && topbar) {
+                topbar.hidden = false;
+            }
+        })();
+    </script>
 <script src="<?= esc($homeScriptPath . '?v=' . $homeScriptVersion) ?>" defer></script>
 </body>
 </html>
