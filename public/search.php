@@ -1,6 +1,10 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../src/App/bootstrap.php';
+
+use App\Web\SearchViewHelpers;
+
 const DATA_DIR = __DIR__ . '/../data';
 const INDEX_DIR = DATA_DIR . '/index';
 const CACHE_DIR = DATA_DIR . '/cache';
@@ -86,7 +90,7 @@ if ($query !== '' && file_exists($cachePath)) {
     $cached = json_decode((string) file_get_contents($cachePath), true);
     if (is_array($cached) && ($cached['expires_at'] ?? 0) > time()) {
         $latency = (int) round((microtime(true) - $start) * 1000);
-        renderPage(hydrateResults($cached['doc_ids'] ?? [], $cached['collapsed'] ?? [], $query, $cached['terms'] ?? [], $cached['phrases'] ?? []), [
+        renderPage(hydrateResults($cached['doc_ids'] ?? [], $cached['collapsed'] ?? [], $query), [
             'query' => $query,
             'page' => $page,
             'since' => $since,
@@ -222,14 +226,12 @@ if ($query !== '') {
         'doc_ids' => $docIds,
         'collapsed' => $collapsedCounts,
         'total' => $totalResults,
-        'terms' => $terms,
-        'phrases' => $phrases,
         'expires_at' => time() + CACHE_TTL,
     ];
     file_put_contents($cachePath, json_encode($cachePayload, JSON_UNESCAPED_UNICODE));
 }
 
-$results = hydrateResults($docIds, $collapsedCounts, $query, $terms, $phrases);
+$results = hydrateResults($docIds, $collapsedCounts, $query);
 $latency = (int) round((microtime(true) - $start) * 1000);
 
 renderPage($results, [
@@ -348,38 +350,6 @@ function bm25(array $termFreqs, float $lengthNorm, array $qWeights): float
     return $score;
 }
 
-function highlight(string $text, array $terms, array $phrases): string
-{
-    $safe = htmlspecialchars($text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $phrases = array_values(array_filter(array_unique($phrases)));
-    usort($phrases, fn($a, $b) => mb_strlen($b, 'UTF-8') <=> mb_strlen($a, 'UTF-8'));
-    foreach ($phrases as $phrase) {
-        $escaped = htmlspecialchars($phrase, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-        if ($escaped === '') {
-            continue;
-        }
-        $pattern = '/' . preg_quote($escaped, '/') . '/iu';
-        $safe = preg_replace($pattern, '<mark>$0</mark>', $safe);
-    }
-    $terms = array_values(array_filter(array_unique($terms)));
-    if (!$terms) {
-        return $safe;
-    }
-    $safe = preg_replace_callback('/(^|>)([^<]+)/u', function ($matches) use ($terms) {
-        $prefix = $matches[1];
-        $segment = $matches[2];
-        foreach ($terms as $term) {
-            $escaped = preg_quote(htmlspecialchars($term, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'), '/');
-            if ($escaped === '') {
-                continue;
-            }
-            $segment = preg_replace('/\b' . $escaped . '\b/iu', '<b>$0</b>', $segment);
-        }
-        return $prefix . $segment;
-    }, $safe);
-    return $safe;
-}
-
 function hammingDist(string $hex1, string $hex2): int
 {
     $hex1 = str_pad(strtolower($hex1), 16, '0');
@@ -425,7 +395,7 @@ function time_ago(int $now, int $ts): string
     return $days . ' d ago';
 }
 
-function hydrateResults(array $docIds, array $collapsed, string $query, array $terms, array $phrases): array
+function hydrateResults(array $docIds, array $collapsed, string $query): array
 {
     global $manifest, $indexBase;
     $results = [];
@@ -434,10 +404,22 @@ function hydrateResults(array $docIds, array $collapsed, string $query, array $t
         if (!$doc) {
             continue;
         }
+        $rawTitle = (string) ($doc['title'] ?? '');
+        $title = $rawTitle !== '' ? $rawTitle : ((string) ($doc['url'] ?? 'Untitled source'));
+        $snippetSource = (string) ($doc['lede'] ?? '');
+        $snippet = SearchViewHelpers::relevantSnippet($snippetSource, $query);
+        if ($snippet === '' && $snippetSource !== '') {
+            $snippet = SearchViewHelpers::normaliseWhitespace($snippetSource);
+        }
+        if ($snippet !== '' && mb_strlen($snippet) > 320) {
+            $snippet = rtrim(mb_substr($snippet, 0, 317)) . '…';
+        }
+        $highlightedSnippet = $snippet === '' ? '' : SearchViewHelpers::highlightTerms($snippet, $query);
         $results[] = [
             'id' => $doc['id'],
-            'title' => highlight($doc['title'], $terms, $phrases),
-            'lede' => highlight($doc['lede'], $terms, $phrases),
+            'title' => SearchViewHelpers::highlightTerms($title, $query),
+            'snippet' => $highlightedSnippet,
+            'lede' => $highlightedSnippet,
             'source' => $doc['source'],
             'lang' => $doc['lang'],
             'time' => time_ago(time(), (int) $doc['ts']),
