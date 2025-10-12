@@ -35,6 +35,45 @@ $hubPath = PathResolver::url($assetBase, 'knowledge-graph.php');
 $overviewPath = PathResolver::url($assetBase, 'knowledge-graph-overview.php');
 $autopilotPath = PathResolver::url($assetBase, 'knowledge-graph-autopilot.php');
 $researchPath = PathResolver::url($assetBase, 'knowledge-graph-research.php');
+
+$workspaceShortcuts = [
+    [
+        'title' => 'Autopilot briefs',
+        'description' => 'Generate graph-backed reports with cached prompts and citations.',
+        'href' => $autopilotPath,
+        'action' => 'Open Autopilot',
+    ],
+    [
+        'title' => 'Research console',
+        'description' => 'Run crawls, refresh sources, and triage the latest entity leads.',
+        'href' => $researchPath,
+        'action' => 'Visit console',
+    ],
+    [
+        'title' => 'Admin hub',
+        'description' => 'Monitor ingestion health, spotlight triples, and manage workspaces.',
+        'href' => $hubPath,
+        'action' => 'Go to hub',
+    ],
+];
+
+$siteIntegrations = [
+    [
+        'title' => 'Search workspace',
+        'description' => 'Launch semantic search with autocomplete powered by trending topics.',
+        'href' => $state['searchPath'],
+    ],
+    [
+        'title' => 'Data preparation studio',
+        'description' => 'Scrape, clean, and enrich fresh sources before merging them into the graph.',
+        'href' => $state['homePath'],
+    ],
+    [
+        'title' => 'Graph documentation',
+        'description' => 'Review ingestion workflows, schema guidance, and automation hooks.',
+        'href' => $state['docsPath'],
+    ],
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -42,11 +81,15 @@ $researchPath = PathResolver::url($assetBase, 'knowledge-graph-research.php');
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Knowledge graph overview &ndash; AIresearch</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="<?= $escape($assets['theme'] . '?v=' . $versions['theme']) ?>">
     <link rel="stylesheet" href="<?= $escape($assets['styles'] . '?v=' . $versions['styles']) ?>">
     <link rel="stylesheet" href="<?= $escape($assets['research'] . '?v=' . $versions['research']) ?>">
+    <link rel="stylesheet" href="<?= $escape($assets['knowledge'] . '?v=' . $versions['knowledge']) ?>">
 </head>
-<body class="site site--graph">
+<body class="graph-page site site--graph">
 <?php SiteLayout::renderHeader($navigationLinks, 'graph', [
     ['label' => 'Graph hub', 'href' => $hubPath],
     ['label' => 'Autopilot brief', 'href' => $autopilotPath],
@@ -95,6 +138,21 @@ $researchPath = PathResolver::url($assetBase, 'knowledge-graph-research.php');
             </div>
         </div>
     </section>
+    <?php if ($trendingTopics !== []): ?>
+        <section class="graph-suggestions site-container" data-graph-suggestions>
+            <div class="graph-suggestions__header">
+                <h2>Suggested graph prompts</h2>
+                <p>Spotlighted topics and suggested prompts pulled from the latest ingestion runs.</p>
+            </div>
+            <div class="graph-suggestions__chips">
+                <?php foreach ($trendingTopics as $topic): ?>
+                    <?php $topic = (string) $topic; ?>
+                    <?php if ($topic === '') { continue; } ?>
+                    <button type="button" class="graph-suggestions__chip" data-graph-suggestion data-query="<?= $escape($topic) ?>"><?= $escape($topic) ?></button>
+                <?php endforeach; ?>
+            </div>
+        </section>
+    <?php endif; ?>
     <div class="graph-shell site-container">
         <section class="panel">
             <header class="panel-header">
@@ -212,9 +270,120 @@ $researchPath = PathResolver::url($assetBase, 'knowledge-graph-research.php');
                         </ul>
                     </article>
                 </div>
+                <div class="grid graph-analytics__grid">
+                    <article class="card">
+                        <h3>Graph health signals</h3>
+                        <p class="card-subtle" data-graph-coverage-empty<?= $graphCoverageSignals !== [] ? ' hidden' : '' ?>>Keep ingestion running to surface coverage and enrichment metrics.</p>
+                        <ul class="stat-list" data-graph-coverage<?= $graphCoverageSignals === [] ? ' hidden' : '' ?>>
+                            <?php foreach ($graphCoverageSignals as $signal): ?>
+                                <?php $label = (string) ($signal['label'] ?? ''); ?>
+                                <?php $value = (string) ($signal['value'] ?? ''); ?>
+                                <?php $hint = (string) ($signal['hint'] ?? ''); ?>
+                                <?php if ($label === '' || $value === '') { continue; } ?>
+                                <li>
+                                    <div class="stat-list__row">
+                                        <span class="stat-list__label"><?= $escape($label) ?></span>
+                                        <span class="stat-list__value"><?= $escape($value) ?></span>
+                                    </div>
+                                    <?php if ($hint !== ''): ?>
+                                        <p class="stat-list__hint"><?= $escape($hint) ?></p>
+                                    <?php endif; ?>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </article>
+                    <article class="card">
+                        <h3>Recent ingestion</h3>
+                        <p class="card-subtle" data-graph-timeline-empty<?= $graphTimeline !== [] ? ' hidden' : '' ?>>Timeline updates appear once sources are merged into the knowledge graph.</p>
+                        <?php $maxTimelineCount = $graphTimeline !== [] ? max(array_map(static fn($row) => (int) ($row['count'] ?? 0), $graphTimeline)) : 0; ?>
+                        <ul class="graph-timeline" data-graph-timeline<?= $graphTimeline === [] ? ' hidden' : '' ?>>
+                            <?php foreach ($graphTimeline as $bucket): ?>
+                                <?php $label = (string) ($bucket['label'] ?? ''); ?>
+                                <?php $count = (int) ($bucket['count'] ?? 0); ?>
+                                <?php if ($label === '') { continue; } ?>
+                                <?php $meterWidth = $maxTimelineCount > 0 ? (int) round(($count / $maxTimelineCount) * 100) : 0; ?>
+                                <li>
+                                    <span class="graph-timeline__date"><?= $escape($label) ?></span>
+                                    <span class="graph-timeline__meter"><span style="--meter-width: <?= $escape((string) $meterWidth) ?>%"></span></span>
+                                    <span class="graph-timeline__value"><?= $escape($formatNumber($count)) ?></span>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </article>
+                    <article class="card">
+                        <h3>Graph spotlight</h3>
+                        <p class="card-subtle" data-graph-spotlight-empty<?= is_array($spotlight) && $spotlight !== [] ? ' hidden' : '' ?>>Once ingestion runs, we highlight a fresh triple with its supporting source.</p>
+                        <div class="graph-spotlight" data-graph-spotlight>
+                            <?php if (is_array($spotlight) && $spotlight !== []): ?>
+                                <div class="graph-spotlight__triple">
+                                    <span class="graph-spotlight__subject"><?= $escape((string) ($spotlight['subject'] ?? '')) ?></span>
+                                    <span class="graph-spotlight__relation"><?= $escape((string) ($spotlight['relation'] ?? '')) ?></span>
+                                    <span class="graph-spotlight__object"><?= $escape((string) ($spotlight['object'] ?? '')) ?></span>
+                                </div>
+                                <?php $preview = (string) ($spotlight['source_preview'] ?? ''); ?>
+                                <?php if ($preview !== ''): ?>
+                                    <p class="graph-spotlight__preview"><?= $escape($preview) ?></p>
+                                <?php endif; ?>
+                                <?php $sourceTitle = (string) ($spotlight['source_title'] ?? ''); ?>
+                                <?php $sourceUrl = (string) ($spotlight['source_url'] ?? ''); ?>
+                                <?php if ($sourceTitle !== '' || $sourceUrl !== ''): ?>
+                                    <p class="graph-spotlight__source">
+                                        <?php if ($sourceUrl !== ''): ?>
+                                            <a href="<?= $escape($sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= $escape($sourceTitle !== '' ? $sourceTitle : $sourceUrl) ?></a>
+                                        <?php else: ?>
+                                            <?= $escape($sourceTitle) ?>
+                                        <?php endif; ?>
+                                    </p>
+                                <?php endif; ?>
+                                <?php $fetchedAt = (string) ($spotlight['fetched_at'] ?? ''); ?>
+                                <?php if ($fetchedAt !== ''): ?>
+                                    <p class="graph-spotlight__meta">Backed by <?= $escape($formatDate($fetchedAt) ?? $fetchedAt) ?></p>
+                                <?php endif; ?>
+                            <?php endif; ?>
+                        </div>
+                    </article>
+                    <article class="card">
+                        <h3>Workspace shortcuts</h3>
+                        <ul class="sources-list">
+                            <?php foreach ($workspaceShortcuts as $shortcut): ?>
+                                <?php if (!isset($shortcut['title'], $shortcut['description'], $shortcut['href'], $shortcut['action'])) { continue; } ?>
+                                <li>
+                                    <p class="source-title"><a href="<?= $escape((string) $shortcut['href']) ?>"><?= $escape((string) $shortcut['title']) ?></a></p>
+                                    <p class="source-preview"><?= $escape((string) $shortcut['description']) ?></p>
+                                    <p class="source-meta"><a class="button ghost" href="<?= $escape((string) $shortcut['href']) ?>"><?= $escape((string) $shortcut['action']) ?></a></p>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </article>
+                </div>
             <?php endif; ?>
         </section>
     </div>
+    <section class="graph-note site-container" aria-label="Use the graph across the site">
+        <div class="panel">
+            <header class="panel-header">
+                <div>
+                    <h2>Use graph intelligence everywhere</h2>
+                    <p class="panel-subtitle">Jump into related tools that lean on the same knowledge base.</p>
+                </div>
+            </header>
+            <div class="grid graph-grid">
+                <?php foreach ($siteIntegrations as $integration): ?>
+                    <?php $title = (string) ($integration['title'] ?? ''); ?>
+                    <?php $description = (string) ($integration['description'] ?? ''); ?>
+                    <?php $href = (string) ($integration['href'] ?? ''); ?>
+                    <?php if ($title === '' || $href === '') { continue; } ?>
+                    <article class="card">
+                        <h3><?= $escape($title) ?></h3>
+                        <?php if ($description !== ''): ?>
+                            <p class="card-subtle"><?= $escape($description) ?></p>
+                        <?php endif; ?>
+                        <a class="button ghost" href="<?= $escape($href) ?>">Open</a>
+                    </article>
+                <?php endforeach; ?>
+            </div>
+        </div>
+    </section>
     <section class="graph-note site-container" aria-label="Knowledge graph storage">
         <?php if ($graphRepositoryPath !== ''): ?>
             <p>Snapshots live at <code><?= $escape($graphRepositoryPath) ?></code>. Scrape extra URLs from the <a href="<?= $escape($state['homePath']) ?>">Data Preparation Studio</a> whenever you need more context.</p>
