@@ -7,57 +7,11 @@ require __DIR__ . '/src/App/bootstrap.php';
 use App\Crawler\HiddenCrawler;
 use App\News\NewsSearchService;
 use App\Web\PathResolver;
+use App\Web\SearchViewHelpers;
 
 function esc(string $value): string
 {
     return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-}
-
-function relevantSnippet(string $text, string $query = ''): string
-{
-    $clean = trim($text);
-    if ($clean === '') {
-        return '';
-    }
-
-    $sentences = preg_split('/(?<=[.!?])\s+/u', $clean) ?: [];
-    if ($sentences === []) {
-        $sentences = [$clean];
-    }
-
-    $normalisedQuery = trim(mb_strtolower($query));
-    if ($normalisedQuery !== '') {
-        foreach ($sentences as $sentence) {
-            if (mb_strpos(mb_strtolower($sentence), $normalisedQuery) !== false) {
-                return trim($sentence);
-            }
-        }
-    }
-
-    return trim($sentences[0]);
-}
-
-function highlightTerms(string $text, string $query = ''): string
-{
-    $escaped = esc($text);
-    $tokens = preg_split('/\s+/u', trim($query)) ?: [];
-    $patterns = [];
-    foreach ($tokens as $token) {
-        $token = trim($token);
-        if ($token === '' || mb_strlen($token) < 2) {
-            continue;
-        }
-        $patterns[] = preg_quote($token, '/');
-    }
-
-    if ($patterns === []) {
-        return $escaped;
-    }
-
-    $pattern = '/(' . implode('|', $patterns) . ')/iu';
-    $highlighted = preg_replace($pattern, '<mark>$1</mark>', $escaped);
-
-    return is_string($highlighted) ? $highlighted : $escaped;
 }
 
 function formatRelative(?string $value): ?string
@@ -740,9 +694,9 @@ if ($ingestedCount !== null) {
                             $title = trim((string) ($entry['title'] ?? $entry['url'] ?? 'Untitled source'));
                             $url = trim((string) ($entry['url'] ?? ''));
                             $summarySource = (string) ($entry['summary'] ?? $entry['preview'] ?? '');
-                            $snippet = relevantSnippet($summarySource, $query);
+                            $snippet = SearchViewHelpers::relevantSnippet($summarySource, $query);
                             if ($snippet === '' && $summarySource !== '') {
-                                $snippet = trim($summarySource);
+                                $snippet = SearchViewHelpers::normaliseWhitespace($summarySource);
                             }
                             if ($snippet !== '' && mb_strlen($snippet) > 320) {
                                 $snippet = rtrim(mb_substr($snippet, 0, 317)) . '…';
@@ -820,10 +774,24 @@ if ($ingestedCount !== null) {
                                 <?php endif; ?>
                             </h2>
                             <?php if ($snippet !== ''): ?>
-                                <p class="result__snippet"><?= highlightTerms($snippet, $query) ?></p>
+                                <p class="result__snippet"><?= SearchViewHelpers::highlightTerms($snippet, $query) ?></p>
                             <?php endif; ?>
                             <?php if ($meta !== ''): ?>
                                 <p class="result__meta"><?= esc($meta) ?></p>
+                            <?php endif; ?>
+                            <?php if ($url !== ''): ?>
+                                <div class="result__actions">
+                                    <a class="result__action" href="<?= esc($url) ?>" target="_blank" rel="noopener">Open source</a>
+                                    <button
+                                        type="button"
+                                        class="result__action result__action--secondary result__copy-button"
+                                        data-url="<?= esc($url) ?>"
+                                        data-label-default="Copy link"
+                                        data-label-success="Copied!"
+                                    >
+                                        Copy link
+                                    </button>
+                                </div>
                             <?php endif; ?>
                             <?php if ($badges !== []): ?>
                                 <ul class="result__tags">
@@ -961,5 +929,50 @@ if ($ingestedCount !== null) {
         </aside>
     </main>
     <footer class="search-footer">© <?= date('Y') ?> AIresearch · Search insights engine</footer>
+    <script>
+        (function () {
+            const buttons = Array.from(document.querySelectorAll('.result__copy-button'));
+            if (buttons.length === 0) {
+                return;
+            }
+
+            const clipboardAvailable = navigator.clipboard && typeof navigator.clipboard.writeText === 'function';
+
+            buttons.forEach((button) => {
+                const defaultLabel = button.dataset.labelDefault || button.textContent || 'Copy link';
+                const successLabel = button.dataset.labelSuccess || 'Copied!';
+
+                if (!clipboardAvailable) {
+                    button.disabled = true;
+                    button.title = 'Clipboard access unavailable';
+                    button.textContent = defaultLabel;
+                    return;
+                }
+
+                button.addEventListener('click', () => {
+                    const url = button.dataset.url;
+                    if (!url) {
+                        return;
+                    }
+
+                    navigator.clipboard.writeText(url).then(() => {
+                        button.classList.add('result__action--success');
+                        button.textContent = successLabel;
+                        setTimeout(() => {
+                            button.classList.remove('result__action--success');
+                            button.textContent = defaultLabel;
+                        }, 2000);
+                    }).catch(() => {
+                        button.classList.add('result__action--error');
+                        button.textContent = 'Copy failed';
+                        setTimeout(() => {
+                            button.classList.remove('result__action--error');
+                            button.textContent = defaultLabel;
+                        }, 2000);
+                    });
+                });
+            });
+        }());
+    </script>
 </body>
 </html>
