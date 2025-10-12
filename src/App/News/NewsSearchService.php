@@ -17,6 +17,7 @@ use function array_sum;
 use function array_values;
 use function array_unique;
 use function arsort;
+use function in_array;
 use function count;
 use function filter_var;
 use function implode;
@@ -63,6 +64,7 @@ final class NewsSearchService
         $history = $this->crawler->history();
         $limit = (int) ($options['limit'] ?? 24);
         $limit = max(1, min(100, $limit));
+        $filters = $this->normaliseFilters(isset($options['filters']) && is_array($options['filters']) ? $options['filters'] : []);
 
         $normalisedQuery = mb_strtolower(trim($query));
         $terms = array_values(array_filter(preg_split('/\s+/u', $normalisedQuery) ?: [], static fn(string $term): bool => $term !== ''));
@@ -106,11 +108,22 @@ final class NewsSearchService
         usort($sorted, static fn(array $a, array $b): int => $b['weight'] <=> $a['weight']);
 
         $items = array_map(static fn(array $match): array => $match['item'], $sorted);
+        $unfilteredMeta = $this->buildMeta($items);
+
+        if ($filters !== []) {
+            $items = $this->applyFilters($items, $filters);
+        }
+
         $results = array_slice($items, 0, $limit);
         $meta = $this->buildMeta($items);
         $discovery = $this->crawler->discoveryTree();
 
         $meta['discovery'] = $discovery;
+        $meta['facets_filtered'] = $meta['facets'] ?? [];
+        $meta['facets_all'] = $unfilteredMeta['facets'] ?? [];
+        $meta['total_available'] = $unfilteredMeta['total_matches'] ?? count($results);
+        $meta['returned'] = count($results);
+        $meta['active_filters'] = $this->presentableFilters($filters);
 
         return [
             'query' => $query,
@@ -120,6 +133,155 @@ final class NewsSearchService
             'discovery' => $discovery,
             'generated_at' => $now->format(DATE_ATOM),
         ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $items
+     * @param array<string, string> $filters
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function applyFilters(array $items, array $filters): array
+    {
+        if ($filters === []) {
+            return $items;
+        }
+
+        $now = new DateTimeImmutable();
+
+        return array_values(array_filter($items, function (array $item) use ($filters, $now): bool {
+            if (isset($filters['recency'])) {
+                $recency = $this->resolveRecencyBucket($item, $now);
+                if ($recency === null || $recency !== $filters['recency']) {
+                    return false;
+                }
+            }
+
+            if (isset($filters['quality'])) {
+                $qualityBucket = $this->resolveQualityBucket((float) ($item['quality_score'] ?? 0.0));
+                if ($qualityBucket !== $filters['quality']) {
+                    return false;
+                }
+            }
+
+            if (isset($filters['content_type'])) {
+                $type = trim((string) ($item['content_type'] ?? ''));
+                if ($type === '') {
+                    $type = 'page';
+                }
+                if ($type !== $filters['content_type']) {
+                    return false;
+                }
+            }
+
+            if (isset($filters['ingestion'])) {
+                $ingested = !empty($item['ingest']);
+                if ($filters['ingestion'] === 'ingested' && !$ingested) {
+                    return false;
+                }
+                if ($filters['ingestion'] === 'unreviewed' && $ingested) {
+                    return false;
+                }
+            }
+
+            if (isset($filters['source'])) {
+                $domain = trim((string) ($item['source_domain'] ?? ''));
+                if ($domain === '' || $domain !== $filters['source']) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
+    }
+
+    /**
+     * @param array<string, mixed> $filters
+     *
+     * @return array<string, string>
+     */
+    private function normaliseFilters(array $filters): array
+    {
+        if ($filters === []) {
+            return [];
+        }
+
+        $allowedRecency = ['past_hour', 'past_day', 'past_week', 'older'];
+        $allowedQuality = ['90_plus', '70_89', '50_69', 'under_50'];
+        $allowedIngestion = ['ingested', 'unreviewed'];
+
+        $normalised = [];
+
+        if (isset($filters['recency']) && is_string($filters['recency'])) {
+            $candidate = trim($filters['recency']);
+            if (in_array($candidate, $allowedRecency, true)) {
+                $normalised['recency'] = $candidate;
+            }
+        }
+
+        if (isset($filters['quality']) && is_string($filters['quality'])) {
+            $candidate = trim($filters['quality']);
+            if (in_array($candidate, $allowedQuality, true)) {
+                $normalised['quality'] = $candidate;
+            }
+        }
+
+        if (isset($filters['content_type']) && is_string($filters['content_type'])) {
+            $candidate = trim($filters['content_type']);
+            if ($candidate !== '') {
+                $normalised['content_type'] = $candidate;
+            }
+        } elseif (isset($filters['type']) && is_string($filters['type'])) {
+            $candidate = trim($filters['type']);
+            if ($candidate !== '') {
+                $normalised['content_type'] = $candidate;
+            }
+        }
+
+        if (isset($filters['ingestion']) && is_string($filters['ingestion'])) {
+            $candidate = trim($filters['ingestion']);
+            if (in_array($candidate, $allowedIngestion, true)) {
+                $normalised['ingestion'] = $candidate;
+            }
+        }
+
+        if (isset($filters['source']) && is_string($filters['source'])) {
+            $candidate = trim($filters['source']);
+            if ($candidate !== '') {
+                $normalised['source'] = $candidate;
+            }
+        }
+
+        return $normalised;
+    }
+
+    /**
+     * @param array<string, string> $filters
+     *
+     * @return array<string, string>
+     */
+    private function presentableFilters(array $filters): array
+    {
+        if ($filters === []) {
+            return [];
+        }
+
+        $presentable = [];
+        foreach ($filters as $key => $value) {
+            if (!is_string($value) || trim($value) === '') {
+                continue;
+            }
+
+            $key = (string) $key;
+            if ($key === 'content_type') {
+                $presentable['type'] = $value;
+                continue;
+            }
+
+            $presentable[$key] = $value;
+        }
+
+        return $presentable;
     }
 
     /**
