@@ -44,6 +44,8 @@ $paths = PathResolver::resolve();
 $assetBase = PathResolver::normalizeBase($paths['assetBase']);
 $sharedStylesPath = PathResolver::url($assetBase, 'assets/styles.css');
 $sharedStylesVersion = file_exists(__DIR__ . '/../assets/styles.css') ? (string) filemtime(__DIR__ . '/../assets/styles.css') : (string) time();
+$adminStylesPath = PathResolver::url($assetBase, 'assets/admin.css');
+$adminStylesVersion = file_exists(__DIR__ . '/../assets/admin.css') ? (string) filemtime(__DIR__ . '/../assets/admin.css') : (string) time();
 $navigationLinks = AdminNavigation::resolve();
 $navigationLinks['crawler'] = $navigationLinks['crawler'] ?? ['label' => 'Crawler', 'href' => PathResolver::url($assetBase, 'backend/crawler.php')];
 
@@ -316,116 +318,18 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Signal Ledger · Hidden crawler control</title>
     <link rel="stylesheet" href="<?= esc($sharedStylesPath . '?v=' . $sharedStylesVersion); ?>">
-    <style>
-        body { background: #0f172a; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
-        main { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
-        .card { background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 12px; padding: 1.5rem; margin-bottom: 1.5rem; box-shadow: 0 20px 40px rgba(15, 23, 42, 0.4); }
-        h1 { font-size: 1.8rem; margin-bottom: 1rem; }
-        h2 { font-size: 1.4rem; margin-bottom: 0.75rem; }
-        label { display: block; margin-bottom: 0.5rem; font-weight: 600; }
-        input[type="text"], input[type="email"], input[type="password"], textarea { width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.3); background: rgba(15, 23, 42, 0.6); color: inherit; }
-        textarea { min-height: 140px; resize: vertical; }
-        button { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; border: none; border-radius: 8px; padding: 0.75rem 1.5rem; font-weight: 600; cursor: pointer; box-shadow: 0 10px 20px rgba(99, 102, 241, 0.4); }
-        button:hover { opacity: 0.9; }
-        .messages, .errors { margin: 0 0 1rem; padding: 0.75rem 1rem; border-radius: 8px; }
-        .messages { background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(74, 222, 128, 0.4); }
-        .errors { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(252, 165, 165, 0.5); }
-        .history-item { border-top: 1px solid rgba(148, 163, 184, 0.2); padding: 1rem 0; }
-        .history-item:first-of-type { border-top: none; }
-        .history-item h3 { margin: 0 0 0.5rem; font-size: 1.1rem; }
-        .history-grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-        .muted { color: rgba(148, 163, 184, 0.9); }
-        .keywords span { display: inline-flex; margin: 0.2rem 0.4rem 0.2rem 0; padding: 0.25rem 0.5rem; border-radius: 999px; background: rgba(99, 102, 241, 0.2); }
-        .entities span { display: inline-flex; margin: 0.2rem 0.4rem 0.2rem 0; padding: 0.25rem 0.5rem; border-radius: 999px; background: rgba(34, 197, 94, 0.15); }
-        .otp-code { font-family: 'JetBrains Mono', monospace; font-size: 1.4rem; letter-spacing: 0.2rem; background: rgba(15, 23, 42, 0.7); padding: 0.5rem 1rem; border-radius: 8px; display: inline-block; margin-top: 0.5rem; }
-        .logout { background: rgba(248, 113, 113, 0.2); border: 1px solid rgba(248, 113, 113, 0.4); color: #fecaca; }
-        .card.card--ghost { background: transparent; border: 1px dashed rgba(148, 163, 184, 0.3); box-shadow: none; }
-        .form-controls { display: flex; gap: 1rem; align-items: center; margin-top: 1rem; flex-wrap: wrap; }
-        .history-item-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin: 0.5rem 0; }
-        .category-label { display: inline-flex; align-items: center; padding: 0.2rem 0.7rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid transparent; }
-        .category-label--financial { background: rgba(16, 185, 129, 0.18); border-color: rgba(16, 185, 129, 0.45); color: #34d399; }
-        .category-label--global { background: rgba(96, 165, 250, 0.18); border-color: rgba(96, 165, 250, 0.45); color: #93c5fd; }
-        .auto-start-toggle { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.65rem 0.9rem; border-radius: 8px; border: 1px solid rgba(148, 163, 184, 0.3); background: rgba(15, 23, 42, 0.6); color: rgba(203, 213, 225, 0.9); font-size: 0.85rem; }
-        .auto-start-toggle input { width: auto; }
-        .progress-grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin: 0.85rem 0; }
-        .progress-grid div { background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 12px; padding: 0.75rem; }
-        .progress-grid dt { margin: 0; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(148, 163, 184, 0.85); }
-        .progress-grid dd { margin: 0.35rem 0 0; font-size: 1rem; font-weight: 600; color: #e2e8f0; }
-        .status-pill { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.35rem 0.85rem; border-radius: 999px; font-weight: 600; font-size: 0.85rem; border: 1px solid rgba(148, 163, 184, 0.35); background: rgba(148, 163, 184, 0.18); color: #e2e8f0; }
-        .status-pill[data-state="running"] { background: rgba(59, 130, 246, 0.2); border-color: rgba(96, 165, 250, 0.45); color: #bfdbfe; }
-        .status-pill[data-state="idle"] { background: rgba(34, 197, 94, 0.18); border-color: rgba(34, 197, 94, 0.45); color: #bbf7d0; }
-        .status-pill[data-state="error"] { background: rgba(248, 113, 113, 0.2); border-color: rgba(248, 113, 113, 0.45); color: #fecaca; }
-        .status-pill span { display: inline-flex; width: 0.6rem; height: 0.6rem; border-radius: 999px; background: currentColor; }
-        .progress-message { margin-top: 0.75rem; font-size: 0.95rem; color: rgba(203, 213, 225, 0.9); }
-        .progress-message[data-state="error"] { color: #fecaca; }
-        .progress-last-result { margin-top: 0.85rem; padding: 0.85rem; border-radius: 10px; background: rgba(30, 41, 59, 0.65); border: 1px solid rgba(99, 102, 241, 0.35); display: none; }
-        .progress-last-result.active { display: block; }
-        .progress-last-result h3 { margin: 0 0 0.35rem; font-size: 1rem; color: #c7d2fe; }
-        .progress-last-result p { margin: 0.2rem 0; font-size: 0.85rem; color: rgba(226, 232, 240, 0.85); }
-        .progress-last-result .error-text { color: #fecaca; }
-        .progress-errors { margin-top: 0.85rem; padding-left: 1.2rem; color: #fecaca; font-size: 0.85rem; }
-        .progress-errors li { margin-bottom: 0.3rem; }
-        .task-list { margin-top: 1.25rem; border-top: 1px solid rgba(148, 163, 184, 0.2); padding-top: 1rem; }
-        .task-list h3 { margin: 0 0 0.5rem; font-size: 1rem; color: #cbd5f5; }
-        .task-items { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.75rem; }
-        .task-item { background: rgba(15, 23, 42, 0.55); border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 12px; padding: 0.75rem; }
-        .task-item strong { display: block; margin-bottom: 0.35rem; font-size: 0.95rem; color: #e2e8f0; word-break: break-word; }
-        .task-meta { display: flex; flex-wrap: wrap; gap: 0.65rem; font-size: 0.75rem; color: rgba(203, 213, 225, 0.8); }
-        .task-status { display: inline-flex; align-items: center; padding: 0.25rem 0.6rem; border-radius: 999px; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; border: 1px solid transparent; }
-        .task-status[data-state="queued"] { background: rgba(99, 102, 241, 0.2); border-color: rgba(99, 102, 241, 0.45); color: #c7d2fe; }
-        .task-status[data-state="running"] { background: rgba(16, 185, 129, 0.2); border-color: rgba(16, 185, 129, 0.45); color: #6ee7b7; }
-        .task-status[data-state="completed"] { background: rgba(59, 130, 246, 0.2); border-color: rgba(59, 130, 246, 0.45); color: #93c5fd; }
-        .task-status[data-state="failed"] { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.45); color: #fecaca; }
-        .task-meta span { display: inline-flex; align-items: center; gap: 0.25rem; }
-        .topic-chip { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 999px; background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.3); font-size: 0.75rem; }
-        .quality-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem; margin: 0.6rem 0; }
-        .quality-pill { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.8rem; border-radius: 999px; font-weight: 600; font-size: 0.85rem; background: rgba(99, 102, 241, 0.18); border: 1px solid rgba(129, 140, 248, 0.45); color: #c7d2fe; }
-        .quality-pill span { font-weight: 500; font-size: 0.8rem; opacity: 0.85; }
-        .quality-pill--approved { background: rgba(34, 197, 94, 0.18); border-color: rgba(34, 197, 94, 0.45); color: #bbf7d0; }
-        .quality-pill--held { background: rgba(248, 113, 113, 0.18); border-color: rgba(248, 113, 113, 0.35); color: #fecaca; }
-        .ingest-flag { display: inline-flex; align-items: center; padding: 0.25rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid transparent; }
-        .ingest-flag--yes { background: rgba(16, 185, 129, 0.18); border-color: rgba(16, 185, 129, 0.45); color: #6ee7b7; }
-        .ingest-flag--no { background: rgba(244, 114, 182, 0.12); border-color: rgba(244, 114, 182, 0.4); color: #fbcfe8; }
-        .authority-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; margin: 0.45rem 0; font-size: 0.9rem; color: rgba(203, 213, 225, 0.92); }
-        .authority-row strong { color: #c7d2fe; }
-        .discovery-sources { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.35rem 0 0; }
-        .discovery-source { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.25rem 0.6rem; border-radius: 999px; background: rgba(96, 165, 250, 0.16); border: 1px solid rgba(96, 165, 250, 0.35); font-size: 0.75rem; color: #dbeafe; text-decoration: none; }
-        .discovery-source:hover { text-decoration: underline; }
-        .quality-reasons { margin: 0.75rem 0 0; padding-left: 1.1rem; color: rgba(148, 163, 184, 0.9); font-size: 0.9rem; }
-        .quality-reasons li { margin-bottom: 0.35rem; }
-        .recommended { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.8rem; margin-top: 0.6rem; }
-        .recommended span { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(148, 163, 184, 0.9); }
-        .recommended a { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.25rem 0.6rem; border-radius: 999px; background: rgba(59, 130, 246, 0.16); border: 1px solid rgba(96, 165, 250, 0.4); color: #bfdbfe; font-size: 0.75rem; text-decoration: none; }
-        .recommended a:hover { text-decoration: underline; }
-        .history-thumb { margin: 0.5rem 0; max-width: 220px; border-radius: 8px; overflow: hidden; border: 1px solid rgba(148, 163, 184, 0.2); }
-        .history-thumb img { display: block; width: 100%; height: auto; object-fit: cover; background: rgba(148, 163, 184, 0.1); }
-        .history-flags { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.25rem 0 0.5rem; }
-        .pill-link { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.4rem 0.85rem; border-radius: 999px; background: rgba(99, 102, 241, 0.18); border: 1px solid rgba(99, 102, 241, 0.4); color: #c7d2fe; font-weight: 600; text-decoration: none; }
-        .pill-link:hover { text-decoration: underline; }
-        .type-pill { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 999px; border: 1px solid rgba(148, 163, 184, 0.35); background: rgba(148, 163, 184, 0.15); font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: rgba(226, 232, 240, 0.9); }
-        .type-pill--article { background: rgba(34, 197, 94, 0.18); border-color: rgba(34, 197, 94, 0.45); color: #bbf7d0; }
-        .type-pill--page { background: rgba(96, 165, 250, 0.18); border-color: rgba(96, 165, 250, 0.4); color: #bfdbfe; }
-        .type-pill--non_article { background: rgba(248, 113, 113, 0.18); border-color: rgba(248, 113, 113, 0.4); color: #fecaca; }
-        .type-pill--error { background: rgba(244, 114, 182, 0.2); border-color: rgba(244, 114, 182, 0.45); color: #fbcfe8; }
-        .type-pill--revision { background: rgba(129, 140, 248, 0.18); border-color: rgba(129, 140, 248, 0.4); color: #c7d2fe; }
-        .history-timing { margin: 0.5rem 0; font-size: 0.85rem; color: rgba(148, 163, 184, 0.9); }
-        .history-change { margin: 0.35rem 0; font-size: 0.85rem; color: rgba(248, 250, 252, 0.88); font-weight: 500; }
-        .history-versions { margin-top: 0.85rem; }
-        .history-versions summary { cursor: pointer; font-size: 0.85rem; color: rgba(148, 163, 184, 0.9); }
-        .history-versions ol { margin: 0.6rem 0 0; padding-left: 1.1rem; }
-        .history-versions li { margin-bottom: 0.55rem; }
-        .history-version-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.2rem; }
-        .revision-badge { display: inline-flex; align-items: center; padding: 0.15rem 0.55rem; border-radius: 999px; background: rgba(129, 140, 248, 0.18); border: 1px solid rgba(129, 140, 248, 0.45); font-size: 0.7rem; letter-spacing: 0.05em; text-transform: uppercase; color: #c7d2fe; }
-    </style>
+    <link rel="stylesheet" href="<?= esc($adminStylesPath . '?v=' . $adminStylesVersion); ?>">
 </head>
-<body>
+<body class="backend-admin">
 <?php SiteLayout::renderHeader($navigationLinks, 'crawler'); ?>
-<main>
-    <header class="card">
-        <h1>Hidden crawler control centre</h1>
-        <p class="muted">Keep this tab open to let the crawler refresh insights in the background. Configure your targets, enable auto-refresh and monitor the extraction pipeline.</p>
-        <div style="margin-top: 0.75rem;">
-            <a class="pill-link" href="/backend/sources.php">View source intelligence</a>
+<main class="backend-admin__main">
+    <header class="card admin-page-header">
+        <div>
+            <h1>Hidden crawler control centre</h1>
+            <p class="admin-page-header__meta">Keep this tab open to let the crawler refresh insights in the background. Configure your targets, enable auto-refresh and monitor the extraction pipeline.</p>
+        </div>
+        <div class="admin-page-header__actions">
+            <a class="pill-link ghost" href="/backend/sources.php">View source intelligence</a>
         </div>
     </header>
 
@@ -488,7 +392,7 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
             </div>
         <?php else: ?>
             <p>Signed in as <strong><?= esc((string) ($_SESSION['backend_user']['email'] ?? 'user')); ?></strong>.</p>
-            <form method="post" style="margin-top: 1rem;">
+            <form method="post" class="admin-space-top-lg">
                 <input type="hidden" name="action" value="logout">
                 <button class="logout" type="submit">Log out</button>
             </form>
@@ -520,7 +424,7 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
                 </label>
                 <button type="submit">Run crawl now</button>
             </div>
-            <p class="muted" style="margin-top: 0.5rem;">Set the auto-refresh interval to keep the crawler running while this tab remains open. Increase the link depth to explore trusted links discovered on each page. Use the refresh field to automatically revisit pages that have gone stale.</p>
+            <p class="muted admin-space-top-sm">Set the auto-refresh interval to keep the crawler running while this tab remains open. Increase the link depth to explore trusted links discovered on each page. Use the refresh field to automatically revisit pages that have gone stale.</p>
         </form>
     </section>
 
@@ -549,10 +453,10 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
                 <button type="submit">Schedule discoveries</button>
             </form>
         </div>
-        <p class="muted" style="margin-top: 0.75rem;">Backlog contains <strong><?= esc((string) $scheduledTotalInitial); ?></strong> page(s).</p>
+        <p class="muted admin-space-top-md">Backlog contains <strong><?= esc((string) $scheduledTotalInitial); ?></strong> page(s).</p>
         <div class="task-list">
             <h3>Backlog preview</h3>
-            <p class="muted" id="scheduled-empty"<?= $scheduledPreviewInitial === [] ? '' : ' style="display:none;"'; ?>>No scheduled pages waiting.</p>
+            <p class="muted<?= $scheduledPreviewInitial === [] ? '' : ' is-hidden'; ?>" id="scheduled-empty">No scheduled pages waiting.</p>
             <ul class="task-items" id="scheduled-items">
                 <?php foreach (array_slice($scheduledPreviewInitial, 0, 12) as $queuedItem): ?>
                     <?php if (!is_array($queuedItem)) { continue; }
@@ -645,7 +549,7 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
             <p id="progress-last-quality">Quality score: <?= esc(number_format((float) ($lastResult['quality'] ?? 0), 1)); ?> · Revision <?= esc((string) ($lastResult['revision'] ?? 0)); ?></p>
             <p id="progress-last-authority">Authority: <?= esc(number_format((float) ($lastResult['authority'] ?? 0) * 100, 1)); ?> · Domain <?= esc(number_format((float) ($lastResult['domain_authority'] ?? 0) * 100, 1)); ?> · Inbound <?= esc((string) ($lastResult['inbound_links'] ?? 0)); ?></p>
             <p id="progress-last-ingest"><?= !empty($lastResult['ingested']) ? 'Ingested into knowledge graph' : 'Held locally'; ?></p>
-            <p id="progress-last-error" class="error-text"<?= $lastResult && !empty($lastResult['error']) ? '' : ' style="display:none;"'; ?>>
+            <p id="progress-last-error" class="error-text<?= $lastResult && !empty($lastResult['error']) ? '' : ' is-hidden'; ?>">
                 <?= $lastResult && !empty($lastResult['error']) ? esc((string) $lastResult['error']) : ''; ?>
             </p>
         </div>
@@ -674,7 +578,7 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
         <?php else: ?>
             <?php foreach ($history as $item): ?>
                 <article class="history-item">
-                    <h3><a href="<?= esc((string) ($item['url'] ?? '#')); ?>" target="_blank" rel="noopener" style="color: #c4b5fd; text-decoration: none;">
+                    <h3><a class="admin-link" href="<?= esc((string) ($item['url'] ?? '#')); ?>" target="_blank" rel="noopener">
                         <?= esc((string) ($item['title'] ?? $item['url'] ?? 'Untitled page')); ?>
                     </a></h3>
                     <p class="muted">Fetched <?= esc((string) ($item['fetched_at'] ?? 'unknown')); ?></p>
@@ -849,7 +753,7 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
                         </div>
                     <?php endif; ?>
                         <?php if (isset($item['error'])): ?>
-                        <p class="errors" style="margin-top: 0.5rem;"><?= esc((string) $item['error']); ?></p>
+                        <p class="errors admin-space-top-sm"><?= esc((string) $item['error']); ?></p>
                     <?php else: ?>
                         <p class="history-timing">
                             Fetched <?= esc((string) ($item['fetched_at'] ?? 'unknown')); ?>
@@ -867,7 +771,7 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
                             <span><?= esc((string) $inboundLinkCount); ?> inbound</span>
                             <span><?= esc((string) $uniqueSourceCount); ?> source<?= $uniqueSourceCount === 1 ? '' : 's'; ?></span>
                         </div>
-                        <p class="muted" style="margin: 0.2rem 0 0;">
+                        <p class="muted admin-space-top-xxs admin-no-margin-bottom">
                             <?= $discoverySeed ? 'Seed target' : 'Discovered'; ?>
                             <?php if ($firstDiscoveredAt !== ''): ?>
                                 <?= $discoverySeed ? ' · Added ' . esc($firstDiscoveredAt) : ' · ' . esc($firstDiscoveredAt); ?>
