@@ -6,10 +6,12 @@ namespace App\News;
 
 use App\Crawler\HiddenCrawler;
 use App\KnowledgeGraph\GraphRepository;
+use App\News\Ranking\BM25Ranker;
 use DateTimeImmutable;
 use Exception;
 
 use function array_filter;
+use function array_fill_keys;
 use function array_keys;
 use function array_map;
 use function array_slice;
@@ -23,17 +25,22 @@ use function filter_var;
 use function implode;
 use function is_array;
 use function is_string;
+use function levenshtein;
 use function max;
 use function mb_strlen;
 use function mb_strtolower;
+use function mb_strpos;
+use function mb_substr;
 use function min;
 use function parse_url;
 use function preg_replace;
 use function preg_split;
 use function round;
+use function sort;
 use function strtolower;
 use function str_replace;
 use function str_contains;
+use function str_ends_with;
 use function trim;
 use function ucfirst;
 use function usort;
@@ -47,6 +54,33 @@ final class NewsSearchService
     private HiddenCrawler $crawler;
 
     private GraphRepository $graphRepository;
+
+    private ?BM25Ranker $bm25Ranker = null;
+
+    /**
+     * @var array<string, float>
+     */
+    private array $termWeights = [];
+
+    /**
+     * @var array<int, string>
+     */
+    private array $queryTerms = [];
+
+    /**
+     * @var array<string, bool>
+     */
+    private array $expandedTermSet = [];
+
+    /**
+     * @var array<string, float>
+     */
+    private array $queryPhrases = [];
+
+    /**
+     * @var array{graph: array<string, mixed>|null, sources: array<int, array<string, mixed>>, updated_at: string|null}|null
+     */
+    private ?array $graphSnapshot = null;
 
     public function __construct(HiddenCrawler $crawler, ?GraphRepository $graphRepository = null)
     {
@@ -68,6 +102,10 @@ final class NewsSearchService
 
         $normalisedQuery = mb_strtolower(trim($query));
         $terms = array_values(array_filter(preg_split('/\s+/u', $normalisedQuery) ?: [], static fn(string $term): bool => $term !== ''));
+
+        $this->graphSnapshot = null;
+        $this->resetQueryState();
+        $this->prepareRanker($history, $terms);
 
         $now = new DateTimeImmutable();
         $matches = [];
@@ -284,6 +322,357 @@ final class NewsSearchService
         return $presentable;
     }
 
+    private function resetQueryState(): void
+    {
+        $this->bm25Ranker = null;
+        $this->termWeights = [];
+        $this->queryTerms = [];
+        $this->expandedTermSet = [];
+        $this->queryPhrases = [];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $history
+     * @param array<int, string> $terms
+     */
+    private function prepareRanker(array $history, array $terms): void
+    {
+        if ($terms === []) {
+            return;
+        }
+
+        $profile = $this->buildQueryProfile($terms);
+        if ($profile['terms'] === []) {
+            return;
+        }
+
+        $documents = [];
+        foreach ($history as $row) {
+            if (is_array($row)) {
+                $documents[] = $row;
+            }
+        }
+
+        $snapshot = $this->loadGraphSnapshot();
+        foreach ($snapshot['sources'] as $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+
+            $documents[] = $this->normaliseGraphSource($source);
+        }
+
+        $this->bm25Ranker = BM25Ranker::fromDocuments(
+            $documents,
+            $profile['terms'],
+            function (array $row): string {
+                return $this->documentText($row);
+            }
+        );
+        $this->termWeights = $profile['weights'];
+        $this->queryPhrases = $profile['phrases'];
+        $this->queryTerms = $profile['original_terms'];
+        $this->expandedTermSet = array_fill_keys($profile['terms'], true);
+    }
+
+    /**
+     * @return array{graph: array<string, mixed>|null, sources: array<int, array<string, mixed>>, updated_at: string|null}
+     */
+    private function loadGraphSnapshot(): array
+    {
+        if ($this->graphSnapshot !== null) {
+            return $this->graphSnapshot;
+        }
+
+        $payload = $this->graphRepository->load();
+        $graph = isset($payload['graph']) && is_array($payload['graph']) ? $payload['graph'] : null;
+
+        $sources = [];
+        if (isset($payload['sources']) && is_array($payload['sources'])) {
+            foreach ($payload['sources'] as $source) {
+                if (is_array($source)) {
+                    $sources[] = $source;
+                }
+            }
+        }
+
+        $updatedAt = isset($payload['updated_at']) && is_string($payload['updated_at'])
+            ? $payload['updated_at']
+            : null;
+
+        $this->graphSnapshot = [
+            'graph' => $graph,
+            'sources' => $sources,
+            'updated_at' => $updatedAt,
+        ];
+
+        return $this->graphSnapshot;
+    }
+
+    /**
+     * @param array<int, string> $terms
+     * @return array{
+     *     terms: array<int, string>,
+     *     weights: array<string, float>,
+     *     phrases: array<string, float>,
+     *     original_terms: array<int, string>
+     * }
+     */
+    private function buildQueryProfile(array $terms): array
+    {
+        $original = [];
+        $expanded = [];
+        $weights = [];
+        $phrases = [];
+
+        foreach ($terms as $term) {
+            $normalised = trim(mb_strtolower($term, 'UTF-8'));
+            if ($normalised === '') {
+                continue;
+            }
+
+            $original[] = $normalised;
+            $expanded[$normalised] = true;
+            $weights[$normalised] = max($weights[$normalised] ?? 0.0, 1.0);
+
+            foreach ($this->generateTermVariants($normalised) as $variant => $weight) {
+                if ($variant === '') {
+                    continue;
+                }
+
+                $expanded[$variant] = true;
+                $weights[$variant] = max($weights[$variant] ?? 0.0, $weight);
+            }
+        }
+
+        $synonymPhrases = $this->loadSynonymsForTerms($original);
+        foreach ($synonymPhrases as $phrase) {
+            if ($phrase === '') {
+                continue;
+            }
+
+            $phrases[$phrase] = max($phrases[$phrase] ?? 0.0, 0.85);
+            foreach (BM25Ranker::tokenise($phrase) as $token) {
+                if ($token === '') {
+                    continue;
+                }
+
+                $expanded[$token] = true;
+                $weights[$token] = max($weights[$token] ?? 0.0, 0.7);
+            }
+        }
+
+        $expandedTerms = array_keys($expanded);
+        sort($expandedTerms);
+
+        return [
+            'terms' => $expandedTerms,
+            'weights' => $weights,
+            'phrases' => $phrases,
+            'original_terms' => array_values(array_unique($original)),
+        ];
+    }
+
+    /**
+     * @return array<string, float>
+     */
+    private function generateTermVariants(string $term): array
+    {
+        $variants = [];
+        $register = static function (string $variant, float $weight) use (&$variants): void {
+            $variant = trim($variant);
+            if ($variant === '') {
+                return;
+            }
+
+            $variants[$variant] = isset($variants[$variant])
+                ? max($variants[$variant], $weight)
+                : $weight;
+        };
+
+        $length = mb_strlen($term, 'UTF-8');
+
+        if ($length >= 4 && str_ends_with($term, 'ies')) {
+            $register(mb_substr($term, 0, -3, 'UTF-8') . 'y', 0.9);
+        } elseif ($length >= 3 && str_ends_with($term, 'es')) {
+            $register(mb_substr($term, 0, -2, 'UTF-8'), 0.85);
+        } elseif ($length >= 3 && str_ends_with($term, 's')) {
+            $register(mb_substr($term, 0, -1, 'UTF-8'), 0.82);
+        }
+
+        if ($length >= 5 && str_ends_with($term, 'ing')) {
+            $register(mb_substr($term, 0, -3, 'UTF-8'), 0.8);
+        }
+
+        if ($length >= 4 && str_ends_with($term, 'ed')) {
+            $register(mb_substr($term, 0, -2, 'UTF-8'), 0.78);
+        }
+
+        if ($length >= 4 && str_ends_with($term, 'er')) {
+            $register(mb_substr($term, 0, -2, 'UTF-8'), 0.75);
+        }
+
+        if ($length >= 3 && !str_ends_with($term, 's')) {
+            if (str_ends_with($term, 'y')) {
+                $register(mb_substr($term, 0, -1, 'UTF-8') . 'ies', 0.88);
+            }
+
+            $register($term . 's', 0.8);
+        }
+
+        if (str_contains($term, '-')) {
+            $register(str_replace('-', ' ', $term), 0.72);
+            $register(str_replace('-', '', $term), 0.65);
+        }
+
+        return $variants;
+    }
+
+    /**
+     * @param array<int, string> $terms
+     * @return array<int, string>
+     */
+    private function loadSynonymsForTerms(array $terms): array
+    {
+        if ($terms === []) {
+            return [];
+        }
+
+        $snapshot = $this->loadGraphSnapshot();
+        $graph = $snapshot['graph'];
+        if (!is_array($graph) || !isset($graph['synonyms']) || !is_array($graph['synonyms'])) {
+            return [];
+        }
+
+        $termSet = array_fill_keys($terms, true);
+        $results = [];
+
+        foreach ($graph['synonyms'] as $pair) {
+            if (!is_array($pair)) {
+                continue;
+            }
+
+            $entity = isset($pair['entity']) ? trim(mb_strtolower((string) $pair['entity'], 'UTF-8')) : '';
+            $synonyms = [];
+            if (isset($pair['synonyms']) && is_array($pair['synonyms'])) {
+                foreach ($pair['synonyms'] as $synonym) {
+                    if (!is_string($synonym)) {
+                        continue;
+                    }
+
+                    $normalised = trim(mb_strtolower($synonym, 'UTF-8'));
+                    if ($normalised === '') {
+                        continue;
+                    }
+
+                    $synonyms[] = $normalised;
+                }
+            }
+
+            $candidates = $synonyms;
+            if ($entity !== '') {
+                $candidates[] = $entity;
+            }
+
+            $matched = false;
+            foreach ($candidates as $candidate) {
+                if (isset($termSet[$candidate])) {
+                    $matched = true;
+                    break;
+                }
+            }
+
+            if (!$matched) {
+                continue;
+            }
+
+            foreach ($candidates as $candidate) {
+                if (!isset($termSet[$candidate])) {
+                    $results[] = $candidate;
+                }
+            }
+        }
+
+        return array_values(array_unique($results));
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     */
+    private function documentText(array $entry): string
+    {
+        $fragments = [];
+
+        foreach (['title', 'headline', 'summary', 'preview', 'content', 'body', 'excerpt', 'meta_description'] as $field) {
+            if (!isset($entry[$field])) {
+                continue;
+            }
+
+            $value = trim((string) $entry[$field]);
+            if ($value !== '') {
+                $fragments[] = $value;
+            }
+        }
+
+        if (isset($entry['topics']) && is_array($entry['topics'])) {
+            foreach ($entry['topics'] as $topic) {
+                if (is_string($topic)) {
+                    $topicValue = trim($topic);
+                    if ($topicValue !== '') {
+                        $fragments[] = $topicValue;
+                    }
+                }
+            }
+        }
+
+        if (isset($entry['entities']) && is_array($entry['entities'])) {
+            foreach ($entry['entities'] as $entity) {
+                if (!is_array($entity)) {
+                    continue;
+                }
+
+                $label = isset($entity['label']) ? trim((string) $entity['label']) : '';
+                if ($label !== '') {
+                    $fragments[] = $label;
+                }
+
+                $type = isset($entity['type']) ? trim((string) $entity['type']) : '';
+                if ($type !== '') {
+                    $fragments[] = $type;
+                }
+            }
+        }
+
+        foreach (['source_domain', 'source_site_name', 'source_language', 'source_section'] as $field) {
+            if (!isset($entry[$field])) {
+                continue;
+            }
+
+            $value = trim((string) $entry[$field]);
+            if ($value !== '') {
+                $fragments[] = $value;
+            }
+        }
+
+        if (isset($entry['tags']) && is_array($entry['tags'])) {
+            foreach ($entry['tags'] as $tag) {
+                if (is_string($tag)) {
+                    $tagValue = trim($tag);
+                    if ($tagValue !== '') {
+                        $fragments[] = $tagValue;
+                    }
+                }
+            }
+        }
+
+        $filtered = array_values(array_filter(
+            $fragments,
+            static fn($fragment): bool => is_string($fragment) && $fragment !== ''
+        ));
+
+        return trim(implode(' ', $filtered));
+    }
+
     /**
      * @param array<string, array{weight: float, item: array<string, mixed>}> $matches
      * @param array<string, mixed> $item
@@ -319,8 +708,8 @@ final class NewsSearchService
         DateTimeImmutable $now,
         int $limit
     ): void {
-        $payload = $this->graphRepository->load();
-        $sources = isset($payload['sources']) && is_array($payload['sources']) ? $payload['sources'] : [];
+        $payload = $this->loadGraphSnapshot();
+        $sources = $payload['sources'];
         if ($sources === []) {
             return;
         }
@@ -763,64 +1152,109 @@ final class NewsSearchService
             return 0.0;
         }
 
-        $score = 0.0;
-        $haystacks = [];
-        foreach (['title', 'summary', 'preview', 'meta_description', 'source_domain', 'source_site_name'] as $field) {
-            if (!isset($entry[$field])) {
-                continue;
-            }
-
-            $value = mb_strtolower((string) $entry[$field]);
-            if ($value !== '') {
-                $haystacks[] = $value;
-            }
-        }
-
-        if ($haystacks === []) {
+        $text = $this->documentText($entry);
+        if ($text === '') {
             return 0.0;
         }
 
-        $haystack = ' ' . implode(' ', $haystacks) . ' ';
+        $tokens = BM25Ranker::tokenise($text);
+        $score = 0.0;
 
-        foreach ($terms as $term) {
-            if ($term === '') {
-                continue;
-            }
-
-            if (str_contains($haystack, ' ' . $term . ' ')) {
-                $score += 18.0;
-            } elseif (str_contains($haystack, $term)) {
-                $score += 10.0;
-            }
+        if ($this->bm25Ranker !== null) {
+            $score += $this->bm25Ranker->scoreTokens($tokens, $this->termWeights) * 14.0;
         }
 
-        $topics = is_array($entry['topics'] ?? null) ? $entry['topics'] : [];
-        foreach ($topics as $topic) {
-            $topicLower = mb_strtolower((string) $topic);
-            foreach ($terms as $term) {
-                if ($term !== '' && str_contains($topicLower, $term)) {
-                    $score += 6.0;
-                    break;
+        if ($this->queryPhrases !== []) {
+            $haystack = ' ' . mb_strtolower($text, 'UTF-8') . ' ';
+            foreach ($this->queryPhrases as $phrase => $weight) {
+                if ($phrase === '') {
+                    continue;
+                }
+
+                if (mb_strpos($haystack, ' ' . $phrase . ' ') !== false || mb_strpos($haystack, $phrase) !== false) {
+                    $score += 6.0 * $weight;
                 }
             }
         }
 
-        $entities = is_array($entry['entities'] ?? null) ? $entry['entities'] : [];
-        foreach ($entities as $entity) {
-            if (!is_array($entity)) {
-                continue;
+        if ($this->expandedTermSet !== []) {
+            if (isset($entry['topics']) && is_array($entry['topics'])) {
+                foreach ($entry['topics'] as $topic) {
+                    if (!is_string($topic)) {
+                        continue;
+                    }
+
+                    foreach (BM25Ranker::tokenise($topic) as $token) {
+                        if (isset($this->expandedTermSet[$token])) {
+                            $score += 3.4;
+                            break;
+                        }
+                    }
+                }
             }
 
-            $label = mb_strtolower((string) ($entity['label'] ?? ''));
-            foreach ($terms as $term) {
-                if ($term !== '' && $label !== '' && str_contains($label, $term)) {
-                    $score += 4.0;
-                    break;
+            if (isset($entry['entities']) && is_array($entry['entities'])) {
+                foreach ($entry['entities'] as $entity) {
+                    if (!is_array($entity)) {
+                        continue;
+                    }
+
+                    $label = isset($entity['label']) ? (string) $entity['label'] : '';
+                    if ($label === '') {
+                        continue;
+                    }
+
+                    $entityTokens = BM25Ranker::tokenise($label);
+                    $matched = false;
+                    foreach ($entityTokens as $token) {
+                        if (isset($this->expandedTermSet[$token])) {
+                            $score += 2.8;
+                            $matched = true;
+                            break;
+                        }
+                    }
+
+                    if (!$matched && $this->queryTerms !== []) {
+                        foreach ($entityTokens as $token) {
+                            foreach ($this->queryTerms as $original) {
+                                if ($token === $original || mb_strlen($original, 'UTF-8') < 4) {
+                                    continue;
+                                }
+
+                                $distance = levenshtein($token, $original);
+                                if ($distance > 0 && $distance <= 2) {
+                                    $score += 1.5;
+                                    $matched = true;
+                                    break 2;
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        return $score;
+        if ($this->queryTerms !== []) {
+            foreach ($this->queryTerms as $original) {
+                if (mb_strlen($original, 'UTF-8') < 4) {
+                    continue;
+                }
+
+                foreach ($tokens as $token) {
+                    if ($token === $original || isset($this->expandedTermSet[$token])) {
+                        continue;
+                    }
+
+                    $distance = levenshtein($token, $original);
+                    if ($distance > 0 && $distance <= 2) {
+                        $score += 1.2;
+                        break;
+                    }
+                }
+            }
+        }
+
+        return max(0.0, $score);
     }
 
     private function recencyBoost(string $fetchedAt, DateTimeImmutable $now): float
