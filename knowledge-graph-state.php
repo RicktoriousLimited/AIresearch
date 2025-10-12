@@ -20,6 +20,7 @@ return (static function (): array {
     $stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
     $themePath = PathResolver::url($assetBase, 'assets/theme.css');
     $researchStylesPath = PathResolver::url($assetBase, 'assets/research.css');
+    $knowledgeStylesPath = PathResolver::url($assetBase, 'assets/knowledge.css');
     $autocompleteScriptPath = PathResolver::url($assetBase, 'assets/autocomplete.js');
     $navigationLinks = AdminNavigation::resolve();
     $navigationPaths = [];
@@ -41,6 +42,7 @@ return (static function (): array {
     $stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
     $themeVersion = file_exists(__DIR__ . '/assets/theme.css') ? (string) filemtime(__DIR__ . '/assets/theme.css') : (string) time();
     $researchStylesVersion = file_exists(__DIR__ . '/assets/research.css') ? (string) filemtime(__DIR__ . '/assets/research.css') : (string) time();
+    $knowledgeStylesVersion = file_exists(__DIR__ . '/assets/knowledge.css') ? (string) filemtime(__DIR__ . '/assets/knowledge.css') : (string) time();
     $autocompleteScriptVersion = file_exists(__DIR__ . '/assets/autocomplete.js') ? (string) filemtime(__DIR__ . '/assets/autocomplete.js') : (string) time();
     $scriptVersion = file_exists(__DIR__ . '/assets/knowledge-graph.js') ? (string) filemtime(__DIR__ . '/assets/knowledge-graph.js') : (string) time();
 
@@ -385,6 +387,7 @@ return (static function (): array {
             'styles' => $stylesPath,
             'theme' => $themePath,
             'research' => $researchStylesPath,
+            'knowledge' => $knowledgeStylesPath,
             'autocomplete' => $autocompleteScriptPath,
             'script' => $scriptPath,
         ],
@@ -392,6 +395,7 @@ return (static function (): array {
             'styles' => $stylesVersion,
             'theme' => $themeVersion,
             'research' => $researchStylesVersion,
+            'knowledge' => $knowledgeStylesVersion,
             'autocomplete' => $autocompleteScriptVersion,
             'script' => $scriptVersion,
         ],
