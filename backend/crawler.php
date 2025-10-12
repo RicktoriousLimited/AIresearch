@@ -10,6 +10,9 @@ require_once __DIR__ . '/../src/App/Crawler/HiddenCrawler.php';
 
 use App\Crawler\HiddenCrawler;
 use App\KnowledgeGraph\ResearchService;
+use App\Web\AdminNavigation;
+use App\Web\PathResolver;
+use App\Web\SiteLayout;
 use Ricktorious\Ecommerce\User\OneTimePasswordManager;
 use Ricktorious\Ecommerce\User\UserService;
 
@@ -36,6 +39,13 @@ $container = $kernel->container();
 $userService = $container->get(UserService::class);
 /** @var OneTimePasswordManager $otpManager */
 $otpManager = $container->get(OneTimePasswordManager::class);
+
+$paths = PathResolver::resolve();
+$assetBase = PathResolver::normalizeBase($paths['assetBase']);
+$sharedStylesPath = PathResolver::url($assetBase, 'assets/styles.css');
+$sharedStylesVersion = file_exists(__DIR__ . '/../assets/styles.css') ? (string) filemtime(__DIR__ . '/../assets/styles.css') : (string) time();
+$navigationLinks = AdminNavigation::resolve();
+$navigationLinks['crawler'] = $navigationLinks['crawler'] ?? ['label' => 'Crawler', 'href' => PathResolver::url($assetBase, 'backend/crawler.php')];
 
 $crawlerStorage = __DIR__ . '/../storage/backend/crawler-history.json';
 $crawler = new HiddenCrawler($crawlerStorage, null, null, new ResearchService());
@@ -305,7 +315,7 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Signal Ledger · Hidden crawler control</title>
-    <link rel="stylesheet" href="/assets/styles.css">
+    <link rel="stylesheet" href="<?= esc($sharedStylesPath . '?v=' . $sharedStylesVersion); ?>">
     <style>
         body { background: #0f172a; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
         main { max-width: 960px; margin: 0 auto; padding: 2rem 1rem; }
@@ -409,6 +419,7 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
     </style>
 </head>
 <body>
+<?php SiteLayout::renderHeader($navigationLinks, 'crawler'); ?>
 <main>
     <header class="card">
         <h1>Hidden crawler control centre</h1>

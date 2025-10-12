@@ -10,6 +10,9 @@ require_once __DIR__ . '/../src/App/Crawler/HiddenCrawler.php';
 
 use App\Crawler\HiddenCrawler;
 use App\KnowledgeGraph\ResearchService;
+use App\Web\AdminNavigation;
+use App\Web\PathResolver;
+use App\Web\SiteLayout;
 
 function esc(string $value): string
 {
@@ -26,6 +29,13 @@ $kernel = ricktorious_ecommerce_kernel([
     ],
 ]);
 $container = $kernel->container();
+
+$paths = PathResolver::resolve();
+$assetBase = PathResolver::normalizeBase($paths['assetBase']);
+$sharedStylesPath = PathResolver::url($assetBase, 'assets/styles.css');
+$sharedStylesVersion = file_exists(__DIR__ . '/../assets/styles.css') ? (string) filemtime(__DIR__ . '/../assets/styles.css') : (string) time();
+$navigationLinks = AdminNavigation::resolve();
+$navigationLinks['sources'] = $navigationLinks['sources'] ?? ['label' => 'Sources', 'href' => PathResolver::url($assetBase, 'backend/sources.php')];
 
 $crawlerStorage = __DIR__ . '/../storage/backend/crawler-history.json';
 $crawler = new HiddenCrawler($crawlerStorage, null, null, new ResearchService());
@@ -46,7 +56,7 @@ $topPages = array_slice($pageEntries, 0, 20);
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Signal Ledger · Source intelligence</title>
-    <link rel="stylesheet" href="/assets/styles.css">
+    <link rel="stylesheet" href="<?= esc($sharedStylesPath . '?v=' . $sharedStylesVersion); ?>">
     <style>
         body { background: #0f172a; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
         main { max-width: 1120px; margin: 0 auto; padding: 2rem 1rem 3rem; }
@@ -75,6 +85,7 @@ $topPages = array_slice($pageEntries, 0, 20);
     </style>
 </head>
 <body>
+<?php SiteLayout::renderHeader($navigationLinks, 'sources'); ?>
 <main>
     <header class="card">
         <h1>Source intelligence</h1>
