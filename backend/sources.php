@@ -34,6 +34,8 @@ $paths = PathResolver::resolve();
 $assetBase = PathResolver::normalizeBase($paths['assetBase']);
 $sharedStylesPath = PathResolver::url($assetBase, 'assets/styles.css');
 $sharedStylesVersion = file_exists(__DIR__ . '/../assets/styles.css') ? (string) filemtime(__DIR__ . '/../assets/styles.css') : (string) time();
+$adminStylesPath = PathResolver::url($assetBase, 'assets/admin.css');
+$adminStylesVersion = file_exists(__DIR__ . '/../assets/admin.css') ? (string) filemtime(__DIR__ . '/../assets/admin.css') : (string) time();
 $navigationLinks = AdminNavigation::resolve();
 $navigationLinks['sources'] = $navigationLinks['sources'] ?? ['label' => 'Sources', 'href' => PathResolver::url($assetBase, 'backend/sources.php')];
 
@@ -57,41 +59,18 @@ $topPages = array_slice($pageEntries, 0, 20);
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Signal Ledger · Source intelligence</title>
     <link rel="stylesheet" href="<?= esc($sharedStylesPath . '?v=' . $sharedStylesVersion); ?>">
-    <style>
-        body { background: #0f172a; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
-        main { max-width: 1120px; margin: 0 auto; padding: 2rem 1rem 3rem; }
-        .card { background: rgba(15, 23, 42, 0.82); border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 16px; padding: 1.75rem; margin-bottom: 1.75rem; box-shadow: 0 24px 48px rgba(15, 23, 42, 0.45); }
-        h1 { font-size: 2rem; margin-bottom: 0.75rem; }
-        h2 { font-size: 1.45rem; margin-bottom: 1rem; }
-        .muted { color: rgba(148, 163, 184, 0.9); }
-        .summary-grid { display: grid; gap: 1.2rem; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-        .summary-card { background: rgba(30, 41, 59, 0.65); border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 14px; padding: 1.1rem 1.25rem; }
-        .summary-card h3 { margin: 0 0 0.25rem; font-size: 1rem; color: #c7d2fe; }
-        .summary-card p { margin: 0.2rem 0 0; font-size: 0.9rem; }
-        .pill-link { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.45rem 0.9rem; border-radius: 999px; background: rgba(99, 102, 241, 0.18); border: 1px solid rgba(99, 102, 241, 0.4); color: #c7d2fe; font-weight: 600; text-decoration: none; }
-        .pill-link:hover { text-decoration: underline; }
-        table { width: 100%; border-collapse: collapse; margin-top: 0.75rem; }
-        th, td { text-align: left; padding: 0.65rem 0.5rem; }
-        th { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(148, 163, 184, 0.9); }
-        tbody tr { border-top: 1px solid rgba(148, 163, 184, 0.2); }
-        tbody tr:first-of-type { border-top: none; }
-        tbody tr:hover { background: rgba(30, 41, 59, 0.55); }
-        .badge { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.2rem 0.55rem; border-radius: 999px; background: rgba(99, 102, 241, 0.18); border: 1px solid rgba(99, 102, 241, 0.4); font-size: 0.75rem; color: #c7d2fe; }
-        .badge--success { background: rgba(16, 185, 129, 0.18); border-color: rgba(16, 185, 129, 0.4); color: #6ee7b7; }
-        .badge--warm { background: rgba(245, 158, 11, 0.18); border-color: rgba(245, 158, 11, 0.4); color: #fcd34d; }
-        .sources-chip { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.6rem; border-radius: 999px; background: rgba(59, 130, 246, 0.18); border: 1px solid rgba(59, 130, 246, 0.35); font-size: 0.75rem; color: #bfdbfe; }
-        .table-note { font-size: 0.85rem; color: rgba(148, 163, 184, 0.85); margin-top: 0.6rem; }
-        .login-warning { background: rgba(248, 113, 113, 0.16); border: 1px solid rgba(248, 113, 113, 0.4); border-radius: 12px; padding: 1rem 1.2rem; color: #fecaca; }
-    </style>
+    <link rel="stylesheet" href="<?= esc($adminStylesPath . '?v=' . $adminStylesVersion); ?>">
 </head>
-<body>
+<body class="backend-admin">
 <?php SiteLayout::renderHeader($navigationLinks, 'sources'); ?>
-<main>
-    <header class="card">
-        <h1>Source intelligence</h1>
-        <p class="muted">Monitor the strongest domains, inbound link paths and authority signals discovered by the crawler. Data refreshed <?= esc($generatedAt); ?>.</p>
-        <div style="margin-top: 1rem; display: flex; gap: 0.75rem; flex-wrap: wrap;">
-            <a class="pill-link" href="/backend/crawler.php">Return to crawler control</a>
+<main class="backend-admin__main">
+    <header class="card admin-page-header">
+        <div>
+            <h1>Source intelligence</h1>
+            <p class="admin-page-header__meta">Monitor the strongest domains, inbound link paths and authority signals discovered by the crawler. Data refreshed <?= esc($generatedAt); ?>.</p>
+        </div>
+        <div class="admin-page-header__actions">
+            <a class="pill-link ghost" href="/backend/crawler.php">Return to crawler control</a>
             <a class="pill-link" href="/backend/crawler-progress.php" target="_blank" rel="noopener">Live progress JSON</a>
         </div>
     </header>
@@ -100,7 +79,7 @@ $topPages = array_slice($pageEntries, 0, 20);
         <section class="card">
             <div class="login-warning">
                 <strong>Authentication required.</strong>
-                <p style="margin: 0.6rem 0 0;">Sign in from the crawler control page to view detailed source analytics.</p>
+                <p class="admin-space-top-md admin-no-margin-bottom">Sign in from the crawler control page to view detailed source analytics.</p>
             </div>
         </section>
     <?php else: ?>
@@ -154,16 +133,16 @@ $topPages = array_slice($pageEntries, 0, 20);
                     <?php foreach ($topDomains as $domainRow): ?>
                         <tr>
                             <td>
-                                <div style="display:flex; flex-direction:column;">
+                                <div class="admin-flex-column">
                                     <strong><?= esc((string) ($domainRow['domain'] ?? '')); ?></strong>
                                     <?php if (!empty($domainRow['top_page']['url'] ?? '')): ?>
-                                        <span class="muted" style="font-size:0.8rem;">Top page: <a href="<?= esc((string) $domainRow['top_page']['url']); ?>" target="_blank" rel="noopener" style="color:#c7d2fe; text-decoration:none;">view</a></span>
+                                        <span class="muted admin-text-xs">Top page: <a class="admin-link" href="<?= esc((string) $domainRow['top_page']['url']); ?>" target="_blank" rel="noopener">view</a></span>
                                     <?php endif; ?>
                                 </div>
                             </td>
                             <td>
                                 <span class="badge badge--success"><?= esc(number_format((float) ($domainRow['domain_authority'] ?? 0) * 100, 1)); ?></span>
-                                <div class="muted" style="font-size:0.75rem;">Baseline <?= esc(number_format((float) ($domainRow['baseline'] ?? 0) * 100, 1)); ?> · Avg <?= esc(number_format((float) ($domainRow['average_page_authority'] ?? 0) * 100, 1)); ?></div>
+                                <div class="muted admin-text-xxs">Baseline <?= esc(number_format((float) ($domainRow['baseline'] ?? 0) * 100, 1)); ?> · Avg <?= esc(number_format((float) ($domainRow['average_page_authority'] ?? 0) * 100, 1)); ?></div>
                             </td>
                             <td><?= esc(number_format((int) ($domainRow['page_count'] ?? 0))); ?></td>
                             <td><?= esc(number_format((int) ($domainRow['inbound_links'] ?? 0))); ?></td>
@@ -199,14 +178,14 @@ $topPages = array_slice($pageEntries, 0, 20);
                     <?php foreach ($topPages as $pageRow): ?>
                         <tr>
                             <td>
-                                <a href="<?= esc((string) ($pageRow['url'] ?? '#')); ?>" target="_blank" rel="noopener" style="color:#c7d2fe; text-decoration:none;">
+                                <a class="admin-link" href="<?= esc((string) ($pageRow['url'] ?? '#')); ?>" target="_blank" rel="noopener">
                                     <?= esc((string) ($pageRow['title'] ?? $pageRow['url'] ?? 'Untitled page')); ?>
                                 </a>
                             </td>
                             <td><?= esc((string) ($pageRow['domain'] ?? '')); ?></td>
                             <td>
                                 <span class="badge"><?= esc(number_format((float) ($pageRow['page_authority'] ?? 0) * 100, 1)); ?></span>
-                                <div class="muted" style="font-size:0.75rem;">Domain <?= esc(number_format((float) ($pageRow['domain_authority'] ?? 0) * 100, 1)); ?></div>
+                                <div class="muted admin-text-xxs">Domain <?= esc(number_format((float) ($pageRow['domain_authority'] ?? 0) * 100, 1)); ?></div>
                             </td>
                             <td><?= esc(number_format((int) ($pageRow['inbound_links'] ?? 0))); ?></td>
                             <td><?= esc(number_format((int) ($pageRow['unique_sources'] ?? 0))); ?></td>
