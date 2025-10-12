@@ -47,6 +47,22 @@ $autoInterval = (int) ($_SESSION['backend_auto_interval'] ?? 0);
 $depth = (int) ($_SESSION['backend_depth'] ?? 0);
 $autoStart = isset($_SESSION['backend_auto_start']) ? (bool) $_SESSION['backend_auto_start'] : false;
 $refreshAfter = (int) ($_SESSION['backend_refresh_after'] ?? 0);
+$scheduledLimit = (int) ($_SESSION['backend_scheduled_limit'] ?? 5);
+if ($scheduledLimit <= 0) {
+    $scheduledLimit = 5;
+}
+$scheduledDepth = (int) ($_SESSION['backend_scheduled_depth'] ?? ($depth > 0 ? $depth : 1));
+if ($scheduledDepth < 0) {
+    $scheduledDepth = 0;
+}
+$bulkScheduleLimit = (int) ($_SESSION['backend_bulk_schedule_limit'] ?? 12);
+if ($bulkScheduleLimit <= 0) {
+    $bulkScheduleLimit = 12;
+}
+$bulkScheduleDepth = (int) ($_SESSION['backend_bulk_schedule_depth'] ?? 1);
+if ($bulkScheduleDepth < 0) {
+    $bulkScheduleDepth = 0;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $autoInterval = max(0, (int) ($_POST['auto_interval'] ?? $autoInterval));
@@ -55,12 +71,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ? in_array(strtolower((string) $_POST['auto_start']), ['1', 'true', 'yes', 'on'], true)
         : false;
     $refreshAfter = max(0, (int) ($_POST['refresh_after'] ?? $refreshAfter));
+    if (isset($_POST['scheduled_limit'])) {
+        $scheduledLimit = max(1, (int) $_POST['scheduled_limit']);
+    }
+    if (isset($_POST['scheduled_depth'])) {
+        $scheduledDepth = max(0, (int) $_POST['scheduled_depth']);
+    }
+    if (isset($_POST['bulk_limit'])) {
+        $bulkScheduleLimit = max(1, (int) $_POST['bulk_limit']);
+    }
+    if (isset($_POST['bulk_depth'])) {
+        $bulkScheduleDepth = max(0, (int) $_POST['bulk_depth']);
+    }
 }
 
 $_SESSION['backend_auto_interval'] = $autoInterval;
 $_SESSION['backend_depth'] = $depth;
 $_SESSION['backend_auto_start'] = $autoStart;
 $_SESSION['backend_refresh_after'] = $refreshAfter;
+$_SESSION['backend_scheduled_limit'] = $scheduledLimit;
+$_SESSION['backend_scheduled_depth'] = $scheduledDepth;
+$_SESSION['backend_bulk_schedule_limit'] = $bulkScheduleLimit;
+$_SESSION['backend_bulk_schedule_depth'] = $bulkScheduleDepth;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
@@ -170,6 +202,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
             } catch (Throwable $exception) {
                 $errors[] = 'Crawler failed: ' . $exception->getMessage();
+            }
+            break;
+
+        case 'continue-scheduled':
+            if (!isset($_SESSION['backend_user'])) {
+                $errors[] = 'You must be signed in to run the crawler.';
+                break;
+            }
+
+            try {
+                $run = $crawler->runScheduledQueue($scheduledLimit, $scheduledDepth, $autoInterval, $autoStart, $refreshAfter);
+                $targetsRun = is_array($run['targets'] ?? null) ? $run['targets'] : [];
+                if ($targetsRun === []) {
+                    $messages[] = 'No scheduled pages were available to process.';
+                    break;
+                }
+
+                $results = is_array($run['results'] ?? null) ? $run['results'] : [];
+                $processedCount = (int) ($run['processed'] ?? count($results));
+                $failedCount = 0;
+                $failureMessages = [];
+
+                foreach ($results as $entry) {
+                    if (!is_array($entry)) {
+                        continue;
+                    }
+
+                    $errorMessage = (string) ($entry['error'] ?? '');
+                    if ($errorMessage !== '') {
+                        $failedCount++;
+                        $failureMessages[] = 'Failed to crawl ' . esc((string) ($entry['url'] ?? '')) . ': ' . esc($errorMessage) . '.';
+                        continue;
+                    }
+                }
+
+                if ($processedCount > 0) {
+                    $messages[] = 'Processed ' . $processedCount . ' scheduled page(s).';
+                }
+                if ($failedCount > 0) {
+                    $messages[] = $failedCount . ' scheduled page(s) failed.';
+                }
+                $remaining = (int) ($run['scheduled_remaining'] ?? 0);
+                if ($remaining > 0) {
+                    $messages[] = $remaining . ' page(s) remain in the backlog.';
+                } elseif ($processedCount > 0) {
+                    $messages[] = 'Scheduled backlog is now empty.';
+                }
+
+                foreach ($failureMessages as $failureMessage) {
+                    $errors[] = $failureMessage;
+                }
+            } catch (Throwable $exception) {
+                $errors[] = 'Unable to run scheduled crawl: ' . $exception->getMessage();
+            }
+            break;
+
+        case 'schedule-discoveries':
+            if (!isset($_SESSION['backend_user'])) {
+                $errors[] = 'You must be signed in to run the crawler.';
+                break;
+            }
+
+            try {
+                $summary = $crawler->scheduleRecommended($bulkScheduleLimit, $bulkScheduleDepth);
+                $scheduledCount = (int) ($summary['scheduled'] ?? 0);
+                $totalBacklog = (int) ($summary['total'] ?? 0);
+
+                if ($scheduledCount > 0) {
+                    $messages[] = 'Scheduled ' . $scheduledCount . ' discovered page(s) for future crawling.';
+                } else {
+                    $messages[] = 'No new discoveries were scheduled; the backlog already includes the recommended links.';
+                }
+
+                $messages[] = 'Backlog now contains ' . $totalBacklog . ' page(s).';
+            } catch (Throwable $exception) {
+                $errors[] = 'Unable to schedule discoveries: ' . $exception->getMessage();
             }
             break;
     }
@@ -405,6 +513,66 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
         </form>
     </section>
 
+    <?php
+        $scheduledTotalInitial = (int) ($progress['scheduled_total'] ?? 0);
+        $scheduledPreviewInitial = is_array($progress['scheduled_preview'] ?? null) ? $progress['scheduled_preview'] : [];
+    ?>
+    <section class="card">
+        <h2>Scheduled backlog</h2>
+        <p class="muted">Continue exploring previously discovered links or queue up recommendations for later runs. Backlog items keep their discovery depth so you can pace long explorations.</p>
+        <div class="history-grid">
+            <form method="post" class="card card--ghost">
+                <input type="hidden" name="action" value="continue-scheduled">
+                <label for="scheduled-limit">Process next (pages)</label>
+                <input id="scheduled-limit" name="scheduled_limit" type="number" min="1" max="60" value="<?= esc((string) $scheduledLimit); ?>">
+                <label for="scheduled-depth">Explore linked depth</label>
+                <input id="scheduled-depth" name="scheduled_depth" type="number" min="0" max="6" value="<?= esc((string) $scheduledDepth); ?>">
+                <button type="submit">Run scheduled crawl</button>
+            </form>
+            <form method="post" class="card card--ghost">
+                <input type="hidden" name="action" value="schedule-discoveries">
+                <label for="bulk-limit">Add discoveries (count)</label>
+                <input id="bulk-limit" name="bulk_limit" type="number" min="1" max="60" value="<?= esc((string) $bulkScheduleLimit); ?>">
+                <label for="bulk-depth">Assign depth level</label>
+                <input id="bulk-depth" name="bulk_depth" type="number" min="0" max="6" value="<?= esc((string) $bulkScheduleDepth); ?>">
+                <button type="submit">Schedule discoveries</button>
+            </form>
+        </div>
+        <p class="muted" style="margin-top: 0.75rem;">Backlog contains <strong><?= esc((string) $scheduledTotalInitial); ?></strong> page(s).</p>
+        <div class="task-list">
+            <h3>Backlog preview</h3>
+            <p class="muted" id="scheduled-empty"<?= $scheduledPreviewInitial === [] ? '' : ' style="display:none;"'; ?>>No scheduled pages waiting.</p>
+            <ul class="task-items" id="scheduled-items">
+                <?php foreach (array_slice($scheduledPreviewInitial, 0, 12) as $queuedItem): ?>
+                    <?php if (!is_array($queuedItem)) { continue; }
+                        $queuedUrl = (string) ($queuedItem['url'] ?? '');
+                        $queuedDomain = (string) ($queuedItem['domain'] ?? ($queuedUrl !== '' ? parse_url($queuedUrl, PHP_URL_HOST) : ''));
+                        $queuedDepth = (int) ($queuedItem['depth'] ?? 0);
+                        $queuedPriority = (float) ($queuedItem['priority'] ?? 0.0);
+                        $queuedAt = (string) ($queuedItem['queued_at'] ?? '');
+                        $queuedSeed = !empty($queuedItem['seed'] ?? false);
+                    ?>
+                    <li class="task-item">
+                        <strong>
+                            <?php if ($queuedUrl !== ''): ?>
+                                <a href="<?= esc($queuedUrl); ?>" target="_blank" rel="noopener"><?= esc($queuedUrl); ?></a>
+                            <?php else: ?>
+                                Scheduled page
+                            <?php endif; ?>
+                        </strong>
+                        <div class="task-meta">
+                            <?php if ($queuedDomain !== ''): ?><span><?= esc($queuedDomain); ?></span><?php endif; ?>
+                            <span>Depth <?= esc((string) $queuedDepth); ?></span>
+                            <span>Priority <?= esc(number_format($queuedPriority, 2)); ?></span>
+                            <?php if ($queuedSeed): ?><span>Seed</span><?php endif; ?>
+                            <?php if ($queuedAt !== ''): ?><span>Queued <?= esc($queuedAt); ?></span><?php endif; ?>
+                        </div>
+                    </li>
+                <?php endforeach; ?>
+            </ul>
+        </div>
+    </section>
+
     <section class="card">
         <h2>Live crawl status</h2>
         <?php
@@ -422,6 +590,8 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
             $progressErrors = is_array($progress['errors'] ?? null) ? $progress['errors'] : [];
             $taskTotalsRaw = is_array($progress['task_totals'] ?? null) ? $progress['task_totals'] : [];
             $taskTotals = array_merge(['queued' => 0, 'running' => 0, 'completed' => 0, 'failed' => 0], $taskTotalsRaw);
+            $scheduledTotal = (int) ($progress['scheduled_total'] ?? 0);
+            $scheduledPreview = is_array($progress['scheduled_preview'] ?? null) ? $progress['scheduled_preview'] : [];
         ?>
         <div class="status-pill" data-state="<?= esc($normalizedStatus); ?>" id="progress-status-pill">
             <span></span>
@@ -444,6 +614,10 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
             <div>
                 <dt>Tasks</dt>
                 <dd id="progress-task-summary"><?= esc((string) $taskTotals['queued']); ?> queued · <?= esc((string) $taskTotals['running']); ?> running</dd>
+            </div>
+            <div>
+                <dt>Scheduled backlog</dt>
+                <dd id="progress-scheduled-count"><?= esc((string) $scheduledTotal); ?></dd>
             </div>
             <div>
                 <dt>Last run</dt>
@@ -803,6 +977,7 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
     const discoveredEl = document.getElementById('progress-discovered');
     const lastRunEl = document.getElementById('progress-last-run');
     const nextRunEl = document.getElementById('progress-next-run');
+    const scheduledCountEl = document.getElementById('progress-scheduled-count');
     const lastResultEl = document.getElementById('progress-last-result');
     const lastTitleEl = document.getElementById('progress-last-title');
     const lastUrlEl = document.getElementById('progress-last-url');
@@ -814,6 +989,8 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
     const taskSummaryEl = document.getElementById('progress-task-summary');
     const taskListEl = document.getElementById('progress-task-items');
     const taskEmptyEl = document.getElementById('progress-task-empty');
+    const scheduledListEl = document.getElementById('scheduled-items');
+    const scheduledEmptyEl = document.getElementById('scheduled-empty');
     const form = document.getElementById('crawler-form');
     const runButton = form ? form.querySelector('button[type="submit"]') : null;
 
@@ -851,6 +1028,87 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
         } else {
             messageEl.removeAttribute('data-state');
         }
+    }
+
+    function renderScheduled(preview, total) {
+        if (scheduledCountEl) {
+            scheduledCountEl.textContent = String(Number(total ?? 0));
+        }
+
+        if (!scheduledListEl || !scheduledEmptyEl) {
+            return;
+        }
+
+        scheduledListEl.innerHTML = '';
+
+        const list = Array.isArray(preview) ? preview.slice(0, 12) : [];
+        if (list.length === 0) {
+            scheduledEmptyEl.style.display = 'block';
+            return;
+        }
+
+        scheduledEmptyEl.style.display = 'none';
+
+        list.forEach(function (item) {
+            if (!item || typeof item !== 'object') {
+                return;
+            }
+
+            const url = typeof item.url === 'string' ? item.url : '';
+            const domain = typeof item.domain === 'string' ? item.domain : '';
+            const depth = Number.isFinite(item.depth) ? Number(item.depth) : 0;
+            const priority = Number.isFinite(item.priority) ? Number(item.priority) : 0;
+            const queuedAt = typeof item.queued_at === 'string' ? item.queued_at : '';
+            const seed = Boolean(item.seed);
+
+            const li = document.createElement('li');
+            li.className = 'task-item';
+
+            const strong = document.createElement('strong');
+            if (url !== '') {
+                const anchor = document.createElement('a');
+                anchor.href = url;
+                anchor.target = '_blank';
+                anchor.rel = 'noopener';
+                anchor.textContent = url;
+                strong.appendChild(anchor);
+            } else {
+                strong.textContent = 'Scheduled page';
+            }
+            li.appendChild(strong);
+
+            const meta = document.createElement('div');
+            meta.className = 'task-meta';
+
+            if (domain !== '') {
+                const domainSpan = document.createElement('span');
+                domainSpan.textContent = domain;
+                meta.appendChild(domainSpan);
+            }
+
+            const depthSpan = document.createElement('span');
+            depthSpan.textContent = 'Depth ' + depth;
+            meta.appendChild(depthSpan);
+
+            const prioritySpan = document.createElement('span');
+            prioritySpan.textContent = 'Priority ' + priority.toFixed(2);
+            meta.appendChild(prioritySpan);
+
+            if (seed) {
+                const seedSpan = document.createElement('span');
+                seedSpan.textContent = 'Seed';
+                meta.appendChild(seedSpan);
+            }
+
+            if (queuedAt !== '') {
+                const queuedSpan = document.createElement('span');
+                queuedSpan.textContent = 'Queued ' + queuedAt;
+                meta.appendChild(queuedSpan);
+            }
+
+            li.appendChild(meta);
+            scheduledListEl.appendChild(li);
+        });
     }
 
     function renderLastResult(result) {
@@ -1114,6 +1372,7 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
         renderErrors(data.errors);
         renderTaskSummary(data.task_totals);
         renderTasks(data.tasks);
+        renderScheduled(data.scheduled_preview, data.scheduled_total);
 
         if (state.pendingReload && statusNormalised === 'idle' && typeof data.last_run_at === 'string') {
             if (state.lastRunAt === null || state.lastRunAt !== data.last_run_at) {

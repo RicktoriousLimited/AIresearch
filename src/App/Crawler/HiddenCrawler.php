@@ -232,6 +232,8 @@ final class HiddenCrawler
 
     private const MAX_DISCOVERED_PER_PAGE = 6;
 
+    private const MAX_SCHEDULED_QUEUE = 300;
+
     private const USELESS_LINK_SEGMENTS = [
         'about' => true,
         'account' => true,
@@ -291,6 +293,8 @@ final class HiddenCrawler
 
     private string $progressPath;
 
+    private string $scheduledQueuePath;
+
     private const MAX_TRACKED_TASKS = 120;
 
     private const MAX_SCHEDULE_HISTORY = 20;
@@ -307,6 +311,7 @@ final class HiddenCrawler
         $this->refiner = $refiner ?? new TextRefiner();
         $this->graphService = $graphService;
         $this->progressPath = $this->deriveProgressPath($storagePath);
+        $this->scheduledQueuePath = $this->deriveScheduledQueuePath($storagePath);
 
         $directory = dirname($storagePath);
         if (!is_dir($directory)) {
@@ -323,6 +328,10 @@ final class HiddenCrawler
                 json_encode($this->defaultProgressState(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
             );
         }
+
+        if (!file_exists($this->scheduledQueuePath)) {
+            file_put_contents($this->scheduledQueuePath, json_encode([]));
+        }
     }
 
     /**
@@ -335,7 +344,8 @@ final class HiddenCrawler
         int $maxDepth = 0,
         int $autoInterval = 0,
         bool $autoStart = false,
-        int $refreshAfterMinutes = 0
+        int $refreshAfterMinutes = 0,
+        bool $deferDiscovered = false
     ): array {
         $maxDepth = max(0, $maxDepth);
         $autoInterval = max(0, $autoInterval);
@@ -349,6 +359,10 @@ final class HiddenCrawler
         $queue = $this->initialiseQueueDiscovery($queue, $discoveryLedger);
         $tasks = [];
         $queue = $this->initialiseQueueTasks($queue, $tasks);
+
+        $scheduledQueue = $this->loadScheduledQueue();
+        $scheduledIndex = $this->indexScheduledQueue($scheduledQueue);
+        $scheduledChanged = false;
 
         if ($refreshAfterMinutes > 0) {
             $refreshQueue = $this->buildRefreshQueue($historyEntries, $refreshAfterMinutes, $seen, $tasks, $discoveryLedger);
@@ -383,6 +397,8 @@ final class HiddenCrawler
         $progress['last_result'] = null;
         $progress['tasks'] = array_values($tasks);
         $progress['task_totals'] = $this->summariseTaskTotals($tasks);
+        $progress['scheduled_total'] = count($scheduledQueue);
+        $progress['scheduled_preview'] = $this->summariseScheduledQueue($scheduledQueue);
         $this->writeProgress($progress);
 
         if ($queue === []) {
@@ -439,6 +455,8 @@ final class HiddenCrawler
             $progress['last_updated_at'] = date(DATE_ATOM);
             $progress['tasks'] = array_values($tasks);
             $progress['task_totals'] = $this->summariseTaskTotals($tasks);
+            $progress['scheduled_total'] = count($scheduledQueue);
+            $progress['scheduled_preview'] = $this->summariseScheduledQueue($scheduledQueue);
             $this->writeProgress($progress);
 
             try {
@@ -524,14 +542,24 @@ final class HiddenCrawler
                     $parentDomain,
                     $currentUrl,
                     $discoveryLedger,
-                    $tasks
+                    $tasks,
+                    $deferDiscovered,
+                    $scheduledQueue,
+                    $scheduledIndex,
+                    $scheduledChanged
                 );
                 if ($added > 0) {
                     $discoveredTotal += $added;
                     $progress['discovered'] = ($progress['discovered'] ?? 0) + $added;
-                    $progress['total'] = ($progress['total'] ?? 0) + $added;
-                    $progress['queued'] = count($queue);
-                    $progress['message'] = 'Discovered ' . $discoveredTotal . ' additional page(s).';
+                    if ($deferDiscovered) {
+                        $progress['scheduled_total'] = count($scheduledQueue);
+                        $progress['scheduled_preview'] = $this->summariseScheduledQueue($scheduledQueue);
+                        $progress['message'] = 'Scheduled ' . $discoveredTotal . ' additional page(s).';
+                    } else {
+                        $progress['total'] = ($progress['total'] ?? 0) + $added;
+                        $progress['queued'] = count($queue);
+                        $progress['message'] = 'Discovered ' . $discoveredTotal . ' additional page(s).';
+                    }
                 }
             }
 
@@ -545,6 +573,8 @@ final class HiddenCrawler
             $progress['last_updated_at'] = date(DATE_ATOM);
             $progress['tasks'] = array_values($tasks);
             $progress['task_totals'] = $this->summariseTaskTotals($tasks);
+            $progress['scheduled_total'] = count($scheduledQueue);
+            $progress['scheduled_preview'] = $this->summariseScheduledQueue($scheduledQueue);
             $this->writeProgress($progress);
         }
 
@@ -579,7 +609,13 @@ final class HiddenCrawler
         $progress['last_updated_at'] = $finishedAt;
         $progress['tasks'] = array_values($tasks);
         $progress['task_totals'] = $this->summariseTaskTotals($tasks);
+        $progress['scheduled_total'] = count($scheduledQueue);
+        $progress['scheduled_preview'] = $this->summariseScheduledQueue($scheduledQueue);
         $this->writeProgress($progress);
+
+        if ($scheduledChanged) {
+            $this->storeScheduledQueue($scheduledQueue);
+        }
 
         if ($failedEntries !== []) {
             return array_merge($entries, $failedEntries);
@@ -606,7 +642,12 @@ final class HiddenCrawler
      */
     public function progress(): array
     {
-        return $this->readProgress();
+        $state = $this->readProgress();
+        $scheduledQueue = $this->loadScheduledQueue();
+        $state['scheduled_total'] = count($scheduledQueue);
+        $state['scheduled_preview'] = $this->summariseScheduledQueue($scheduledQueue);
+
+        return $state;
     }
 
     /**
@@ -1220,6 +1261,16 @@ final class HiddenCrawler
         return $storagePath . self::PROGRESS_FILE_SUFFIX;
     }
 
+    private function deriveScheduledQueuePath(string $storagePath): string
+    {
+        $suffixPosition = strrpos($storagePath, '.json');
+        if ($suffixPosition !== false) {
+            return substr($storagePath, 0, $suffixPosition) . '.scheduled-queue.json';
+        }
+
+        return $storagePath . '.scheduled-queue.json';
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -1255,6 +1306,8 @@ final class HiddenCrawler
             'next_run_due_at' => null,
             'tasks' => [],
             'task_totals' => $this->defaultTaskTotals(),
+            'scheduled_total' => 0,
+            'scheduled_preview' => [],
         ];
     }
 
@@ -1299,6 +1352,14 @@ final class HiddenCrawler
             $decoded['task_totals'] = array_merge($this->defaultTaskTotals(), $decoded['task_totals']);
         }
 
+        if (!isset($decoded['scheduled_total'])) {
+            $decoded['scheduled_total'] = 0;
+        }
+
+        if (!isset($decoded['scheduled_preview']) || !is_array($decoded['scheduled_preview'])) {
+            $decoded['scheduled_preview'] = [];
+        }
+
         if (!isset($decoded['refresh_after'])) {
             $decoded['refresh_after'] = (int) ($decoded['options']['refresh_after'] ?? 0);
         }
@@ -1329,11 +1390,27 @@ final class HiddenCrawler
         $seeds = [];
 
         foreach ($targets as $target) {
-            if (!is_string($target)) {
+            $candidateUrl = '';
+            $seed = true;
+            $depth = 0;
+            $priority = null;
+            $refresh = false;
+
+            if (is_string($target)) {
+                $candidateUrl = $target;
+            } elseif (is_array($target)) {
+                $candidateUrl = isset($target['url']) ? (string) $target['url'] : '';
+                $seed = isset($target['seed']) ? (bool) $target['seed'] : true;
+                $depth = isset($target['depth']) ? max(0, (int) $target['depth']) : 0;
+                if (isset($target['priority'])) {
+                    $priority = (float) $target['priority'];
+                }
+                $refresh = !empty($target['refresh']);
+            } else {
                 continue;
             }
 
-            $normalised = $this->normaliseSeedTarget($target);
+            $normalised = $this->normaliseSeedTarget($candidateUrl);
             if ($normalised === null) {
                 continue;
             }
@@ -1344,16 +1421,24 @@ final class HiddenCrawler
             }
 
             $domain = $this->extractDomain($normalised);
-            $priority = $this->baseScoreForDomain($domain) + 0.25;
+            if ($priority === null) {
+                $priority = $this->baseScoreForDomain($domain);
+                if ($seed) {
+                    $priority += 0.25;
+                }
+            }
 
             $queue[] = [
                 'url' => $normalised,
-                'depth' => 0,
+                'depth' => $depth,
                 'priority' => $priority,
-                'seed' => true,
+                'seed' => $seed,
+                'refresh' => $refresh,
             ];
             $seen[$key] = true;
-            $seeds[] = $normalised;
+            if ($seed) {
+                $seeds[] = $normalised;
+            }
         }
 
         $this->sortQueueByPriority($queue);
@@ -1419,7 +1504,11 @@ final class HiddenCrawler
         string $parentDomain,
         string $parentUrl,
         array &$ledger,
-        array &$tasks
+        array &$tasks,
+        bool $deferDiscovered,
+        array &$scheduledQueue,
+        array &$scheduledIndex,
+        bool &$scheduledChanged
     ): int {
         $depth = max(0, $depth);
 
@@ -1431,7 +1520,7 @@ final class HiddenCrawler
         $added = 0;
 
         foreach ($filtered as $normalised) {
-            if (count($queue) >= self::MAX_QUEUE_SIZE) {
+            if (!$deferDiscovered && count($queue) >= self::MAX_QUEUE_SIZE) {
                 break;
             }
 
@@ -1457,21 +1546,29 @@ final class HiddenCrawler
                 continue;
             }
 
-            $queue[] = $this->attachTaskMetadata([
-                'url' => $normalised,
-                'depth' => $depth,
-                'priority' => $priority,
-                'seed' => false,
-            ], $tasks, false, false);
-            $seen[$key] = true;
-            $added++;
+            if ($deferDiscovered) {
+                if ($this->scheduleDiscovery($scheduledQueue, $scheduledIndex, $normalised, $depth, $priority, false, $parentUrl)) {
+                    $scheduledChanged = true;
+                    $seen[$key] = true;
+                    $added++;
+                }
+            } else {
+                $queue[] = $this->attachTaskMetadata([
+                    'url' => $normalised,
+                    'depth' => $depth,
+                    'priority' => $priority,
+                    'seed' => false,
+                ], $tasks, false, false);
+                $seen[$key] = true;
+                $added++;
+            }
 
             if ($added >= self::MAX_DISCOVERED_PER_PAGE) {
                 break;
             }
         }
 
-        if ($added > 0) {
+        if ($added > 0 && !$deferDiscovered) {
             $this->sortQueueByPriority($queue);
             $this->enforceTaskLimit($tasks);
         }
@@ -2151,6 +2248,370 @@ final class HiddenCrawler
             'next_due_at' => (string) ($normalised['next_due_at'] ?? ''),
             'history' => $history,
         ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function scheduledQueue(int $limit = 25): array
+    {
+        $limit = max(1, $limit);
+
+        return array_slice($this->summariseScheduledQueue($this->loadScheduledQueue(), $limit), 0, $limit);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function runScheduledQueue(
+        int $limit = 5,
+        int $maxDepth = 1,
+        int $autoInterval = 0,
+        bool $autoStart = false,
+        int $refreshAfterMinutes = 0
+    ): array {
+        $limit = max(1, $limit);
+        $maxDepth = max(0, $maxDepth);
+        $autoInterval = max(0, $autoInterval);
+        $refreshAfterMinutes = max(0, $refreshAfterMinutes);
+
+        $queue = $this->loadScheduledQueue();
+        if ($queue === []) {
+            return [
+                'processed' => 0,
+                'targets' => [],
+                'scheduled_remaining' => 0,
+                'results' => [],
+            ];
+        }
+
+        $targets = array_slice($queue, 0, $limit);
+        $remaining = array_slice($queue, count($targets));
+        $this->storeScheduledQueue($remaining);
+
+        $targetList = [];
+        foreach ($targets as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $url = isset($entry['url']) ? (string) $entry['url'] : '';
+            if ($url === '') {
+                continue;
+            }
+
+            $targetList[] = [
+                'url' => $url,
+                'depth' => isset($entry['depth']) ? max(0, (int) $entry['depth']) : 0,
+                'priority' => isset($entry['priority']) ? (float) $entry['priority'] : null,
+                'seed' => !empty($entry['seed']),
+            ];
+        }
+
+        if ($targetList === []) {
+            return [
+                'processed' => 0,
+                'targets' => [],
+                'scheduled_remaining' => count($remaining),
+                'results' => [],
+            ];
+        }
+
+        $results = $this->crawl(
+            $targetList,
+            $maxDepth,
+            $autoInterval,
+            $autoStart,
+            $refreshAfterMinutes,
+            true
+        );
+
+        return [
+            'processed' => count($results),
+            'targets' => array_map(static fn(array $target): string => (string) $target['url'], $targetList),
+            'scheduled_remaining' => count($remaining),
+            'results' => $results,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function scheduleRecommended(int $limit = 10, int $depth = 1): array
+    {
+        $limit = max(1, $limit);
+        $depth = max(0, $depth);
+
+        $snapshot = $this->discoveryTree(8, 6, 3, $limit * 3);
+        $recommended = isset($snapshot['recommended']) && is_array($snapshot['recommended'])
+            ? $snapshot['recommended']
+            : [];
+
+        $queue = $this->loadScheduledQueue();
+        $index = $this->indexScheduledQueue($queue);
+        $scheduled = 0;
+
+        foreach ($recommended as $candidate) {
+            if (!is_array($candidate)) {
+                continue;
+            }
+
+            $url = isset($candidate['url']) ? (string) $candidate['url'] : '';
+            if ($url === '') {
+                continue;
+            }
+
+            $priorityScore = isset($candidate['score'])
+                ? max(0.0, (float) $candidate['score'] / 100.0)
+                : $this->baseScoreForDomain($this->extractDomain($url));
+
+            if ($this->scheduleDiscovery($queue, $index, $url, $depth, $priorityScore, false, null)) {
+                $scheduled++;
+            }
+
+            if ($scheduled >= $limit) {
+                break;
+            }
+        }
+
+        if ($scheduled > 0) {
+            $this->storeScheduledQueue($queue);
+        }
+
+        return [
+            'scheduled' => $scheduled,
+            'total' => count($queue),
+            'snapshot' => $snapshot,
+            'preview' => $this->summariseScheduledQueue($queue),
+        ];
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function loadScheduledQueue(): array
+    {
+        if (!file_exists($this->scheduledQueuePath)) {
+            return [];
+        }
+
+        $contents = file_get_contents($this->scheduledQueuePath);
+        if (!is_string($contents) || trim($contents) === '') {
+            return [];
+        }
+
+        $decoded = json_decode($contents, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $queue = [];
+        $index = [];
+
+        foreach ($decoded as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $url = isset($entry['url']) ? (string) $entry['url'] : '';
+            if ($url === '') {
+                continue;
+            }
+
+            $key = $this->queueKey($url);
+            if ($key === '' || isset($index[$key])) {
+                continue;
+            }
+
+            $queue[] = [
+                'url' => $url,
+                'depth' => isset($entry['depth']) ? max(0, (int) $entry['depth']) : 0,
+                'priority' => isset($entry['priority']) ? (float) $entry['priority'] : $this->baseScoreForDomain($this->extractDomain($url)),
+                'seed' => !empty($entry['seed']),
+                'queued_at' => isset($entry['queued_at']) && (string) $entry['queued_at'] !== ''
+                    ? (string) $entry['queued_at']
+                    : date(DATE_ATOM),
+                'parent_url' => isset($entry['parent_url']) ? (string) $entry['parent_url'] : null,
+            ];
+            $index[$key] = true;
+        }
+
+        $this->sortScheduledQueue($queue);
+
+        if (count($queue) > self::MAX_SCHEDULED_QUEUE) {
+            $queue = array_slice($queue, 0, self::MAX_SCHEDULED_QUEUE);
+        }
+
+        return $queue;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $queue
+     */
+    private function storeScheduledQueue(array $queue): void
+    {
+        $this->sortScheduledQueue($queue);
+
+        if (count($queue) > self::MAX_SCHEDULED_QUEUE) {
+            $queue = array_slice($queue, 0, self::MAX_SCHEDULED_QUEUE);
+        }
+
+        $serialisable = [];
+        foreach ($queue as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $url = isset($entry['url']) ? (string) $entry['url'] : '';
+            if ($url === '') {
+                continue;
+            }
+
+            $serialisable[] = [
+                'url' => $url,
+                'depth' => isset($entry['depth']) ? max(0, (int) $entry['depth']) : 0,
+                'priority' => isset($entry['priority']) ? (float) $entry['priority'] : $this->baseScoreForDomain($this->extractDomain($url)),
+                'seed' => !empty($entry['seed']),
+                'queued_at' => isset($entry['queued_at']) && (string) $entry['queued_at'] !== ''
+                    ? (string) $entry['queued_at']
+                    : date(DATE_ATOM),
+                'parent_url' => isset($entry['parent_url']) && (string) $entry['parent_url'] !== ''
+                    ? (string) $entry['parent_url']
+                    : null,
+            ];
+        }
+
+        file_put_contents(
+            $this->scheduledQueuePath,
+            json_encode($serialisable, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+            LOCK_EX
+        );
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $queue
+     */
+    private function sortScheduledQueue(array &$queue): void
+    {
+        usort($queue, static function (array $left, array $right): int {
+            $leftPriority = (float) ($left['priority'] ?? 0.0);
+            $rightPriority = (float) ($right['priority'] ?? 0.0);
+
+            if (abs($leftPriority - $rightPriority) < 0.0001) {
+                $leftQueued = (string) ($left['queued_at'] ?? '');
+                $rightQueued = (string) ($right['queued_at'] ?? '');
+
+                return $leftQueued <=> $rightQueued;
+            }
+
+            return $rightPriority <=> $leftPriority;
+        });
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $queue
+     *
+     * @return array<string, bool>
+     */
+    private function indexScheduledQueue(array $queue): array
+    {
+        $index = [];
+
+        foreach ($queue as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $url = isset($entry['url']) ? (string) $entry['url'] : '';
+            if ($url === '') {
+                continue;
+            }
+
+            $key = $this->queueKey($url);
+            if ($key === '') {
+                continue;
+            }
+
+            $index[$key] = true;
+        }
+
+        return $index;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $queue
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function summariseScheduledQueue(array $queue, int $limit = 12): array
+    {
+        $this->sortScheduledQueue($queue);
+
+        $preview = [];
+        foreach (array_slice($queue, 0, max(0, $limit)) as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $url = isset($entry['url']) ? (string) $entry['url'] : '';
+            if ($url === '') {
+                continue;
+            }
+
+            $preview[] = [
+                'url' => $url,
+                'domain' => $this->extractDomain($url),
+                'depth' => isset($entry['depth']) ? max(0, (int) $entry['depth']) : 0,
+                'priority' => round((float) ($entry['priority'] ?? 0.0), 3),
+                'queued_at' => isset($entry['queued_at']) ? (string) $entry['queued_at'] : '',
+                'seed' => !empty($entry['seed']),
+            ];
+        }
+
+        return $preview;
+    }
+
+    private function scheduleDiscovery(
+        array &$queue,
+        array &$index,
+        string $url,
+        int $depth,
+        float $priority,
+        bool $seed,
+        ?string $parentUrl
+    ): bool {
+        $url = trim($url);
+        if ($url === '') {
+            return false;
+        }
+
+        $key = $this->queueKey($url);
+        if ($key === '' || isset($index[$key])) {
+            return false;
+        }
+
+        $entry = [
+            'url' => $url,
+            'depth' => max(0, $depth),
+            'priority' => max(0.0, $priority),
+            'seed' => $seed,
+            'queued_at' => date(DATE_ATOM),
+        ];
+
+        if ($parentUrl !== null && $parentUrl !== '') {
+            $entry['parent_url'] = $parentUrl;
+        }
+
+        $queue[] = $entry;
+        $this->sortScheduledQueue($queue);
+
+        if (count($queue) > self::MAX_SCHEDULED_QUEUE) {
+            $queue = array_slice($queue, 0, self::MAX_SCHEDULED_QUEUE);
+        }
+
+        $index = $this->indexScheduledQueue($queue);
+
+        return true;
     }
 
     /**
