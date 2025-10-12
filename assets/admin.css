@@ -342,6 +342,34 @@
     flex-wrap: wrap;
 }
 
+.backend-admin .form-grid {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    align-items: end;
+}
+
+.backend-admin .form-grid--compact {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.backend-admin .form-grid .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.backend-admin .input-group--checkbox {
+    align-items: flex-start;
+}
+
+.backend-admin .input-group--actions {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+}
+
 .backend-admin .auto-start-toggle {
     display: inline-flex;
     align-items: center;
@@ -607,6 +635,52 @@
     display: inline-flex;
     align-items: center;
     gap: 0.25rem;
+}
+
+.backend-admin .task-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: rgba(148, 163, 184, 0.12);
+    color: #cbd5f5;
+    text-transform: uppercase;
+}
+
+.backend-admin .task-chip[data-state="overdue"],
+.backend-admin .task-chip[data-state="stale"] {
+    background: rgba(239, 68, 68, 0.25);
+    border-color: rgba(239, 68, 68, 0.45);
+    color: #fecaca;
+}
+
+.backend-admin .task-chip[data-state="due_soon"] {
+    background: rgba(250, 204, 21, 0.2);
+    border-color: rgba(250, 204, 21, 0.45);
+    color: #fef08a;
+}
+
+.backend-admin .task-chip[data-state="due_next"],
+.backend-admin .task-chip[data-state="scheduled"] {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(59, 130, 246, 0.45);
+    color: #bfdbfe;
+}
+
+.backend-admin .task-chip[data-state="queued"] {
+    background: rgba(148, 163, 184, 0.18);
+    border-color: rgba(148, 163, 184, 0.4);
+    color: rgba(226, 232, 240, 0.9);
+}
+
+.backend-admin .task-chip--seed {
+    background: rgba(129, 140, 248, 0.2);
+    border-color: rgba(99, 102, 241, 0.4);
+    color: #e0e7ff;
 }
 
 .backend-admin .topic-chip {

@@ -25,6 +25,7 @@ use function array_filter;
 use function count;
 use function dirname;
 use function filter_var;
+use function abs;
 use function file_exists;
 use function file_get_contents;
 use function file_put_contents;
@@ -298,6 +299,15 @@ final class HiddenCrawler
     private const MAX_TRACKED_TASKS = 120;
 
     private const MAX_SCHEDULE_HISTORY = 20;
+
+    /**
+     * Cached discovery ledger built from the stored history to avoid repeatedly
+     * re-indexing the same data while preparing scheduled queues. The cache is
+     * invalidated whenever history or queue state is persisted.
+     *
+     * @var array<string, array<string, mixed>>|null
+     */
+    private ?array $discoveryLedgerCache = null;
 
     public function __construct(
         string $storagePath,
@@ -2814,19 +2824,276 @@ final class HiddenCrawler
      */
     private function sortScheduledQueue(array &$queue): void
     {
-        usort($queue, static function (array $left, array $right): int {
-            $leftPriority = (float) ($left['priority'] ?? 0.0);
-            $rightPriority = (float) ($right['priority'] ?? 0.0);
+        if ($queue === []) {
+            return;
+        }
 
-            if (abs($leftPriority - $rightPriority) < 0.0001) {
-                $leftQueued = (string) ($left['queued_at'] ?? '');
-                $rightQueued = (string) ($right['queued_at'] ?? '');
+        $ledger = $this->discoveryLedger();
+        $now = $this->safeNow();
 
-                return $leftQueued <=> $rightQueued;
+        usort($queue, function (array $left, array $right) use ($ledger, $now): int {
+            return $this->compareScheduledEntries($left, $right, $ledger, $now);
+        });
+    }
+
+    /**
+     * @param array<string, mixed> $left
+     * @param array<string, mixed> $right
+     * @param array<string, array<string, mixed>> $ledger
+     */
+    private function compareScheduledEntries(
+        array $left,
+        array $right,
+        array $ledger,
+        ?DateTimeImmutable $now
+    ): int {
+        $leftMeta = $this->scheduledEntryMeta($left, $ledger, $now);
+        $rightMeta = $this->scheduledEntryMeta($right, $ledger, $now);
+
+        if ($leftMeta['due_sort'] !== $rightMeta['due_sort']) {
+            return $leftMeta['due_sort'] <=> $rightMeta['due_sort'];
+        }
+
+        $leftPriority = (float) $leftMeta['priority'];
+        $rightPriority = (float) $rightMeta['priority'];
+        if (abs($leftPriority - $rightPriority) > 0.0001) {
+            return $rightPriority <=> $leftPriority;
+        }
+
+        return $leftMeta['queued_sort'] <=> $rightMeta['queued_sort'];
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     * @param array<string, array<string, mixed>> $ledger
+     *
+     * @return array{
+     *     due_sort: int,
+     *     queued_sort: int,
+     *     priority: float,
+     *     due_at: string,
+     *     freshness_state: string,
+     *     freshness_label: string,
+     *     queued_label: string,
+     *     last_seen_at: string,
+     *     staleness_minutes: int|null
+     * }
+     */
+    private function scheduledEntryMeta(
+        array $entry,
+        array $ledger,
+        ?DateTimeImmutable $now
+    ): array {
+        $priority = (float) ($entry['priority'] ?? 0.0);
+        $queuedAtRaw = (string) ($entry['queued_at'] ?? '');
+        $queuedAt = $this->parseDateTime($queuedAtRaw);
+        $queuedSort = $queuedAt !== null ? $queuedAt->getTimestamp() : PHP_INT_MAX;
+        $queuedLabel = $this->formatQueuedDescriptor($queuedAt, $now);
+
+        $url = isset($entry['url']) ? (string) $entry['url'] : '';
+        $ledgerEntry = null;
+        if ($url !== '') {
+            $key = $this->queueKey($url);
+            if ($key !== '' && isset($ledger[$key]) && is_array($ledger[$key])) {
+                $ledgerEntry = $ledger[$key];
+            }
+        }
+
+        $dueTimestamp = null;
+        $dueAtString = '';
+        $state = 'queued';
+        $label = $queuedLabel;
+        $lastSeen = '';
+        $stalenessMinutes = null;
+
+        if (is_array($ledgerEntry)) {
+            $lastSeen = (string) ($ledgerEntry['last_seen_at'] ?? '');
+            $schedule = $this->normaliseSchedule($ledgerEntry['schedule'] ?? []);
+
+            $due = null;
+            $dueRaw = (string) ($schedule['next_due_at'] ?? '');
+            if ($dueRaw !== '') {
+                $due = $this->parseDateTime($dueRaw);
             }
 
-            return $rightPriority <=> $leftPriority;
-        });
+            $intervalMinutes = $this->extractScheduleInterval($schedule);
+            if ($due === null && $intervalMinutes !== null && $intervalMinutes > 0) {
+                $origin = null;
+                $lastScheduledRaw = (string) ($schedule['last_scheduled_at'] ?? '');
+                if ($lastScheduledRaw !== '') {
+                    $origin = $this->parseDateTime($lastScheduledRaw);
+                }
+                if ($origin === null && $lastSeen !== '') {
+                    $origin = $this->parseDateTime($lastSeen);
+                }
+                if ($origin === null) {
+                    $origin = $queuedAt;
+                }
+
+                if ($origin !== null) {
+                    $due = $this->addMinutes($origin, $intervalMinutes);
+                }
+            }
+
+            if ($due !== null) {
+                $dueTimestamp = $due->getTimestamp();
+                $dueAtString = $due->format(DATE_ATOM);
+                $descriptor = $this->formatDueDescriptor($due, $now);
+                $label = $descriptor['label'];
+                $state = $descriptor['state'];
+            } else {
+                $lastSeenTime = $lastSeen !== '' ? $this->parseDateTime($lastSeen) : null;
+                if ($lastSeenTime !== null && $now !== null) {
+                    $diffSeconds = max(0, $now->getTimestamp() - $lastSeenTime->getTimestamp());
+                    $stalenessMinutes = (int) floor($diffSeconds / 60);
+                    if ($stalenessMinutes >= 1440) {
+                        $label = 'Stale for ' . $this->describeInterval($diffSeconds);
+                        $state = 'stale';
+                    } elseif ($stalenessMinutes >= 360) {
+                        $label = 'Ready for refresh';
+                        $state = 'due_soon';
+                    }
+                }
+            }
+        }
+
+        return [
+            'due_sort' => $dueTimestamp ?? $queuedSort,
+            'queued_sort' => $queuedSort,
+            'priority' => $priority,
+            'due_at' => $dueAtString,
+            'freshness_state' => $state,
+            'freshness_label' => $label,
+            'queued_label' => $queuedLabel,
+            'last_seen_at' => $lastSeen,
+            'staleness_minutes' => $stalenessMinutes,
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $schedule
+     */
+    private function extractScheduleInterval(array $schedule): ?int
+    {
+        $history = is_array($schedule['history'] ?? null) ? $schedule['history'] : [];
+        if ($history === []) {
+            return null;
+        }
+
+        $events = array_reverse($history);
+        foreach ($events as $event) {
+            if (!is_array($event)) {
+                continue;
+            }
+
+            if (isset($event['interval_minutes']) && $event['interval_minutes'] !== null) {
+                $candidate = (int) $event['interval_minutes'];
+                if ($candidate > 0) {
+                    return $candidate;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function addMinutes(DateTimeImmutable $timestamp, int $minutes): DateTimeImmutable
+    {
+        $minutes = max(0, $minutes);
+        if ($minutes === 0) {
+            return $timestamp;
+        }
+
+        try {
+            return $timestamp->add(new DateInterval('PT' . $minutes . 'M'));
+        } catch (Throwable $exception) {
+            return $timestamp;
+        }
+    }
+
+    private function describeInterval(int $seconds): string
+    {
+        $seconds = max(0, $seconds);
+        if ($seconds < 60) {
+            return 'under a minute';
+        }
+
+        $minutes = (int) floor($seconds / 60);
+        if ($minutes < 60) {
+            return $minutes === 1 ? '1 minute' : $minutes . ' minutes';
+        }
+
+        $hours = (int) floor($minutes / 60);
+        if ($hours < 24) {
+            return $hours === 1 ? '1 hour' : $hours . ' hours';
+        }
+
+        $days = (int) floor($hours / 24);
+        if ($days < 7) {
+            return $days === 1 ? '1 day' : $days . ' days';
+        }
+
+        $weeks = (int) floor($days / 7);
+        if ($weeks < 5) {
+            return $weeks === 1 ? '1 week' : $weeks . ' weeks';
+        }
+
+        $months = (int) floor($days / 30);
+        if ($months < 18) {
+            return $months === 1 ? '1 month' : $months . ' months';
+        }
+
+        $years = (int) floor($days / 365);
+
+        return $years <= 1 ? '1 year' : $years . ' years';
+    }
+
+    private function formatDueDescriptor(DateTimeImmutable $due, ?DateTimeImmutable $now): array
+    {
+        if ($now === null) {
+            return [
+                'label' => 'Due ' . $due->format('M j, H:i'),
+                'state' => 'scheduled',
+            ];
+        }
+
+        $diff = $due->getTimestamp() - $now->getTimestamp();
+        if ($diff <= 0) {
+            return [
+                'label' => 'Overdue by ' . $this->describeInterval(abs($diff)),
+                'state' => 'overdue',
+            ];
+        }
+
+        $label = 'Due in ' . $this->describeInterval($diff);
+        $state = $diff <= 3600 ? 'due_soon' : ($diff <= 21600 ? 'due_next' : 'scheduled');
+
+        return [
+            'label' => $label,
+            'state' => $state,
+        ];
+    }
+
+    private function formatQueuedDescriptor(?DateTimeImmutable $queuedAt, ?DateTimeImmutable $now): string
+    {
+        if ($queuedAt === null) {
+            return 'Queued';
+        }
+
+        if ($now === null) {
+            return 'Queued ' . $queuedAt->format(DATE_ATOM);
+        }
+
+        $diff = $now->getTimestamp() - $queuedAt->getTimestamp();
+        if ($diff <= 0) {
+            return 'Queued moments ago';
+        }
+
+        if ($diff < 60) {
+            return 'Queued moments ago';
+        }
+
+        return 'Queued ' . $this->describeInterval($diff) . ' ago';
     }
 
     /**
@@ -2869,6 +3136,9 @@ final class HiddenCrawler
         $this->sortScheduledQueue($queue);
 
         $preview = [];
+        $ledger = $this->discoveryLedger();
+        $now = $this->safeNow();
+
         foreach (array_slice($queue, 0, max(0, $limit)) as $entry) {
             if (!is_array($entry)) {
                 continue;
@@ -2879,6 +3149,7 @@ final class HiddenCrawler
                 continue;
             }
 
+            $meta = $this->scheduledEntryMeta($entry, $ledger, $now);
             $preview[] = [
                 'url' => $url,
                 'domain' => $this->extractDomain($url),
@@ -2886,6 +3157,12 @@ final class HiddenCrawler
                 'priority' => round((float) ($entry['priority'] ?? 0.0), 3),
                 'queued_at' => isset($entry['queued_at']) ? (string) $entry['queued_at'] : '',
                 'seed' => !empty($entry['seed']),
+                'due_at' => (string) $meta['due_at'],
+                'freshness_state' => (string) $meta['freshness_state'],
+                'freshness_label' => (string) $meta['freshness_label'],
+                'queued_label' => (string) $meta['queued_label'],
+                'last_seen_at' => (string) $meta['last_seen_at'],
+                'staleness_minutes' => $meta['staleness_minutes'],
             ];
         }
 
@@ -3000,6 +3277,37 @@ final class HiddenCrawler
         }
 
         return $ledger;
+    }
+
+    /**
+     * Lazily load the discovery ledger derived from stored crawl history.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function discoveryLedger(): array
+    {
+        if ($this->discoveryLedgerCache !== null) {
+            return $this->discoveryLedgerCache;
+        }
+
+        $entries = $this->loadStoredEntries();
+        $this->discoveryLedgerCache = $this->initialiseDiscoveryLedger($entries);
+
+        return $this->discoveryLedgerCache;
+    }
+
+    private function resetDiscoveryLedgerCache(): void
+    {
+        $this->discoveryLedgerCache = null;
+    }
+
+    private function safeNow(): ?DateTimeImmutable
+    {
+        try {
+            return new DateTimeImmutable();
+        } catch (Throwable $exception) {
+            return null;
+        }
     }
 
     private function registerDiscovery(array &$ledger, string $url, ?string $source, bool $seed): void
@@ -3721,6 +4029,8 @@ final class HiddenCrawler
         if ($result === false) {
             throw new RuntimeException('Unable to persist crawler history.');
         }
+
+        $this->resetDiscoveryLedgerCache();
     }
 
     /**

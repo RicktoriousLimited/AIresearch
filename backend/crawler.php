@@ -405,24 +405,28 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
             <input type="hidden" name="action" value="crawl">
             <label for="urls">Seed URLs (one per line)</label>
             <textarea id="urls" name="urls" spellcheck="false"><?= esc($urlsDefault); ?></textarea>
-            <div class="form-controls">
-                <div>
+            <div class="form-grid form-grid--fluid">
+                <div class="input-group">
                     <label for="auto_interval">Auto-refresh interval (minutes)</label>
                     <input id="auto_interval" name="auto_interval" type="number" min="0" value="<?= esc((string) $autoInterval); ?>">
                 </div>
-                <div>
+                <div class="input-group">
                     <label for="crawl_depth">Link depth</label>
                     <input id="crawl_depth" name="depth" type="number" min="0" max="6" value="<?= esc((string) $depth); ?>">
                 </div>
-                <div>
+                <div class="input-group">
                     <label for="refresh_after">Refresh pages older than (minutes)</label>
                     <input id="refresh_after" name="refresh_after" type="number" min="0" value="<?= esc((string) $refreshAfter); ?>">
                 </div>
-                <label class="auto-start-toggle" for="auto_start">
-                    <input id="auto_start" name="auto_start" type="checkbox" value="1" <?= $autoStart ? 'checked' : ''; ?>>
-                    Auto-start the next run when scheduled
-                </label>
-                <button type="submit">Run crawl now</button>
+                <div class="input-group input-group--checkbox">
+                    <label class="auto-start-toggle" for="auto_start">
+                        <input id="auto_start" name="auto_start" type="checkbox" value="1" <?= $autoStart ? 'checked' : ''; ?>>
+                        <span>Auto-start the next run when scheduled</span>
+                    </label>
+                </div>
+                <div class="input-group input-group--actions">
+                    <button type="submit">Run crawl now</button>
+                </div>
             </div>
             <p class="muted admin-space-top-sm">Set the auto-refresh interval to keep the crawler running while this tab remains open. Increase the link depth to explore trusted links discovered on each page. Use the refresh field to automatically revisit pages that have gone stale.</p>
         </form>
@@ -438,19 +442,35 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
         <div class="history-grid">
             <form method="post" class="card card--ghost">
                 <input type="hidden" name="action" value="continue-scheduled">
-                <label for="scheduled-limit">Process next (pages)</label>
-                <input id="scheduled-limit" name="scheduled_limit" type="number" min="1" max="60" value="<?= esc((string) $scheduledLimit); ?>">
-                <label for="scheduled-depth">Explore linked depth</label>
-                <input id="scheduled-depth" name="scheduled_depth" type="number" min="0" max="6" value="<?= esc((string) $scheduledDepth); ?>">
-                <button type="submit">Run scheduled crawl</button>
+                <div class="form-grid form-grid--compact">
+                    <div class="input-group">
+                        <label for="scheduled-limit">Process next (pages)</label>
+                        <input id="scheduled-limit" name="scheduled_limit" type="number" min="1" max="60" value="<?= esc((string) $scheduledLimit); ?>">
+                    </div>
+                    <div class="input-group">
+                        <label for="scheduled-depth">Explore linked depth</label>
+                        <input id="scheduled-depth" name="scheduled_depth" type="number" min="0" max="6" value="<?= esc((string) $scheduledDepth); ?>">
+                    </div>
+                    <div class="input-group input-group--actions">
+                        <button type="submit">Run scheduled crawl</button>
+                    </div>
+                </div>
             </form>
             <form method="post" class="card card--ghost">
                 <input type="hidden" name="action" value="schedule-discoveries">
-                <label for="bulk-limit">Add discoveries (count)</label>
-                <input id="bulk-limit" name="bulk_limit" type="number" min="1" max="60" value="<?= esc((string) $bulkScheduleLimit); ?>">
-                <label for="bulk-depth">Assign depth level</label>
-                <input id="bulk-depth" name="bulk_depth" type="number" min="0" max="6" value="<?= esc((string) $bulkScheduleDepth); ?>">
-                <button type="submit">Schedule discoveries</button>
+                <div class="form-grid form-grid--compact">
+                    <div class="input-group">
+                        <label for="bulk-limit">Add discoveries (count)</label>
+                        <input id="bulk-limit" name="bulk_limit" type="number" min="1" max="60" value="<?= esc((string) $bulkScheduleLimit); ?>">
+                    </div>
+                    <div class="input-group">
+                        <label for="bulk-depth">Assign depth level</label>
+                        <input id="bulk-depth" name="bulk_depth" type="number" min="0" max="6" value="<?= esc((string) $bulkScheduleDepth); ?>">
+                    </div>
+                    <div class="input-group input-group--actions">
+                        <button type="submit">Schedule discoveries</button>
+                    </div>
+                </div>
             </form>
         </div>
         <p class="muted admin-space-top-md">Backlog contains <strong><?= esc((string) $scheduledTotalInitial); ?></strong> page(s).</p>
@@ -466,6 +486,11 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
                         $queuedPriority = (float) ($queuedItem['priority'] ?? 0.0);
                         $queuedAt = (string) ($queuedItem['queued_at'] ?? '');
                         $queuedSeed = !empty($queuedItem['seed'] ?? false);
+                        $queuedDueAt = (string) ($queuedItem['due_at'] ?? '');
+                        $queuedFreshState = (string) ($queuedItem['freshness_state'] ?? '');
+                        $queuedFreshLabel = trim((string) ($queuedItem['freshness_label'] ?? ''));
+                        $queuedQueuedLabel = trim((string) ($queuedItem['queued_label'] ?? ''));
+                        $queuedLastSeen = trim((string) ($queuedItem['last_seen_at'] ?? ''));
                     ?>
                     <li class="task-item">
                         <strong>
@@ -479,8 +504,15 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
                             <?php if ($queuedDomain !== ''): ?><span><?= esc($queuedDomain); ?></span><?php endif; ?>
                             <span>Depth <?= esc((string) $queuedDepth); ?></span>
                             <span>Priority <?= esc(number_format($queuedPriority, 2)); ?></span>
-                            <?php if ($queuedSeed): ?><span>Seed</span><?php endif; ?>
-                            <?php if ($queuedAt !== ''): ?><span>Queued <?= esc($queuedAt); ?></span><?php endif; ?>
+                            <?php if ($queuedSeed): ?><span class="task-chip task-chip--seed">Seed</span><?php endif; ?>
+                            <?php if ($queuedFreshLabel !== ''): ?>
+                                <span class="task-chip"<?php if ($queuedFreshState !== ''): ?> data-state="<?= esc($queuedFreshState); ?>"<?php endif; ?><?php if ($queuedDueAt !== ''): ?> title="<?= esc($queuedDueAt); ?>"<?php endif; ?>>
+                                    <?= esc($queuedFreshLabel); ?>
+                                </span>
+                            <?php endif; ?>
+                            <?php if ($queuedQueuedLabel !== ''): ?><span class="muted"><?= esc($queuedQueuedLabel); ?></span><?php endif; ?>
+                            <?php if ($queuedLastSeen !== ''): ?><span class="muted">Last seen <?= esc($queuedLastSeen); ?></span><?php endif; ?>
+                            <?php if ($queuedAt !== '' && $queuedQueuedLabel === ''): ?><span class="muted">Queued <?= esc($queuedAt); ?></span><?php endif; ?>
                         </div>
                     </li>
                 <?php endforeach; ?>
@@ -975,6 +1007,11 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
             const priority = Number.isFinite(item.priority) ? Number(item.priority) : 0;
             const queuedAt = typeof item.queued_at === 'string' ? item.queued_at : '';
             const seed = Boolean(item.seed);
+            const dueAt = typeof item.due_at === 'string' ? item.due_at : '';
+            const freshnessState = typeof item.freshness_state === 'string' ? item.freshness_state : '';
+            const freshnessLabel = typeof item.freshness_label === 'string' ? item.freshness_label.trim() : '';
+            const queuedLabel = typeof item.queued_label === 'string' ? item.queued_label.trim() : '';
+            const lastSeen = typeof item.last_seen_at === 'string' ? item.last_seen_at.trim() : '';
 
             const li = document.createElement('li');
             li.className = 'task-item';
@@ -1011,12 +1048,41 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
 
             if (seed) {
                 const seedSpan = document.createElement('span');
+                seedSpan.className = 'task-chip task-chip--seed';
                 seedSpan.textContent = 'Seed';
                 meta.appendChild(seedSpan);
             }
 
-            if (queuedAt !== '') {
+            if (freshnessLabel !== '') {
+                const freshnessSpan = document.createElement('span');
+                freshnessSpan.className = 'task-chip';
+                if (freshnessState !== '') {
+                    freshnessSpan.setAttribute('data-state', freshnessState);
+                }
+                if (dueAt !== '') {
+                    freshnessSpan.title = dueAt;
+                }
+                freshnessSpan.textContent = freshnessLabel;
+                meta.appendChild(freshnessSpan);
+            }
+
+            if (queuedLabel !== '') {
                 const queuedSpan = document.createElement('span');
+                queuedSpan.className = 'muted';
+                queuedSpan.textContent = queuedLabel;
+                meta.appendChild(queuedSpan);
+            }
+
+            if (lastSeen !== '') {
+                const lastSeenSpan = document.createElement('span');
+                lastSeenSpan.className = 'muted';
+                lastSeenSpan.textContent = 'Last seen ' + lastSeen;
+                meta.appendChild(lastSeenSpan);
+            }
+
+            if (queuedAt !== '' && queuedLabel === '') {
+                const queuedSpan = document.createElement('span');
+                queuedSpan.className = 'muted';
                 queuedSpan.textContent = 'Queued ' + queuedAt;
                 meta.appendChild(queuedSpan);
             }

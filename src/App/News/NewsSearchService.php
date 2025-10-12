@@ -51,6 +51,18 @@ use const PHP_URL_HOST;
 
 final class NewsSearchService
 {
+    private const LOCAL_SYNONYM_SETS = [
+        'ai' => ['artificial intelligence', 'machine learning', 'automation'],
+        'ml' => ['machine learning', 'artificial intelligence'],
+        'earnings' => ['results', 'quarterly results', 'financial update'],
+        'ipo' => ['initial public offering', 'stock listing'],
+        'merger' => ['m&a', 'acquisition', 'buyout'],
+        'inflation' => ['price growth', 'cost of living'],
+        'crypto' => ['cryptocurrency', 'digital asset', 'token'],
+        'recession' => ['economic slowdown', 'downturn'],
+        'startup' => ['new venture', 'tech company'],
+    ];
+
     private HiddenCrawler $crawler;
 
     private GraphRepository $graphRepository;
@@ -76,6 +88,11 @@ final class NewsSearchService
      * @var array<string, float>
      */
     private array $queryPhrases = [];
+
+    /**
+     * @var array<string, float>
+     */
+    private array $queryBigrams = [];
 
     /**
      * @var array{graph: array<string, mixed>|null, sources: array<int, array<string, mixed>>, updated_at: string|null}|null
@@ -329,6 +346,7 @@ final class NewsSearchService
         $this->queryTerms = [];
         $this->expandedTermSet = [];
         $this->queryPhrases = [];
+        $this->queryBigrams = [];
     }
 
     /**
@@ -373,6 +391,7 @@ final class NewsSearchService
         $this->queryPhrases = $profile['phrases'];
         $this->queryTerms = $profile['original_terms'];
         $this->expandedTermSet = array_fill_keys($profile['terms'], true);
+        $this->queryBigrams = $profile['bigrams'];
     }
 
     /**
@@ -415,7 +434,8 @@ final class NewsSearchService
      *     terms: array<int, string>,
      *     weights: array<string, float>,
      *     phrases: array<string, float>,
-     *     original_terms: array<int, string>
+     *     original_terms: array<int, string>,
+     *     bigrams: array<string, float>
      * }
      */
     private function buildQueryProfile(array $terms): array
@@ -470,6 +490,7 @@ final class NewsSearchService
             'weights' => $weights,
             'phrases' => $phrases,
             'original_terms' => array_values(array_unique($original)),
+            'bigrams' => $this->generateQueryBigrams($original),
         ];
     }
 
@@ -526,6 +547,69 @@ final class NewsSearchService
         }
 
         return $variants;
+    }
+
+    /**
+     * @param array<int, string> $terms
+     *
+     * @return array<string, float>
+     */
+    private function generateQueryBigrams(array $terms): array
+    {
+        if (count($terms) < 2) {
+            return [];
+        }
+
+        $bigrams = [];
+        $previous = null;
+
+        foreach ($terms as $term) {
+            $term = trim($term);
+            if ($term === '') {
+                continue;
+            }
+
+            if ($previous !== null) {
+                $phrase = $previous . ' ' . $term;
+                $bigrams[$phrase] = isset($bigrams[$phrase])
+                    ? max($bigrams[$phrase], 0.72)
+                    : 0.72;
+            }
+
+            $previous = $term;
+        }
+
+        return $bigrams;
+    }
+
+    /**
+     * @param array<int, string> $tokens
+     *
+     * @return array<string, bool>
+     */
+    private function bigramTokenSet(array $tokens): array
+    {
+        if ($tokens === []) {
+            return [];
+        }
+
+        $set = [];
+        $previous = null;
+
+        foreach ($tokens as $token) {
+            $token = trim($token);
+            if ($token === '') {
+                continue;
+            }
+
+            if ($previous !== null) {
+                $set[$previous . ' ' . $token] = true;
+            }
+
+            $previous = $token;
+        }
+
+        return $set;
     }
 
     /**
@@ -590,6 +674,26 @@ final class NewsSearchService
                 if (!isset($termSet[$candidate])) {
                     $results[] = $candidate;
                 }
+            }
+        }
+
+        foreach ($terms as $term) {
+            $normalised = trim(mb_strtolower($term, 'UTF-8'));
+            if ($normalised === '' || !isset(self::LOCAL_SYNONYM_SETS[$normalised])) {
+                continue;
+            }
+
+            foreach (self::LOCAL_SYNONYM_SETS[$normalised] as $synonym) {
+                if (!is_string($synonym)) {
+                    continue;
+                }
+
+                $candidate = trim(mb_strtolower($synonym, 'UTF-8'));
+                if ($candidate === '' || isset($termSet[$candidate])) {
+                    continue;
+                }
+
+                $results[] = $candidate;
             }
         }
 
@@ -1173,6 +1277,15 @@ final class NewsSearchService
 
                 if (mb_strpos($haystack, ' ' . $phrase . ' ') !== false || mb_strpos($haystack, $phrase) !== false) {
                     $score += 6.0 * $weight;
+                }
+            }
+        }
+
+        if ($this->queryBigrams !== []) {
+            $docBigrams = $this->bigramTokenSet($tokens);
+            foreach ($this->queryBigrams as $phrase => $weight) {
+                if (isset($docBigrams[$phrase])) {
+                    $score += 4.4 * $weight;
                 }
             }
         }
