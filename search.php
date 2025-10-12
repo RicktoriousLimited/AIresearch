@@ -7,7 +7,6 @@ require __DIR__ . '/src/App/bootstrap.php';
 use App\Crawler\HiddenCrawler;
 use App\News\NewsSearchService;
 use App\Web\PathResolver;
-use App\Web\SiteLayout;
 
 function esc(string $value): string
 {
@@ -261,20 +260,11 @@ function facetLabel(array $facets, string $group, string $value): ?string
 $paths = PathResolver::resolve();
 $assetBase = $paths['assetBase'];
 
-$stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
-$themePath = PathResolver::url($assetBase, 'assets/theme.css');
 $searchStylesPath = PathResolver::url($assetBase, 'assets/search.css');
-$stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
-$themeVersion = file_exists(__DIR__ . '/assets/theme.css') ? (string) filemtime(__DIR__ . '/assets/theme.css') : (string) time();
 $searchStylesVersion = file_exists(__DIR__ . '/assets/search.css') ? (string) filemtime(__DIR__ . '/assets/search.css') : (string) time();
 
 $homePath = PathResolver::url($assetBase, 'index.php');
 $searchPath = PathResolver::url($assetBase, 'search.php');
-
-$navigationPaths = [
-    'home' => $homePath,
-    'search' => $searchPath,
-];
 
 $query = queryParam('q');
 
@@ -599,10 +589,6 @@ if ($heroSuggestions === [] && $query === '') {
     ];
 }
 
-$heroDescription = $query === ''
-    ? 'Discover high-signal coverage curated for go-to-market and research teams.'
-    : sprintf('Interrogate “%s” across %s crawler matches with live quality scoring.', $query, formatNumber($totalAvailable));
-
 $resultSubtitle = '';
 if ($resultCount > 0) {
     if ($filterCount === 0) {
@@ -663,321 +649,317 @@ if ($ingestedCount !== null) {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Search &ndash; AIresearch</title>
-    <link rel="stylesheet" href="<?= esc($themePath . '?v=' . $themeVersion) ?>">
-    <link rel="stylesheet" href="<?= esc($stylesPath . '?v=' . $stylesVersion) ?>">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
     <link rel="stylesheet" href="<?= esc($searchStylesPath . '?v=' . $searchStylesVersion) ?>">
 </head>
-<body class="site site--search search-app">
-<?php SiteLayout::renderHeader($navigationPaths, 'search'); ?>
-<main class="site-main search-layout">
-    <section class="search-hero">
-        <div class="site-container search-hero__inner">
-            <div class="search-hero__content">
-                <div class="search-hero__header">
-                    <span class="search-hero__eyebrow">Commercial intelligence</span>
-                    <h1>Commercial graph search</h1>
-                    <p><?= esc($heroDescription) ?></p>
-                </div>
-                <form action="<?= esc($searchPath) ?>" method="get" class="search-form search-hero__form">
-                    <label class="visually-hidden" for="search-query">Search the crawler</label>
-                    <input id="search-query" type="search" name="q" placeholder="Search the live crawler" value="<?= esc($query) ?>" autofocus>
-                    <?php foreach ($activeFilters as $key => $value): ?>
-                        <?php if (in_array($key, ['recency', 'quality', 'type', 'ingestion', 'source'], true)): ?>
-                            <input type="hidden" name="<?= esc($key) ?>" value="<?= esc($value) ?>">
-                        <?php endif; ?>
-                    <?php endforeach; ?>
-                    <button type="submit" class="button primary">Search</button>
-                </form>
-                <p class="search-status"><?= esc($status) ?></p>
-                <?php if ($activeFiltersDisplay !== []): ?>
-                    <div class="active-filters">
-                        <span class="active-filters__label">Active filters</span>
-                        <div class="active-filters__chips">
-                            <?php foreach ($activeFiltersDisplay as $chip): ?>
-                                <a class="filter-chip" href="<?= esc($chip['removeUrl']) ?>">
-                                    <span class="filter-chip__label"><?= esc($chip['label']) ?></span>
-                                    <span class="filter-chip__value"><?= esc($chip['valueLabel']) ?></span>
-                                    <span class="filter-chip__remove" aria-hidden="true">&times;</span>
-                                    <span class="visually-hidden">Remove <?= esc($chip['label']) ?> filter</span>
-                                </a>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                <?php endif; ?>
-                <?php if ($heroSuggestions !== []): ?>
-                    <div class="search-suggestions">
-                        <span class="search-suggestions__label">Trending searches</span>
-                        <div class="search-suggestions__chips">
-                            <?php foreach ($heroSuggestions as $suggestion): ?>
-                                <a class="chip" href="<?= esc(buildSearchUrl($searchPath, ['q' => $suggestion])) ?>"><?= esc($suggestion) ?></a>
-                            <?php endforeach; ?>
-                        </div>
-                    </div>
-                <?php endif; ?>
-            </div>
-            <div class="search-hero__metrics">
-                <div class="metrics-grid">
-                    <?php foreach ($metricCards as $card): ?>
-                        <div class="metric-card">
-                            <span class="metric-card__value"><?= esc($card['value']) ?></span>
-                            <span class="metric-card__label"><?= esc($card['label']) ?></span>
-                            <?php if ($card['hint'] !== ''): ?>
-                                <span class="metric-card__hint"><?= esc($card['hint']) ?></span>
-                            <?php endif; ?>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            </div>
+<body class="search-page">
+    <header class="search-header">
+        <div class="search-header__inner">
+            <a class="brand" href="<?= esc($homePath) ?>">AI<span>research</span></a>
+            <form class="searchbox" action="<?= esc($searchPath) ?>" method="get" role="search" aria-label="Search AIresearch">
+                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79L20 21.5 21.5 20l-6-6zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5s4.5 2.01 4.5 4.5S11.99 14 9.5 14z"/></svg>
+                <label class="sr-only" for="search-query">Search AIresearch</label>
+                <input id="search-query" type="search" name="q" placeholder="Search AIresearch" value="<?= esc($query) ?>" autofocus>
+                <?php foreach ($activeFilters as $key => $value): ?>
+                    <?php if (in_array($key, ['recency', 'quality', 'type', 'ingestion', 'source'], true)): ?>
+                        <input type="hidden" name="<?= esc($key) ?>" value="<?= esc($value) ?>">
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            </form>
         </div>
-    </section>
-
-    <section class="search-results">
-        <div class="site-container">
-            <div class="search-columns">
-                <div class="search-columns__primary">
-                    <?php if ($resultCount === 0): ?>
-                        <div class="empty-state">
-                            <h2>No crawler matches yet</h2>
-                            <p>Try broadening your keywords or clearing filters to relaunch the crawl.</p>
-                            <?php if ($trendingTopics !== []): ?>
-                                <div class="empty-state__suggestions">
-                                    <span>Jump to a trending theme:</span>
-                                    <div class="empty-state__chips">
-                                        <?php foreach (array_slice($trendingTopics, 0, 4) as $topic): ?>
-                                            <a class="chip" href="<?= esc(buildSearchUrl($searchPath, ['q' => $topic['topic']])) ?>"><?= esc($topic['topic']) ?></a>
-                                        <?php endforeach; ?>
-                                    </div>
-                                </div>
-                            <?php endif; ?>
-                        </div>
-                    <?php else: ?>
-                        <div class="section-heading">
-                            <h2><?= esc(formatNumber($resultCount)) ?> surfaced stor<?= $resultCount === 1 ? 'y' : 'ies' ?></h2>
-                            <?php if ($resultSubtitle !== ''): ?>
-                                <p><?= esc($resultSubtitle) ?></p>
-                            <?php endif; ?>
-                        </div>
-                        <ul class="search-grid">
-                            <?php foreach ($results as $entry): ?>
-                                <?php
-                                    $title = trim((string) ($entry['title'] ?? $entry['url'] ?? 'Untitled source'));
-                                    $url = trim((string) ($entry['url'] ?? ''));
-                                    $summarySource = (string) ($entry['summary'] ?? $entry['preview'] ?? '');
-                                    $snippet = relevantSnippet($summarySource, $query);
-                                    if ($snippet === '' && $summarySource !== '') {
-                                        $snippet = trim($summarySource);
-                                    }
-                                    if ($snippet !== '' && mb_strlen($snippet) > 320) {
-                                        $snippet = rtrim(mb_substr($snippet, 0, 317)) . '…';
-                                    }
-                                    $meta = metaLine($entry);
-                                    $qualityScore = isset($entry['quality_score']) ? (float) $entry['quality_score'] : null;
-                                    $contentType = isset($entry['content_type']) ? (string) $entry['content_type'] : '';
-                                    $contentTypeLabel = match ($contentType) {
-                                        'article' => 'Article',
-                                        'non_article' => 'Brief',
-                                        'error' => 'Unavailable',
-                                        default => 'Landing page',
-                                    };
-                                    $relativeTimestamp = null;
-                                    $timeCandidates = [
-                                        isset($entry['source_published_at']) ? (string) $entry['source_published_at'] : null,
-                                        isset($entry['last_checked_at']) ? (string) $entry['last_checked_at'] : null,
-                                        isset($entry['fetched_at']) ? (string) $entry['fetched_at'] : null,
-                                    ];
-                                    foreach ($timeCandidates as $candidateTime) {
-                                        if (!is_string($candidateTime) || trim($candidateTime) === '') {
-                                            continue;
-                                        }
-                                        $relativeTimestamp = formatRelative($candidateTime);
-                                        if ($relativeTimestamp !== null) {
-                                            break;
-                                        }
-                                    }
-                                    $badges = [];
-                                    if ($qualityScore !== null && $qualityScore > 0) {
-                                        $badges[] = [
-                                            'label' => 'Q' . (string) round($qualityScore),
-                                            'title' => sprintf('Quality score %s', formatScore($qualityScore)),
-                                            'class' => 'quality',
-                                        ];
-                                    }
-                                    if ($contentTypeLabel !== '') {
-                                        $badges[] = [
-                                            'label' => $contentTypeLabel,
-                                            'title' => 'Content type',
-                                            'class' => 'type',
-                                        ];
-                                    }
-                                    if ($relativeTimestamp !== null) {
-                                        $badges[] = [
-                                            'label' => $relativeTimestamp,
-                                            'title' => 'Last updated',
-                                            'class' => 'time',
-                                        ];
-                                    }
-                                    if (!empty($entry['ingest'])) {
-                                        $badges[] = [
-                                            'label' => 'Enriched',
-                                            'title' => 'Captured & enriched',
-                                            'class' => 'ingested',
-                                        ];
-                                    }
-            ?>
-                                <li class="story-card story-card--search">
-                                    <div class="story-card__header">
-                                        <h3 class="story-card__title">
-                                            <?php if ($url !== ''): ?>
-                                                <a href="<?= esc($url) ?>" target="_blank" rel="noopener noreferrer"><?= esc($title) ?></a>
-                                            <?php else: ?>
-                                                <?= esc($title) ?>
-                                            <?php endif; ?>
-                                        </h3>
-                                        <?php if ($badges !== []): ?>
-                                            <ul class="story-card__badges">
-                                                <?php foreach ($badges as $badge): ?>
-                                                    <li class="story-card__badge story-card__badge--<?= esc($badge['class']) ?>" title="<?= esc($badge['title']) ?>"><?= esc($badge['label']) ?></li>
-                                                <?php endforeach; ?>
-                                            </ul>
-                                        <?php endif; ?>
-                                    </div>
-                                    <?php if ($snippet !== ''): ?>
-                                        <p class="story-card__snippet"><?= highlightTerms($snippet, $query) ?></p>
-                                    <?php endif; ?>
-                                    <?php if ($meta !== ''): ?>
-                                        <p class="story-card__meta"><?= esc($meta) ?></p>
-                                    <?php endif; ?>
-                                </li>
-                            <?php endforeach; ?>
-                        </ul>
-                    <?php endif; ?>
+    </header>
+    <main class="search-main">
+        <div class="search-main__primary">
+            <div class="search-summary">
+                <p class="search-summary__status"><?= esc($status) ?></p>
+                <?php if ($metricCards !== []): ?>
+                    <div class="search-summary__metrics">
+                        <?php foreach ($metricCards as $card): ?>
+                            <div class="metric-pill">
+                                <span class="metric-pill__value"><?= esc($card['value']) ?></span>
+                                <span class="metric-pill__label"><?= esc($card['label']) ?></span>
+                                <?php if ($card['hint'] !== ''): ?>
+                                    <span class="metric-pill__hint"><?= esc($card['hint']) ?></span>
+                                <?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+            <?php if ($activeFiltersDisplay !== []): ?>
+                <div class="active-filters">
+                    <span class="active-filters__label">Active filters</span>
+                    <div class="active-filters__chips">
+                        <?php foreach ($activeFiltersDisplay as $chip): ?>
+                            <a class="filter-chip" href="<?= esc($chip['removeUrl']) ?>">
+                                <span class="filter-chip__label"><?= esc($chip['label']) ?></span>
+                                <span class="filter-chip__value"><?= esc($chip['valueLabel']) ?></span>
+                                <span class="filter-chip__remove" aria-hidden="true">&times;</span>
+                                <span class="sr-only">Remove <?= esc($chip['label']) ?> filter</span>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
                 </div>
-                <aside class="search-sidebar">
-                    <?php if ($facetGroups !== []): ?>
-                        <div class="insight-panel">
-                            <div class="insight-panel__header">
-                                <h3>Filter results</h3>
-                                <p>Focus on the signals that matter.</p>
-                            </div>
-                            <?php foreach ($facetGroups as $group): ?>
-                                <div class="insight-panel__section">
-                                    <h4><?= esc($group['title']) ?></h4>
-                                    <ul class="facet-list">
-                                        <?php foreach ($group['items'] as $facet): ?>
-                                            <?php
-                                                if (!is_array($facet)) {
-                                                    continue;
-                                                }
-                                                $facetKey = (string) ($facet['key'] ?? '');
-                                                if ($facetKey === '') {
-                                                    continue;
-                                                }
-                                                $facetLabel = isset($facet['label']) ? (string) $facet['label'] : $facetKey;
-                                                $facetCount = (int) ($facet['count'] ?? 0);
-                                                $facetShare = isset($facet['share']) ? (float) $facet['share'] : null;
-                                                $facetActive = isFilterActive($activeFilters, $group['param'], $facetKey);
-                                                $facetUrl = toggleFilterUrl($searchPath, $queryParams, $group['param'], $facetKey);
-                                            ?>
-                                            <li>
-                                                <a class="facet-pill<?= $facetActive ? ' facet-pill--active' : '' ?>" href="<?= esc($facetUrl) ?>">
-                                                    <span class="facet-pill__label"><?= esc($facetLabel) ?></span>
-                                                    <span class="facet-pill__count"><?= esc(formatNumber($facetCount)) ?></span>
-                                                    <span class="facet-pill__share"><?= esc(formatPercent($facetShare, 0)) ?></span>
-                                                </a>
-                                            </li>
-                                        <?php endforeach; ?>
-                                    </ul>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php endif; ?>
+            <?php endif; ?>
+            <?php if ($heroSuggestions !== []): ?>
+                <div class="search-suggestions">
+                    <span class="search-suggestions__label">Trending searches</span>
+                    <div class="search-suggestions__chips">
+                        <?php foreach ($heroSuggestions as $suggestion): ?>
+                            <a class="chip" href="<?= esc(buildSearchUrl($searchPath, ['q' => $suggestion])) ?>"><?= esc($suggestion) ?></a>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            <?php endif; ?>
+            <?php if ($resultCount === 0): ?>
+                <div class="empty-state">
+                    <h2>No crawler matches yet</h2>
+                    <p>Try broadening your keywords or clearing filters to relaunch the crawl.</p>
                     <?php if ($trendingTopics !== []): ?>
-                        <div class="insight-panel">
-                            <div class="insight-panel__header">
-                                <h3>Trending topics</h3>
-                                <p>Pivot your coverage in a single click.</p>
-                            </div>
-                            <div class="insight-panel__chips">
-                                <?php foreach ($trendingTopics as $topic): ?>
-                                    <a class="chip chip--topic" href="<?= esc(buildSearchUrl($searchPath, ['q' => $topic['topic']])) ?>">
-                                        <span><?= esc($topic['topic']) ?></span>
-                                        <span class="chip__meta"><?= esc(formatNumber($topic['count'])) ?> hits</span>
-                                    </a>
+                        <div class="empty-state__suggestions">
+                            <span>Jump to a trending theme:</span>
+                            <div class="empty-state__chips">
+                                <?php foreach (array_slice($trendingTopics, 0, 4) as $topic): ?>
+                                    <a class="chip" href="<?= esc(buildSearchUrl($searchPath, ['q' => $topic['topic']])) ?>"><?= esc($topic['topic']) ?></a>
                                 <?php endforeach; ?>
                             </div>
                         </div>
                     <?php endif; ?>
-                    <?php if ($topSources !== [] || $metaSources !== []): ?>
-                        <div class="insight-panel">
-                            <div class="insight-panel__header">
-                                <h3>Publisher intelligence</h3>
-                                <p>See who is leading the conversation.</p>
-                            </div>
-                            <?php if ($topSources !== []): ?>
-                                <div class="insight-panel__section">
-                                    <h4>Leading outlets</h4>
-                                    <ul class="insight-panel__facts">
-                                        <?php foreach ($topSources as $source): ?>
-                                            <li>
-                                                <strong><?= esc($source['label']) ?></strong>
-                                                <span><?= esc($source['count'] === 1 ? '1 mention' : $source['count'] . ' mentions') ?></span>
-                                                <?php if ($source['latestRelative'] !== null): ?>
-                                                    <span>Updated <?= esc($source['latestRelative']) ?></span>
-                                                <?php endif; ?>
-                                            </li>
-                                        <?php endforeach; ?>
-                                    </ul>
-                                </div>
+                </div>
+            <?php else: ?>
+                <div class="results-header">
+                    <h1><?= esc(formatNumber($resultCount)) ?> surfaced stor<?= $resultCount === 1 ? 'y' : 'ies' ?></h1>
+                    <?php if ($resultSubtitle !== ''): ?>
+                        <p><?= esc($resultSubtitle) ?></p>
+                    <?php endif; ?>
+                </div>
+                <ol class="results-list">
+                    <?php foreach ($results as $entry): ?>
+                        <?php
+                            $title = trim((string) ($entry['title'] ?? $entry['url'] ?? 'Untitled source'));
+                            $url = trim((string) ($entry['url'] ?? ''));
+                            $summarySource = (string) ($entry['summary'] ?? $entry['preview'] ?? '');
+                            $snippet = relevantSnippet($summarySource, $query);
+                            if ($snippet === '' && $summarySource !== '') {
+                                $snippet = trim($summarySource);
+                            }
+                            if ($snippet !== '' && mb_strlen($snippet) > 320) {
+                                $snippet = rtrim(mb_substr($snippet, 0, 317)) . '…';
+                            }
+                            $meta = metaLine($entry);
+                            $qualityScore = isset($entry['quality_score']) ? (float) $entry['quality_score'] : null;
+                            $contentType = isset($entry['content_type']) ? (string) $entry['content_type'] : '';
+                            $contentTypeLabel = match ($contentType) {
+                                'article' => 'Article',
+                                'non_article' => 'Brief',
+                                'error' => 'Unavailable',
+                                default => 'Landing page',
+                            };
+                            $relativeTimestamp = null;
+                            $timeCandidates = [
+                                isset($entry['source_published_at']) ? (string) $entry['source_published_at'] : null,
+                                isset($entry['last_checked_at']) ? (string) $entry['last_checked_at'] : null,
+                                isset($entry['fetched_at']) ? (string) $entry['fetched_at'] : null,
+                            ];
+                            foreach ($timeCandidates as $candidateTime) {
+                                if (!is_string($candidateTime) || trim($candidateTime) === '') {
+                                    continue;
+                                }
+                                $relativeTimestamp = formatRelative($candidateTime);
+                                if ($relativeTimestamp !== null) {
+                                    break;
+                                }
+                            }
+                            $badges = [];
+                            if ($qualityScore !== null && $qualityScore > 0) {
+                                $badges[] = [
+                                    'label' => 'Q' . (string) round($qualityScore),
+                                    'title' => sprintf('Quality score %s', formatScore($qualityScore)),
+                                    'class' => 'quality',
+                                ];
+                            }
+                            if ($contentTypeLabel !== '') {
+                                $badges[] = [
+                                    'label' => $contentTypeLabel,
+                                    'title' => 'Content type',
+                                    'class' => 'type',
+                                ];
+                            }
+                            if ($relativeTimestamp !== null) {
+                                $badges[] = [
+                                    'label' => $relativeTimestamp,
+                                    'title' => 'Last updated',
+                                    'class' => 'time',
+                                ];
+                            }
+                            if (!empty($entry['ingest'])) {
+                                $badges[] = [
+                                    'label' => 'Enriched',
+                                    'title' => 'Captured & enriched',
+                                    'class' => 'ingested',
+                                ];
+                            }
+                            $displayDomain = '';
+                            if (isset($entry['source_domain']) && is_string($entry['source_domain'])) {
+                                $displayDomain = trim($entry['source_domain']);
+                            }
+                            if ($displayDomain === '' && isset($entry['source_site_name']) && is_string($entry['source_site_name'])) {
+                                $displayDomain = trim($entry['source_site_name']);
+                            }
+                        ?>
+                        <li class="result">
+                            <?php if ($displayDomain !== ''): ?>
+                                <span class="result__url"><?= esc($displayDomain) ?></span>
                             <?php endif; ?>
-                            <?php if ($metaSources !== []): ?>
-                                <div class="insight-panel__section">
-                                    <h4>Quality leaders</h4>
-                                    <ul class="insight-panel__facts insight-panel__facts--quality">
-                                        <?php foreach ($metaSources as $source): ?>
-                                            <?php $sourceActive = isFilterActive($activeFilters, 'source', $source['domain']); ?>
-                                            <li>
-                                                <div class="insight-panel__fact-row">
-                                                    <strong><?= esc($source['domain']) ?></strong>
-                                                    <span><?= esc(formatNumber($source['count'])) ?> hits</span>
-                                                </div>
-                                                <div class="insight-panel__fact-meta">
-                                                    <span class="insight-panel__badge">Avg <?= esc(formatScore($source['average_quality'])) ?></span>
-                                                    <a class="insight-panel__link" href="<?= esc(toggleFilterUrl($searchPath, $queryParams, 'source', $source['domain'])) ?>">
-                                                        <?= esc($sourceActive ? 'Remove filter' : 'Focus publisher') ?>
-                                                    </a>
-                                                </div>
-                                            </li>
-                                        <?php endforeach; ?>
-                                    </ul>
-                                </div>
+                            <h2 class="result__title">
+                                <?php if ($url !== ''): ?>
+                                    <a href="<?= esc($url) ?>" target="_blank" rel="noopener noreferrer"><?= esc($title) ?></a>
+                                <?php else: ?>
+                                    <?= esc($title) ?>
+                                <?php endif; ?>
+                            </h2>
+                            <?php if ($snippet !== ''): ?>
+                                <p class="result__snippet"><?= highlightTerms($snippet, $query) ?></p>
                             <?php endif; ?>
+                            <?php if ($meta !== ''): ?>
+                                <p class="result__meta"><?= esc($meta) ?></p>
+                            <?php endif; ?>
+                            <?php if ($badges !== []): ?>
+                                <ul class="result__tags">
+                                    <?php foreach ($badges as $badge): ?>
+                                        <li class="result__tag result__tag--<?= esc($badge['class']) ?>" title="<?= esc($badge['title']) ?>"><?= esc($badge['label']) ?></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            <?php endif; ?>
+                        </li>
+                    <?php endforeach; ?>
+                </ol>
+            <?php endif; ?>
+        </div>
+        <aside class="search-main__aside">
+            <?php if ($facetGroups !== []): ?>
+                <section class="insight-card">
+                    <header class="insight-card__header">
+                        <h3>Filter results</h3>
+                        <p>Focus on the signals that matter.</p>
+                    </header>
+                    <?php foreach ($facetGroups as $group): ?>
+                        <div class="insight-card__section">
+                            <h4><?= esc($group['title']) ?></h4>
+                            <ul class="facet-list">
+                                <?php foreach ($group['items'] as $facet): ?>
+                                    <?php
+                                        if (!is_array($facet)) {
+                                            continue;
+                                        }
+                                        $facetKey = (string) ($facet['key'] ?? '');
+                                        if ($facetKey === '') {
+                                            continue;
+                                        }
+                                        $facetLabel = isset($facet['label']) ? (string) $facet['label'] : $facetKey;
+                                        $facetCount = (int) ($facet['count'] ?? 0);
+                                        $facetShare = isset($facet['share']) ? (float) $facet['share'] : null;
+                                        $facetActive = isFilterActive($activeFilters, $group['param'], $facetKey);
+                                        $facetUrl = toggleFilterUrl($searchPath, $queryParams, $group['param'], $facetKey);
+                                    ?>
+                                    <li>
+                                        <a class="facet-pill<?= $facetActive ? ' facet-pill--active' : '' ?>" href="<?= esc($facetUrl) ?>">
+                                            <span class="facet-pill__label"><?= esc($facetLabel) ?></span>
+                                            <span class="facet-pill__count"><?= esc(formatNumber($facetCount)) ?></span>
+                                            <span class="facet-pill__share"><?= esc(formatPercent($facetShare, 0)) ?></span>
+                                        </a>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </div>
+                    <?php endforeach; ?>
+                </section>
+            <?php endif; ?>
+            <?php if ($trendingTopics !== []): ?>
+                <section class="insight-card">
+                    <header class="insight-card__header">
+                        <h3>Trending topics</h3>
+                        <p>Pivot your coverage in a single click.</p>
+                    </header>
+                    <div class="insight-card__chips">
+                        <?php foreach ($trendingTopics as $topic): ?>
+                            <a class="chip chip--topic" href="<?= esc(buildSearchUrl($searchPath, ['q' => $topic['topic']])) ?>">
+                                <span><?= esc($topic['topic']) ?></span>
+                                <span class="chip__meta"><?= esc(formatNumber($topic['count'])) ?> hits</span>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+                </section>
+            <?php endif; ?>
+            <?php if ($topSources !== [] || $metaSources !== []): ?>
+                <section class="insight-card">
+                    <header class="insight-card__header">
+                        <h3>Publisher intelligence</h3>
+                        <p>See who is leading the conversation.</p>
+                    </header>
+                    <?php if ($topSources !== []): ?>
+                        <div class="insight-card__section">
+                            <h4>Leading outlets</h4>
+                            <ul class="insight-card__facts">
+                                <?php foreach ($topSources as $source): ?>
+                                    <li>
+                                        <strong><?= esc($source['label']) ?></strong>
+                                        <span><?= esc($source['count'] === 1 ? '1 mention' : $source['count'] . ' mentions') ?></span>
+                                        <?php if ($source['latestRelative'] !== null): ?>
+                                            <span>Updated <?= esc($source['latestRelative']) ?></span>
+                                        <?php endif; ?>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
                         </div>
                     <?php endif; ?>
-                    <div class="insight-panel">
-                        <div class="insight-panel__header">
-                            <h3>Search playbook</h3>
-                            <p>Sharpen your coverage in a few keystrokes.</p>
+                    <?php if ($metaSources !== []): ?>
+                        <div class="insight-card__section">
+                            <h4>Quality leaders</h4>
+                            <ul class="insight-card__facts insight-card__facts--quality">
+                                <?php foreach ($metaSources as $source): ?>
+                                    <?php $sourceActive = isFilterActive($activeFilters, 'source', $source['domain']); ?>
+                                    <li>
+                                        <div class="insight-card__fact-row">
+                                            <strong><?= esc($source['domain']) ?></strong>
+                                            <span><?= esc(formatNumber($source['count'])) ?> hits</span>
+                                        </div>
+                                        <div class="insight-card__fact-meta">
+                                            <span class="insight-card__badge">Avg <?= esc(formatScore($source['average_quality'])) ?></span>
+                                            <a class="insight-card__link" href="<?= esc(toggleFilterUrl($searchPath, $queryParams, 'source', $source['domain'])) ?>">
+                                                <?= esc($sourceActive ? 'Remove filter' : 'Focus publisher') ?>
+                                            </a>
+                                        </div>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
                         </div>
-                        <ul class="insight-panel__tips">
-                            <li>
-                                <strong>Use quotes</strong>
-                                <span>Wrap exact phrases like “generative AI” to keep results focused.</span>
-                            </li>
-                            <li>
-                                <strong>Combine filters</strong>
-                                <span>Add domains or entities (e.g. “open source github”) to compare coverage.</span>
-                            </li>
-                            <li>
-                                <strong>Refresh often</strong>
-                                <span>New crawls land every few minutes &mdash; rerun searches for the latest takes.</span>
-                            </li>
-                        </ul>
-                    </div>
-                </aside>
-            </div>
-        </div>
-    </section>
-</main>
-<?php SiteLayout::renderFooter($navigationPaths); ?>
+                    <?php endif; ?>
+                </section>
+            <?php endif; ?>
+            <section class="insight-card">
+                <header class="insight-card__header">
+                    <h3>Search playbook</h3>
+                    <p>Sharpen your coverage in a few keystrokes.</p>
+                </header>
+                <ul class="insight-card__tips">
+                    <li>
+                        <strong>Use quotes</strong>
+                        <span>Wrap exact phrases like “generative AI” to keep results focused.</span>
+                    </li>
+                    <li>
+                        <strong>Combine filters</strong>
+                        <span>Add domains or entities (e.g. “open source github”) to compare coverage.</span>
+                    </li>
+                    <li>
+                        <strong>Refresh often</strong>
+                        <span>New crawls land every few minutes &mdash; rerun searches for the latest takes.</span>
+                    </li>
+                </ul>
+            </section>
+        </aside>
+    </main>
+    <footer class="search-footer">© <?= date('Y') ?> AIresearch · Search insights engine</footer>
 </body>
 </html>
