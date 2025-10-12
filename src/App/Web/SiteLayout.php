@@ -7,21 +7,23 @@ namespace App\Web;
 final class SiteLayout
 {
     /**
-     * @param array{home?: string, search?: string} $paths
-     * @param string $active One of home|search
+     * @param array<string, array{label: string, href: string}> $links
+     * @param string $active
      * @param array<int, array{label: string, href: string, class?: string}> $actions
      */
-    public static function renderHeader(array $paths, string $active = 'home', array $actions = []): void
+    public static function renderHeader(array $links, string $active = 'home', array $actions = []): void
     {
-        $links = [
-            'home' => ['label' => 'Home', 'href' => $paths['home'] ?? '#'],
-            'search' => ['label' => 'Search', 'href' => $paths['search'] ?? '#'],
-        ];
+        if ($links === []) {
+            return;
+        }
+
+        $firstLink = reset($links);
+        $brandHref = $links['home']['href'] ?? (is_array($firstLink) ? ($firstLink['href'] ?? '#') : '#');
 
         echo '<header class="site-header">';
         echo '<div class="site-header__inner">';
         echo '<div class="site-header__cluster">';
-        echo '<a class="site-brand" href="' . self::escape($links['home']['href']) . '">AIresearch</a>';
+        echo '<a class="site-brand" href="' . self::escape($brandHref) . '">AIresearch</a>';
         echo '<nav class="site-nav" aria-label="Primary navigation">';
         foreach ($links as $key => $link) {
             $classes = ['site-nav__link'];
@@ -52,15 +54,11 @@ final class SiteLayout
         echo '</header>';
     }
 
-    /**
-     * @param array{home?: string, search?: string} $paths
-     */
-    public static function renderFooter(array $paths, string $tagline = 'Fast briefings from the AIresearch crawler.'): void
+    public static function renderFooter(array $links, string $tagline = 'Fast briefings from the AIresearch crawler.'): void
     {
-        $links = [
-            ['label' => 'Home', 'href' => $paths['home'] ?? '#'],
-            ['label' => 'Search', 'href' => $paths['search'] ?? '#'],
-        ];
+        if ($links === []) {
+            return;
+        }
 
         echo '<footer class="site-footer">';
         echo '<div class="site-footer__inner">';

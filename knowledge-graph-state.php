@@ -7,41 +7,36 @@ use App\KnowledgeGraph\GraphRepository;
 use App\KnowledgeGraph\GraphResearcher;
 use App\KnowledgeGraph\ResearchService;
 use App\News\NewsSearchService;
+use App\Web\AdminNavigation;
 use App\Web\PathResolver;
 
 require __DIR__ . '/src/App/bootstrap.php';
 
 return (static function (): array {
     $paths = PathResolver::resolve();
-    $assetBase = $paths['assetBase'];
-
-    if ($assetBase !== '') {
-        $normalizedAssetBase = (string) preg_replace('~/backend$~', '', $assetBase);
-        $assetBase = rtrim($normalizedAssetBase, '/');
-    }
-
-    if ($assetBase === '/') {
-        $assetBase = '';
-    }
-
+    $assetBase = PathResolver::normalizeBase($paths['assetBase']);
     $paths['assetBase'] = $assetBase;
 
     $stylesPath = PathResolver::url($assetBase, 'assets/styles.css');
     $themePath = PathResolver::url($assetBase, 'assets/theme.css');
     $researchStylesPath = PathResolver::url($assetBase, 'assets/research.css');
     $autocompleteScriptPath = PathResolver::url($assetBase, 'assets/autocomplete.js');
-    $homePath = PathResolver::url($assetBase, 'index.php');
-    $searchPath = PathResolver::url($assetBase, 'search.php');
-    $graphPath = PathResolver::url($assetBase, 'backend/knowledge-graph.php');
+    $navigationLinks = AdminNavigation::resolve();
+    $navigationPaths = [];
+    foreach ($navigationLinks as $key => $link) {
+        $navigationPaths[$key] = $link['href'];
+    }
+
+    $homePath = $navigationPaths['home'] ?? PathResolver::url($assetBase, 'index.php');
+    $searchPath = $navigationPaths['search'] ?? PathResolver::url($assetBase, 'search.php');
+    $graphPath = $navigationPaths['graph'] ?? PathResolver::url($assetBase, 'backend/knowledge-graph.php');
     $docsPath = PathResolver::url($assetBase, 'docs');
     $apiPath = PathResolver::url($assetBase, 'api/research.php');
     $scriptPath = PathResolver::url($assetBase, 'assets/knowledge-graph.js');
 
-    $navigationPaths = [
-        'home' => $homePath,
-        'search' => $searchPath,
-        'graph' => $graphPath,
-    ];
+    if (!isset($navigationPaths['graph'])) {
+        $navigationPaths['graph'] = $graphPath;
+    }
 
     $stylesVersion = file_exists(__DIR__ . '/assets/styles.css') ? (string) filemtime(__DIR__ . '/assets/styles.css') : (string) time();
     $themeVersion = file_exists(__DIR__ . '/assets/theme.css') ? (string) filemtime(__DIR__ . '/assets/theme.css') : (string) time();
@@ -400,6 +395,7 @@ return (static function (): array {
             'autocomplete' => $autocompleteScriptVersion,
             'script' => $scriptVersion,
         ],
+        'navigationLinks' => $navigationLinks,
         'navigationPaths' => $navigationPaths,
         'homePath' => $homePath,
         'searchPath' => $searchPath,

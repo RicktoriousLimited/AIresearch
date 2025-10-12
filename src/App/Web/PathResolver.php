@@ -47,4 +47,20 @@ final class PathResolver
 
         return rtrim($basePath, '/') . $normalized;
     }
+
+    public static function normalizeBase(string $basePath): string
+    {
+        $normalized = $basePath;
+
+        if ($normalized !== '') {
+            $normalized = (string) preg_replace('~/(?:backend)$~', '', $normalized);
+            $normalized = rtrim($normalized, '/');
+        }
+
+        if ($normalized === '/' || $normalized === '') {
+            return '';
+        }
+
+        return $normalized;
+    }
 }

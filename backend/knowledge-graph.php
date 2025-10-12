@@ -10,7 +10,7 @@ $state = require __DIR__ . '/../knowledge-graph-state.php';
 $assetBase = $state['assetBase'];
 $assets = $state['assets'];
 $versions = $state['versions'];
-$navigationPaths = $state['navigationPaths'];
+$navigationLinks = $state['navigationLinks'];
 $escape = $state['escape'];
 $formatNumber = $state['formatNumber'];
 $formatDate = $state['formatDate'];
@@ -83,7 +83,7 @@ $siteIntegrations = [
     <link rel="stylesheet" href="<?= $escape($assets['research'] . '?v=' . $versions['research']) ?>">
 </head>
 <body class="site site--graph">
-<?php SiteLayout::renderHeader($navigationPaths, 'graph', [
+<?php SiteLayout::renderHeader($navigationLinks, 'graph', [
     ['label' => 'Graph overview', 'href' => $overviewPath],
     ['label' => 'Autopilot brief', 'href' => $autopilotPath],
     ['label' => 'Research console', 'href' => $researchPath],
@@ -190,7 +190,7 @@ $siteIntegrations = [
         <?php endif; ?>
     </section>
 </main>
-<?php SiteLayout::renderFooter($navigationPaths, 'Unified knowledge graph powering AIresearch intelligence.'); ?>
+<?php SiteLayout::renderFooter($navigationLinks, 'Unified knowledge graph powering AIresearch intelligence.'); ?>
 <script>
     window.AIKnowledgeGraph = <?= $initialJson ?>;
 </script>
