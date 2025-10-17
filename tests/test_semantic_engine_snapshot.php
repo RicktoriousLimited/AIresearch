@@ -36,6 +36,7 @@ assertTrue(isset($exported['graph']), 'Graph missing from export payload');
 assertTrue(isset($exported['synonyms']), 'Synonyms missing from export payload');
 assertTrue(isset($exported['profiles']), 'Profiles missing from export payload');
 assertTrue(isset($exported['verbs']), 'Verb lexicon missing from export payload');
+assertTrue(isset($exported['related']), 'Related co-occurrence missing from export payload');
 
 $profiles = $engine->getEntityProfiles();
 assertTrue(isset($profiles['red fox']), 'Profile for red fox missing');

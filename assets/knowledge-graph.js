@@ -804,6 +804,19 @@
 
             const score = typeof entity.score === 'number' ? entity.score : 0;
             const synonyms = Array.isArray(entity.synonyms) ? entity.synonyms : [];
+            const relatedTerms = Array.isArray(entity.related_terms)
+                ? entity.related_terms
+                    .map((item) => {
+                        if (item && typeof item === 'object') {
+                            return String(item.entity || item.name || '').trim();
+                        }
+                        if (typeof item === 'string') {
+                            return item.trim();
+                        }
+                        return '';
+                    })
+                    .filter((value) => value !== '')
+                : [];
             const hints = [];
             if (entity.matched_synonym) {
                 hints.push(`Matched synonym: ${entity.matched_synonym}`);
@@ -828,6 +841,7 @@
                 <span class="entity-chip__name">${escapeHtml(name)}</span>
                 <span class="entity-chip__score">Confidence ${formatPercent(score)}</span>
                 ${synonyms.length ? `<span class="entity-chip__meta">Synonyms: ${escapeHtml(synonyms.join(', '))}</span>` : ''}
+                ${relatedTerms.length ? `<span class="entity-chip__meta">Related: ${escapeHtml(relatedTerms.slice(0, 3).join(', '))}</span>` : ''}
                 ${hints.length ? `<span class="entity-chip__signals">${escapeHtml(hints.join(' · '))}</span>` : ''}
             `;
             button.addEventListener('click', () => {
@@ -1631,6 +1645,24 @@
         }
 
         const synonyms = Array.isArray(summary.synonyms) ? summary.synonyms : [];
+        let relatedEntries = Array.isArray(summary.related_terms) ? summary.related_terms : [];
+        if ((!relatedEntries || relatedEntries.length === 0) && context && Array.isArray(context.related_terms)) {
+            relatedEntries = context.related_terms;
+        }
+        const relatedNames = relatedEntries
+            .map((item) => {
+                if (!item) {
+                    return '';
+                }
+                if (typeof item === 'string') {
+                    return item.trim();
+                }
+                if (typeof item === 'object') {
+                    return String(item.entity || item.name || '').trim();
+                }
+                return '';
+            })
+            .filter((value) => value !== '');
         const facts = Array.isArray(summary.facts) ? summary.facts : [];
         const relationCounts = summary.relation_counts && typeof summary.relation_counts === 'object'
             ? Object.entries(summary.relation_counts)
@@ -1693,6 +1725,9 @@
         const synonymBadge = synonyms.length
             ? `<p class="entity-summary__synonyms"><strong>Synonyms:</strong> ${escapeHtml(synonyms.join(', '))}</p>`
             : '';
+        const relatedBadge = relatedNames.length
+            ? `<p class="entity-summary__related"><strong>Related:</strong> ${escapeHtml(relatedNames.slice(0, 8).join(', '))}</p>`
+            : '';
 
         const highlightList = searchHighlights.length
             ? `<ul class="entity-summary__highlights">${searchHighlights
@@ -1722,6 +1757,7 @@
                     ${summary.eligible ? '<span class="entity-badge">Recommended</span>' : ''}
                 </header>
                 ${synonymBadge}
+                ${relatedBadge}
                 ${highlightList}
                 <section class="entity-summary__section">
                     <h4>Fact patterns</h4>

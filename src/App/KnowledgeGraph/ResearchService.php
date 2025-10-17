@@ -419,6 +419,7 @@ final class ResearchService
             $relationCounts = [];
             $counterpartCounts = [];
             $factDescriptions = [];
+            $relatedTerms = [];
 
             if (is_array($summary)) {
                 if (isset($summary['synonyms']) && is_array($summary['synonyms'])) {
@@ -481,9 +482,29 @@ final class ResearchService
                         }
                     }
                 }
+
+                if (isset($summary['related_terms']) && is_array($summary['related_terms'])) {
+                    foreach ($summary['related_terms'] as $related) {
+                        if (!is_array($related)) {
+                            continue;
+                        }
+
+                        $relatedName = isset($related['entity']) ? trim((string) $related['entity']) : '';
+                        if ($relatedName === '') {
+                            continue;
+                        }
+
+                        $relatedScore = isset($related['score']) ? $this->normaliseScore($related['score']) : 0.0;
+                        $relatedTerms[] = [
+                            'entity' => $relatedName,
+                            'score' => $relatedScore,
+                        ];
+                    }
+                }
             }
 
             $factDescriptions = array_values(array_unique($factDescriptions));
+            $relatedTerms = $this->normaliseRelatedTermList($relatedTerms);
 
             $rows[] = [
                 'entity' => $name,
@@ -494,7 +515,8 @@ final class ResearchService
                     $relationCounts,
                     $counterpartCounts,
                     $matchedFact,
-                    $matchedSynonym
+                    $matchedSynonym,
+                    $relatedTerms
                 ),
                 'matched_synonym' => $matchedSynonym,
                 'matched_fact' => $matchedFact,
@@ -503,6 +525,7 @@ final class ResearchService
                 'facts' => array_slice($factDescriptions, 0, 6),
                 'top_relations' => array_slice($relationCounts, 0, 3),
                 'top_counterparts' => array_slice($counterpartCounts, 0, 3),
+                'related_terms' => array_slice($relatedTerms, 0, 6),
                 'signals' => $this->normaliseSignals($entity['signals'] ?? []),
             ];
         }
@@ -662,7 +685,8 @@ final class ResearchService
         array $relations,
         array $counterparts,
         string $matchedFact,
-        string $matchedSynonym
+        string $matchedSynonym,
+        array $relatedTerms
     ): string {
         $parts = [];
 
@@ -684,11 +708,66 @@ final class ResearchService
             $parts[] = 'Synonym match: ' . $matchedSynonym;
         }
 
+        if ($relatedTerms !== []) {
+            $primaryRelated = $relatedTerms[0]['entity'] ?? '';
+            if (is_string($primaryRelated) && $primaryRelated !== '') {
+                $parts[] = 'Related to ' . $primaryRelated;
+            }
+        }
+
         if ($parts === []) {
             return $entity . ' appears in the knowledge graph.';
         }
 
         return $this->truncateText($entity . ' — ' . implode(' · ', $parts), 220);
+    }
+
+    /**
+     * @param array<int, array{entity: string, score: float}> $terms
+     * @return array<int, array{entity: string, score: float}>
+     */
+    private function normaliseRelatedTermList(array $terms): array
+    {
+        if ($terms === []) {
+            return [];
+        }
+
+        $seen = [];
+        $normalised = [];
+        foreach ($terms as $term) {
+            if (!is_array($term)) {
+                continue;
+            }
+
+            $entity = isset($term['entity']) ? trim((string) $term['entity']) : '';
+            if ($entity === '' || isset($seen[$entity])) {
+                continue;
+            }
+
+            $seen[$entity] = true;
+            $normalised[] = [
+                'entity' => $entity,
+                'score' => $this->normaliseScore($term['score'] ?? 0.0),
+            ];
+        }
+
+        if ($normalised === []) {
+            return [];
+        }
+
+        usort(
+            $normalised,
+            static function (array $left, array $right): int {
+                $comparison = $right['score'] <=> $left['score'];
+                if ($comparison !== 0) {
+                    return $comparison;
+                }
+
+                return $left['entity'] <=> $right['entity'];
+            }
+        );
+
+        return $normalised;
     }
 
     /**

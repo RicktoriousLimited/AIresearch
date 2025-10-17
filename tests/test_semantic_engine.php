@@ -54,6 +54,7 @@ assertTrue(isset($crossReferences['red fox']['ranking']), 'Expected ranking meta
 assertTrue(is_float($crossReferences['red fox']['ranking']['score']), 'Ranking score should be numeric');
 assertTrue(isset($crossReferences['red fox']['ranking']['signals']['authority']), 'Authority signal must be present');
 assertTrue(is_bool($crossReferences['red fox']['ranking']['eligible']), 'Eligible flag must be boolean');
+assertTrue(isset($crossReferences['red fox']['related_terms']), 'Cross references should expose related term placeholder');
 
 $engine = new SemanticEngine();
 $text = 'The Red Fox is a Wild Animal. Red Fox also known as Vulpes Vulpes.';
@@ -65,6 +66,26 @@ assertEquals(['vulpes vulpes'], $engine->querySynonyms('red fox'));
 $synonymTriples = $engine->iterTriples('synonym');
 assertContains(['red fox', 'synonym', 'vulpes vulpes'], $synonymTriples);
 assertContains(['vulpes vulpes', 'synonym', 'red fox'], $synonymTriples);
+
+$engine = new SemanticEngine();
+$text = 'Jane Doe (JD) leads Bright Labs.';
+$engine->extractRelations($text);
+assertTrue(in_array('jd', $engine->querySynonyms('jane doe'), true), 'Parenthetical alias should be captured as synonym');
+
+$engine = new SemanticEngine();
+$engine->addTriple('Jane Doe', 'works_at', 'Bright Labs');
+$engine->addTriple('Bright Labs', 'locatedin', 'London');
+$engine->registerKeywordCooccurrence([
+    ['token' => 'Jane Doe', 'count' => 3],
+    ['token' => 'Bright Labs', 'count' => 2],
+    ['token' => 'London', 'count' => 1],
+]);
+$relatedMap = $engine->getRelatedTerms();
+assertTrue(isset($relatedMap['jane doe']), 'Expected related map entry for Jane Doe');
+$janeRelated = array_column($relatedMap['jane doe'], 'entity');
+assertTrue(in_array('bright labs', $janeRelated, true), 'Bright Labs should appear as related term for Jane Doe');
+$crossReferences = $engine->buildCrossReferences();
+assertTrue(isset($crossReferences['jane doe']['related_terms']), 'Cross references should include related terms');
 
 $engine = new SemanticEngine();
 $text = 'High-speed train is a Transport System.';

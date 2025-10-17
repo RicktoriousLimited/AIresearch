@@ -1743,6 +1743,11 @@ td {
     color: rgba(226, 232, 240, 0.85);
 }
 
+.entity-summary__related {
+    margin: 0.25rem 0 0;
+    color: rgba(203, 213, 225, 0.85);
+}
+
 .entity-summary__highlights,
 .entity-summary__support,
 .entity-summary__facts {

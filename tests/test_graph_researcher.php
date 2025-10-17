@@ -169,6 +169,7 @@ assertEquals('alice smith', $summary['entity']);
 assertEquals(2, count($summary['facts']), 'Fact limit should be applied.');
 assertEquals(3, $summary['fact_count']);
 assertTrue(in_array('dr alice smith', $summary['synonyms'], true));
+assertTrue(isset($summary['related_terms']), 'Expected related terms key in summary.');
 assertTrue(isset($summary['relation_counts']['worksat']));
 assertTrue(isset($summary['counterpart_counts']['horizon lab']));
 assertTrue(isset($summary['fact_descriptions']) && is_array($summary['fact_descriptions']), 'Expected fact descriptions in summary.');
