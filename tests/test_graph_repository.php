@@ -23,7 +23,7 @@ if (!mkdir($directory) && !is_dir($directory)) {
 
 $path = $directory . '/snapshot.json';
 $repository = new GraphRepository($path);
-$result = new ExtractionResult([], [], [], [], [], [], [], []);
+$result = new ExtractionResult([], [], [], [], [], [], [], [], []);
 
 $repository->save($result, []);
 $payload = $repository->load();

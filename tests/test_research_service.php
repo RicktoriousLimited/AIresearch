@@ -114,6 +114,7 @@ final class FakeExtractor implements ExtractorInterface
         return new ExtractionResult(
             $triples,
             [],
+            [],
             $relations,
             $entities,
             $summary,

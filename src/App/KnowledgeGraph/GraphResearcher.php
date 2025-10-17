@@ -477,6 +477,9 @@ final class GraphResearcher
             $entityMatch['facts'] = isset($summary['fact_descriptions']) && is_array($summary['fact_descriptions'])
                 ? array_slice($summary['fact_descriptions'], 0, 6)
                 : [];
+            $entityMatch['related_terms'] = isset($summary['related_terms']) && is_array($summary['related_terms'])
+                ? array_slice($summary['related_terms'], 0, 6)
+                : [];
 
             $filteredEntities[] = $entityMatch;
         }
@@ -590,6 +593,7 @@ final class GraphResearcher
         $support = is_array($ranking['support'] ?? null) ? $ranking['support'] : [];
 
         $synonyms = is_array($payload['synonyms'] ?? null) ? array_values($payload['synonyms']) : [];
+        $related = $this->normaliseRelatedTerms($payload['related_terms'] ?? []);
         $context = is_array($payload['context'] ?? null) ? $payload['context'] : [];
 
         $limitedFacts = $factLimit > 0 ? array_slice($facts, 0, $factLimit) : $facts;
@@ -600,6 +604,7 @@ final class GraphResearcher
             'score' => $this->floatValue($ranking['score'] ?? 0.0),
             'eligible' => (bool) ($ranking['eligible'] ?? false),
             'synonyms' => $synonyms,
+            'related_terms' => $related,
             'signals' => $this->normaliseSignals($signals),
             'support' => $this->normaliseSupport($support),
             'facts' => $limitedFacts,
@@ -1684,6 +1689,57 @@ final class GraphResearcher
         }
 
         return $pairs;
+    }
+
+    /**
+     * @param mixed $value
+     * @return array<int, array{entity: string, score: float}>
+     */
+    private function normaliseRelatedTerms($value): array
+    {
+        if (!is_array($value)) {
+            return [];
+        }
+
+        $related = [];
+        foreach ($value as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $entity = isset($entry['entity']) ? trim((string) $entry['entity']) : '';
+            if ($entity === '') {
+                continue;
+            }
+
+            $score = $this->floatValue($entry['score'] ?? 0.0);
+            if ($score <= 0.0) {
+                continue;
+            }
+
+            $related[] = [
+                'entity' => $entity,
+                'score' => $score,
+            ];
+        }
+
+        if ($related === []) {
+            return [];
+        }
+
+        usort(
+            $related,
+            static function (array $left, array $right): int {
+                $comparison = $right['score'] <=> $left['score'];
+                if ($comparison !== 0) {
+                    return $comparison;
+                }
+
+                return $left['entity'] <=> $right['entity'];
+            }
+        );
+
+        return $related;
     }
 
     /**

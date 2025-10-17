@@ -16,6 +16,12 @@ class SemanticEngine
     /** @var array<string, array<string, true>> */
     private array $synonyms = [];
 
+    /** @var array<string, array<string, float>> */
+    private array $relatedWeights = [];
+
+    /** @var array<string, float> */
+    private array $relatedFrequency = [];
+
     /**
      * Entity-centric aggregation of relations for lightweight profiling.
      *
@@ -301,6 +307,76 @@ class SemanticEngine
     }
 
     /**
+     * Register keyword co-occurrence statistics to surface related entities.
+     *
+     * @param array<int, array{token?: mixed, count?: mixed}> $keywords
+     */
+    public function registerKeywordCooccurrence(array $keywords): void
+    {
+        if ($keywords === []) {
+            return;
+        }
+
+        $counts = [];
+        foreach ($keywords as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $token = $this->normalizeEntity((string) ($row['token'] ?? ''));
+            if ($token === '') {
+                continue;
+            }
+
+            $count = $row['count'] ?? 1;
+            if (!is_numeric($count)) {
+                $count = 1;
+            }
+
+            $counts[$token] = ($counts[$token] ?? 0.0) + max(1.0, (float) $count);
+        }
+
+        if ($counts === []) {
+            return;
+        }
+
+        foreach ($counts as $token => $count) {
+            $this->relatedFrequency[$token] = ($this->relatedFrequency[$token] ?? 0.0) + $count;
+        }
+
+        $tokens = array_keys($counts);
+        $total = count($tokens);
+        if ($total < 2) {
+            return;
+        }
+
+        for ($i = 0; $i < $total; $i++) {
+            $left = $tokens[$i];
+            $leftCount = $counts[$left];
+
+            for ($j = $i + 1; $j < $total; $j++) {
+                $right = $tokens[$j];
+                $rightCount = $counts[$right];
+
+                $weight = sqrt($leftCount * $rightCount);
+                if ($weight <= 0.0) {
+                    continue;
+                }
+
+                if (!isset($this->relatedWeights[$left])) {
+                    $this->relatedWeights[$left] = [];
+                }
+                if (!isset($this->relatedWeights[$right])) {
+                    $this->relatedWeights[$right] = [];
+                }
+
+                $this->relatedWeights[$left][$right] = ($this->relatedWeights[$left][$right] ?? 0.0) + $weight;
+                $this->relatedWeights[$right][$left] = ($this->relatedWeights[$right][$left] ?? 0.0) + $weight;
+            }
+        }
+    }
+
+    /**
      * Extract relation triples from text.
      *
      * @return array<int, array{0: string, 1: string, 2: string}>
@@ -350,6 +426,31 @@ class SemanticEngine
                 continue;
             }
 
+            $aliasMatches = [];
+            $aliasResult = preg_match_all('/(?P<entity>[\p{L}0-9][^()]{1,}?)\s*\((?P<alias>[^()]+)\)/u', $sentence, $aliasMatches, PREG_SET_ORDER);
+            if ($aliasResult !== false && $aliasResult > 0) {
+                foreach ($aliasMatches as $aliasMatch) {
+                    $entityRaw = trim((string) ($aliasMatch['entity'] ?? ''));
+                    $aliasRaw = trim((string) ($aliasMatch['alias'] ?? ''));
+                    if ($entityRaw === '' || $aliasRaw === '') {
+                        continue;
+                    }
+
+                    if (preg_match('/[a-z]/i', $aliasRaw) !== 1) {
+                        continue;
+                    }
+
+                    $entity = $this->normalizeEntity($entityRaw);
+                    $alias = $this->normalizeEntity($aliasRaw);
+                    if ($entity === '' || $alias === '' || $entity === $alias) {
+                        continue;
+                    }
+
+                    $this->addSynonym($entityRaw, $aliasRaw);
+                    $triples[] = [$entity, 'synonym', $alias];
+                }
+            }
+
             if (preg_match('/^(?P<subj>.+?)\s+is\s+(?:an?\s+)?(?P<obj>[\w\s\-]+)$/iu', $sentence, $matches)) {
                 $subjRaw = $matches['subj'];
                 $objRaw = $matches['obj'];
@@ -362,7 +463,7 @@ class SemanticEngine
                 continue;
             }
 
-            if (preg_match('/^(?P<left>.+?)\s+(aka|also known as|synonym of)\s+(?P<right>.+)$/iu', $sentence, $matches)) {
+            if (preg_match('/^(?P<left>.+?)\s+(aka|also known as|known as|nicknamed|alias(?:\s+of)?|goes by|synonym of)\s+(?P<right>.+)$/iu', $sentence, $matches)) {
                 $leftRaw = $matches['left'];
                 $rightRaw = $matches['right'];
                 $this->addSynonym($leftRaw, $rightRaw);
@@ -498,6 +599,82 @@ class SemanticEngine
     }
 
     /**
+     * @return array<string, array<int, array{entity: string, score: float}>>
+     */
+    public function getRelatedTerms(int $limit = 6, float $threshold = 0.2): array
+    {
+        $result = [];
+        foreach ($this->relatedWeights as $entity => $neighbors) {
+            if (!is_array($neighbors) || $neighbors === []) {
+                continue;
+            }
+
+            if (!$this->isTrackedEntity($entity)) {
+                continue;
+            }
+
+            $scored = [];
+            foreach ($neighbors as $neighbor => $weight) {
+                if (!is_string($neighbor) || $neighbor === '' || !$this->isTrackedEntity($neighbor)) {
+                    continue;
+                }
+
+                $score = $this->scoreRelatedTerm($entity, $neighbor, $weight);
+                if ($score < $threshold) {
+                    continue;
+                }
+
+                $scored[] = [
+                    'entity' => $neighbor,
+                    'score' => round($this->clampScore($score), 4),
+                ];
+            }
+
+            if ($scored === []) {
+                continue;
+            }
+
+            usort(
+                $scored,
+                static function (array $left, array $right): int {
+                    $scoreComparison = $right['score'] <=> $left['score'];
+                    if ($scoreComparison !== 0) {
+                        return $scoreComparison;
+                    }
+
+                    return $left['entity'] <=> $right['entity'];
+                }
+            );
+
+            $result[$entity] = array_slice($scored, 0, max(1, $limit));
+        }
+
+        if ($result === []) {
+            return [];
+        }
+
+        ksort($result);
+
+        return $result;
+    }
+
+    /**
+     * @return array<int, array{entity: string, related: array<int, array{entity: string, score: float}>}>
+     */
+    public function iterRelatedTerms(): array
+    {
+        $result = [];
+        foreach ($this->getRelatedTerms() as $entity => $neighbors) {
+            $result[] = [
+                'entity' => $entity,
+                'related' => $neighbors,
+            ];
+        }
+
+        return $result;
+    }
+
+    /**
      * Export the engine state.
      *
      * @return array{
@@ -505,7 +682,8 @@ class SemanticEngine
      *     synonyms: array<string, array<string, true>>,
      *     profiles: array<string, array{as_subject: array<string, int>, as_object: array<string, int>}>,
      *     verbs: array<int, string>,
-     *     document_signals: array{count: int, sums: array{uniqueness: float, freshness: float, quality: float, consistency: float}}
+     *     document_signals: array{count: int, sums: array{uniqueness: float, freshness: float, quality: float, consistency: float}},
+     *     related: array{weights: array<string, array<string, float>>, frequency: array<string, float>}
      * }
      */
     public function toArray(): array
@@ -518,6 +696,10 @@ class SemanticEngine
             'document_signals' => [
                 'count' => $this->documentSignalCount,
                 'sums' => $this->documentSignalSums,
+            ],
+            'related' => [
+                'weights' => $this->relatedWeights,
+                'frequency' => $this->relatedFrequency,
             ],
         ];
     }
@@ -576,6 +758,48 @@ class SemanticEngine
                     }
 
                     $engine->synonyms[$entity][$synonym] = true;
+                }
+            }
+        }
+
+        if (isset($payload['related']) && is_array($payload['related'])) {
+            $weights = $payload['related']['weights'] ?? [];
+            if (is_array($weights)) {
+                foreach ($weights as $entity => $neighbors) {
+                    if (!is_string($entity) || $entity === '' || !is_array($neighbors)) {
+                        continue;
+                    }
+
+                    foreach ($neighbors as $neighbor => $value) {
+                        if (!is_string($neighbor) || $neighbor === '') {
+                            continue;
+                        }
+
+                        $numeric = is_numeric($value) ? (float) $value : 0.0;
+                        if ($numeric <= 0.0) {
+                            continue;
+                        }
+
+                        if (!isset($engine->relatedWeights[$entity])) {
+                            $engine->relatedWeights[$entity] = [];
+                        }
+                        $engine->relatedWeights[$entity][$neighbor] = $numeric;
+                    }
+                }
+            }
+
+            $frequency = $payload['related']['frequency'] ?? [];
+            if (is_array($frequency)) {
+                foreach ($frequency as $entity => $value) {
+                    if (!is_string($entity) || $entity === '') {
+                        continue;
+                    }
+
+                    if (!is_numeric($value)) {
+                        continue;
+                    }
+
+                    $engine->relatedFrequency[$entity] = max(0.0, (float) $value);
                 }
             }
         }
@@ -795,6 +1019,41 @@ class SemanticEngine
             $references[$entity]['synonyms'] = $merged;
         }
 
+        $relatedIndex = $this->getRelatedTerms();
+        foreach ($relatedIndex as $entity => $entries) {
+            if (!isset($references[$entity])) {
+                if (!$this->isTrackedEntity($entity)) {
+                    continue;
+                }
+                $ensure($entity);
+            } else {
+                $ensure($entity);
+            }
+
+            $normalisedRelated = [];
+            foreach ($entries as $entry) {
+                if (!is_array($entry)) {
+                    continue;
+                }
+
+                $relatedEntity = (string) ($entry['entity'] ?? '');
+                if ($relatedEntity === '') {
+                    continue;
+                }
+
+                $normalisedRelated[] = [
+                    'entity' => $relatedEntity,
+                    'score' => (float) ($entry['score'] ?? 0.0),
+                ];
+            }
+
+            if ($normalisedRelated === []) {
+                continue;
+            }
+
+            $references[$entity]['related_terms'] = $normalisedRelated;
+        }
+
         foreach ($this->entityProfiles as $entity => $profile) {
             if (!is_string($entity) || $entity === '' || !is_array($profile)) {
                 continue;
@@ -858,6 +1117,10 @@ class SemanticEngine
             }
             if (!is_array($payload['synonyms'])) {
                 $payload['synonyms'] = [];
+            }
+
+            if (!isset($payload['related_terms']) || !is_array($payload['related_terms'])) {
+                $payload['related_terms'] = [];
             }
 
             $totalFacts = count($payload['facts']);
@@ -1059,6 +1322,49 @@ class SemanticEngine
         $delta = max(0, $currentYear - $latestYear);
 
         return $this->clampScore(1 - min(1, $delta / 8));
+    }
+
+    private function isTrackedEntity(string $entity): bool
+    {
+        if ($entity === '') {
+            return false;
+        }
+
+        if (isset($this->entityProfiles[$entity])) {
+            return true;
+        }
+
+        if (isset($this->synonyms[$entity])) {
+            return true;
+        }
+
+        foreach ($this->synonyms as $values) {
+            if (isset($values[$entity])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function scoreRelatedTerm(string $left, string $right, float $weight): float
+    {
+        if ($weight <= 0.0) {
+            return 0.0;
+        }
+
+        $leftFrequency = $this->relatedFrequency[$left] ?? 0.0;
+        $rightFrequency = $this->relatedFrequency[$right] ?? 0.0;
+        if ($leftFrequency <= 0.0 || $rightFrequency <= 0.0) {
+            return 0.0;
+        }
+
+        $normalised = $weight / sqrt($leftFrequency * $rightFrequency);
+        if ($normalised > 1.0) {
+            $normalised = 1.0;
+        }
+
+        return $normalised;
     }
 
     private function clampScore(float $value): float

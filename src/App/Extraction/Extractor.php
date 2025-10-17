@@ -59,6 +59,10 @@ final class Extractor implements ExtractorInterface
             }
 
             $engine->extractRelations($sourceText);
+
+            if (isset($analysis['keywords']) && is_array($analysis['keywords'])) {
+                $engine->registerKeywordCooccurrence($analysis['keywords']);
+            }
             $processedCount++;
         }
 
@@ -126,6 +130,8 @@ final class Extractor implements ExtractorInterface
             $engine->iterSynonyms()
         );
 
+        $relatedTerms = $engine->getRelatedTerms();
+
         $relationFrequency = [];
         $entityFrequency = [];
 
@@ -165,6 +171,7 @@ final class Extractor implements ExtractorInterface
         return new ExtractionResult(
             $triples,
             $synonyms,
+            $relatedTerms,
             $relationFrequency,
             $entityFrequency,
             $summary,

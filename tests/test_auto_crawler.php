@@ -86,6 +86,7 @@ final class CrawlerFakeExtractor implements ExtractorInterface
         return new ExtractionResult(
             $triples,
             [],
+            [],
             ['contains' => count($triples)],
             $entities,
             $summary,
