@@ -1374,15 +1374,34 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
         try {
             const response = await fetch('/backend/crawler-progress.php', { credentials: 'same-origin' });
             if (!response.ok) {
-                throw new Error('Unable to fetch progress');
+                let message = 'Unable to fetch progress';
+                try {
+                    const errorPayload = await response.json();
+                    if (errorPayload && typeof errorPayload.error === 'string' && errorPayload.error.trim() !== '') {
+                        message = errorPayload.error.trim();
+                    }
+                } catch (jsonError) {
+                    console.warn('Failed to parse crawler progress error response', jsonError);
+                }
+
+                if (response.status === 403 && state.pollTimer) {
+                    clearInterval(state.pollTimer);
+                    state.pollTimer = null;
+                }
+
+                throw new Error(message);
             }
+
             const payload = await response.json();
             if (payload && typeof payload.progress === 'object') {
                 updateView(payload.progress);
             }
         } catch (error) {
             if (!state.isRunning) {
-                setMessage('Unable to refresh crawl status.', true);
+                const message = error instanceof Error && typeof error.message === 'string' && error.message !== ''
+                    ? error.message
+                    : 'Unable to refresh crawl status.';
+                setMessage(message, true);
             }
         }
     }
