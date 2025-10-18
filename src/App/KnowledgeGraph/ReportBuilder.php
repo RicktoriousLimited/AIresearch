@@ -8,6 +8,7 @@ use App\Text\TextRefiner;
 use DateTimeImmutable;
 
 use function array_flip;
+use function array_key_last;
 use function array_intersect;
 use function array_keys;
 use function array_map;
@@ -175,6 +176,7 @@ final class ReportBuilder
         $highlights = [];
         $matchedIndices = [];
         $matchedRecords = [];
+        $fallbackEntries = [];
         foreach ($records as $index => $record) {
             $identifier = 'S' . ($index + 1);
             $keywordMatches = $queryTokens === []
@@ -197,10 +199,8 @@ final class ReportBuilder
 
             $uniquenessScore = $uniqueness[$index] ?? 0.0;
             $relevance = $this->clampScore(($queryScore * 0.5) + ($keywordCoverage * 0.2) + ($certainty * 0.2) + ($uniquenessScore * 0.1));
-
-            if ($queryTokens !== [] && $keywordMatches === 0) {
-                continue;
-            }
+            $fallbackScore = $this->clampScore(($certainty * 0.45) + ($uniquenessScore * 0.35) + ($record['keywords'] !== [] ? 0.1 : 0.0) + ($record['qa'] !== [] ? 0.1 : 0.0));
+            $effectiveRelevance = $relevance > 0.0 ? $relevance : $fallbackScore;
 
             $matchedIndices[] = $index;
             $matchedRecords[$index] = $record;
@@ -210,7 +210,7 @@ final class ReportBuilder
                 'id' => $identifier,
                 'title' => $record['title'] !== '' ? $record['title'] : $record['url'],
                 'summary' => $this->summariseText($record['summary'], 360),
-                'relevance' => $this->roundScore($relevance),
+                'relevance' => $this->roundScore($effectiveRelevance),
                 'uniqueness' => $this->roundScore($uniquenessScore),
                 'keywords' => array_slice($record['keywords'], 0, 10),
                 'analytics' => $analytics,
@@ -223,26 +223,64 @@ final class ReportBuilder
                 'citations' => [$identifier],
                 'images' => $record['images'],
             ];
+
+            if ($queryTokens !== [] && $keywordMatches === 0) {
+                $fallbackEntries[] = $highlights[array_key_last($highlights)];
+                array_pop($highlights);
+                unset($matchedRecords[$index]);
+                array_pop($matchedIndices);
+            }
         }
 
-        usort(
-            $highlights,
-            static function (array $left, array $right): int {
-                if ($left['relevance'] === $right['relevance']) {
-                    return $left['title'] <=> $right['title'];
-                }
-
-                return ($left['relevance'] < $right['relevance']) ? 1 : -1;
+        $comparator = static function (array $left, array $right): int {
+            if ($left['relevance'] === $right['relevance']) {
+                return $left['title'] <=> $right['title'];
             }
-        );
+
+            return ($left['relevance'] < $right['relevance']) ? 1 : -1;
+        };
+
+        if ($fallbackEntries !== []) {
+            usort($fallbackEntries, $comparator);
+        }
+
+        if ($queryTokens !== []) {
+            if ($highlights === []) {
+                $highlights = $fallbackEntries;
+            } elseif (count($highlights) < $limit && $fallbackEntries !== []) {
+                $needed = $limit - count($highlights);
+                foreach ($fallbackEntries as $entry) {
+                    $highlights[] = $entry;
+                    if (--$needed <= 0) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        usort($highlights, $comparator);
 
         $highlights = array_slice($highlights, 0, max(1, $limit));
 
         $highlightedIndices = [];
+        $highlightIndexSet = [];
         foreach ($highlights as $key => $highlight) {
             if (isset($highlight['record_index'])) {
                 $highlightedIndices[] = (int) $highlight['record_index'];
+                $highlightIndexSet[(int) $highlight['record_index']] = true;
                 unset($highlights[$key]['record_index']);
+            }
+        }
+
+        if ($matchedIndices === []) {
+            $matchedIndices = $highlightedIndices;
+        }
+
+        if ($matchedRecords === [] && $highlightIndexSet !== []) {
+            foreach (array_keys($highlightIndexSet) as $recordIndex) {
+                if (isset($records[$recordIndex])) {
+                    $matchedRecords[$recordIndex] = $records[$recordIndex];
+                }
             }
         }
 
@@ -366,10 +404,12 @@ final class ReportBuilder
             ];
         }
 
+        $documentCount = max(count($matchedRecords), count($highlightIndexSet));
+
         return [
             'query' => $query,
             'generated_at' => (new DateTimeImmutable())->format(DATE_ATOM),
-            'document_count' => count($matchedRecords),
+            'document_count' => $documentCount,
             'highlights' => $highlights,
             'combined_summary' => $combined,
             'topics' => array_slice($topics, 0, 12),

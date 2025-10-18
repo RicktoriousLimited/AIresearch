@@ -984,6 +984,24 @@ final class TextRefiner
             $tokens = [];
         }
 
+        $acronymLookup = [];
+        $acronymMatches = [];
+        preg_match_all('/\b[A-Z]{2,5}\b/u', $text, $acronymMatches);
+        if (isset($acronymMatches[0]) && is_array($acronymMatches[0])) {
+            foreach ($acronymMatches[0] as $match) {
+                if (!is_string($match)) {
+                    continue;
+                }
+
+                $lower = strtolower($match);
+                if ($lower === '') {
+                    continue;
+                }
+
+                $acronymLookup[$lower] = true;
+            }
+        }
+
         $counts = [];
         foreach ($tokens as $token) {
             if (!is_string($token)) {
@@ -995,7 +1013,8 @@ final class TextRefiner
                 continue;
             }
 
-            if (strlen($normalized) < 3) {
+            $isAcronym = isset($acronymLookup[$normalized]);
+            if (strlen($normalized) < 3 && !$isAcronym) {
                 continue;
             }
 
@@ -1003,14 +1022,15 @@ final class TextRefiner
                 continue;
             }
 
-            if (!$this->lexicon->contains($normalized) && !$this->looksLikeName($normalized)) {
+            if (!$isAcronym && !$this->lexicon->contains($normalized) && !$this->looksLikeName($normalized)) {
                 continue;
             }
 
             if (!isset($counts[$normalized])) {
                 $counts[$normalized] = 0;
             }
-            $counts[$normalized]++;
+
+            $counts[$normalized] += $isAcronym ? 2 : 1;
         }
 
         if ($counts === []) {
@@ -1021,7 +1041,7 @@ final class TextRefiner
 
         $keywords = [];
         foreach ($counts as $token => $count) {
-            $keywords[] = ['token' => $token, 'count' => $count];
+            $keywords[] = ['token' => $token, 'count' => (int) $count];
             if (count($keywords) >= $limit) {
                 break;
             }
@@ -3092,9 +3112,26 @@ final class TextRefiner
             return [];
         }
 
-        $parts = preg_split('/\n{2,}/', $normalized);
+        $paragraphs = $this->extractParagraphs($normalized, '/\n{2,}/');
+        if (count($paragraphs) <= 1) {
+            $fallback = $this->extractParagraphs($normalized, '/(?<=[.!?])\n+(?=\p{Lu})/u');
+            if (count($fallback) > count($paragraphs)) {
+                $paragraphs = $fallback;
+            }
+        }
+
+        return $paragraphs;
+    }
+
+    /**
+     * @param non-empty-string $pattern
+     * @return array<int, string>
+     */
+    private function extractParagraphs(string $text, string $pattern): array
+    {
+        $parts = preg_split($pattern, $text);
         if ($parts === false) {
-            return [$normalized];
+            return [trim($text)];
         }
 
         $paragraphs = [];
@@ -3103,6 +3140,7 @@ final class TextRefiner
             if ($trimmed === '') {
                 continue;
             }
+
             $paragraphs[] = $trimmed;
         }
 
