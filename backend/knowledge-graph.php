@@ -99,144 +99,189 @@ function esc(string $value): string
         </div>
     </header>
 
-    <section class="card">
-        <h2>Graph health summary</h2>
-        <?php if ($heroDigest !== []): ?>
-            <div class="summary-grid">
-                <?php foreach ($heroDigest as $metric): ?>
-                    <?php $metricLabel = (string) ($metric['label'] ?? ''); ?>
-                    <?php $metricValue = (string) ($metric['value'] ?? ''); ?>
-                    <?php if ($metricLabel === '' || $metricValue === '') { continue; } ?>
-                    <div class="summary-card">
-                        <h3><?= esc($metricLabel); ?></h3>
-                        <p><strong><?= esc($metricValue); ?></strong></p>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        <?php else: ?>
-            <p class="muted">Run a crawl or ingest sources to populate the knowledge graph.</p>
-        <?php endif; ?>
-
-        <?php if ($graphCoverageSignals !== []): ?>
-            <dl class="progress-grid">
-                <?php foreach ($graphCoverageSignals as $signal): ?>
-                    <?php $label = (string) ($signal['label'] ?? ''); ?>
-                    <?php $value = (string) ($signal['value'] ?? ''); ?>
-                    <?php $hint = (string) ($signal['hint'] ?? ''); ?>
-                    <?php if ($label === '' || $value === '') { continue; } ?>
+    <div class="admin-layout-grid">
+        <section class="admin-panel admin-panel--primary">
+            <article class="card admin-panel__section">
+                <header class="admin-panel__header">
                     <div>
-                        <dt><?= esc($label); ?></dt>
-                        <dd><?= esc($value); ?></dd>
-                        <?php if ($hint !== ''): ?>
-                            <p class="muted admin-text-xxs admin-space-top-xxs"><?= esc($hint); ?></p>
+                        <h2>Graph health</h2>
+                        <p class="muted admin-text-xs">Digest key coverage signals and ingestion pace at a glance.</p>
+                    </div>
+                </header>
+                <div class="admin-panel__body">
+                    <?php if ($heroDigest !== []): ?>
+                        <div class="summary-grid">
+                            <?php foreach ($heroDigest as $metric): ?>
+                                <?php $metricLabel = (string) ($metric['label'] ?? ''); ?>
+                                <?php $metricValue = (string) ($metric['value'] ?? ''); ?>
+                                <?php if ($metricLabel === '' || $metricValue === '') { continue; } ?>
+                                <div class="summary-card">
+                                    <h3><?= esc($metricLabel); ?></h3>
+                                    <p><strong><?= esc($metricValue); ?></strong></p>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php else: ?>
+                        <p class="muted">Run a crawl or ingest sources to populate the knowledge graph.</p>
+                    <?php endif; ?>
+
+                    <?php if ($graphCoverageSignals !== []): ?>
+                        <div>
+                            <h3 class="admin-card__title">Coverage signals</h3>
+                            <dl class="progress-grid">
+                                <?php foreach ($graphCoverageSignals as $signal): ?>
+                                    <?php $label = (string) ($signal['label'] ?? ''); ?>
+                                    <?php $value = (string) ($signal['value'] ?? ''); ?>
+                                    <?php $hint = (string) ($signal['hint'] ?? ''); ?>
+                                    <?php if ($label === '' || $value === '') { continue; } ?>
+                                    <div>
+                                        <dt><?= esc($label); ?></dt>
+                                        <dd><?= esc($value); ?></dd>
+                                        <?php if ($hint !== ''): ?>
+                                            <p class="muted admin-text-xxs admin-space-top-xxs"><?= esc($hint); ?></p>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endforeach; ?>
+                            </dl>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if ($graphTimeline !== []): ?>
+                        <div>
+                            <h3 class="admin-card__title">Recent ingestion</h3>
+                            <dl class="progress-grid progress-grid--timeline">
+                                <?php foreach ($graphTimeline as $bucket): ?>
+                                    <?php $label = (string) ($bucket['label'] ?? ''); ?>
+                                    <?php $count = (int) ($bucket['count'] ?? 0); ?>
+                                    <?php if ($label === '') { continue; } ?>
+                                    <div>
+                                        <dt><?= esc($label); ?></dt>
+                                        <dd><?= esc(number_format($count)); ?> sources</dd>
+                                    </div>
+                                <?php endforeach; ?>
+                            </dl>
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </article>
+
+            <article class="card admin-panel__section">
+                <h2>Graph spotlight</h2>
+                <?php if ($spotlight !== []): ?>
+                    <?php $sourceTitle = (string) ($spotlight['source_title'] ?? ''); ?>
+                    <?php $sourceUrl = (string) ($spotlight['source_url'] ?? ''); ?>
+                    <?php $sourcePreview = (string) ($spotlight['source_preview'] ?? ''); ?>
+                    <?php $fetchedAt = (string) ($spotlight['fetched_at'] ?? ''); ?>
+                    <div class="admin-spotlight">
+                        <div class="admin-spotlight__triple">
+                            <strong class="admin-spotlight__entity"><?= esc((string) ($spotlight['subject'] ?? '')); ?></strong>
+                            <span class="admin-spotlight__relation"><?= esc((string) ($spotlight['relation'] ?? '')); ?></span>
+                            <strong class="admin-spotlight__entity"><?= esc((string) ($spotlight['object'] ?? '')); ?></strong>
+                        </div>
+                        <?php if ($sourceTitle !== '' || $sourcePreview !== '' || $fetchedAt !== ''): ?>
+                            <div class="admin-spotlight__meta">
+                                <?php if ($sourceTitle !== '' && $sourceUrl !== ''): ?>
+                                    <a class="admin-link" href="<?= esc($sourceUrl); ?>" target="_blank" rel="noopener"><?= esc($sourceTitle); ?></a>
+                                <?php elseif ($sourceTitle !== ''): ?>
+                                    <span class="muted"><?= esc($sourceTitle); ?></span>
+                                <?php endif; ?>
+                                <?php if ($sourcePreview !== ''): ?>
+                                    <p class="muted admin-space-top-xxs"><?= esc($sourcePreview); ?></p>
+                                <?php endif; ?>
+                                <?php if ($fetchedAt !== ''): ?>
+                                    <p class="muted admin-text-xxs admin-no-margin-bottom">Fetched <?= esc($fetchedAt); ?></p>
+                                <?php endif; ?>
+                            </div>
                         <?php endif; ?>
                     </div>
-                <?php endforeach; ?>
-            </dl>
-        <?php endif; ?>
+                <?php else: ?>
+                    <p class="muted">The crawler has not surfaced a featured triple yet. Keep ingestion running to populate this section.</p>
+                <?php endif; ?>
+            </article>
+        </section>
 
-        <?php if ($graphTimeline !== []): ?>
-            <h3 class="admin-space-top-md admin-text-sm">Recent ingestion pace</h3>
-            <dl class="progress-grid">
-                <?php foreach ($graphTimeline as $bucket): ?>
-                    <?php $label = (string) ($bucket['label'] ?? ''); ?>
-                    <?php $count = (int) ($bucket['count'] ?? 0); ?>
-                    <?php if ($label === '') { continue; } ?>
-                    <div>
-                        <dt><?= esc($label); ?></dt>
-                        <dd><?= esc(number_format($count)); ?> sources</dd>
+        <aside class="admin-panel admin-panel--secondary" aria-label="Workspace navigation">
+            <section class="card admin-panel__section">
+                <h2>Workspace shortcuts</h2>
+                <nav aria-label="Workspace shortcuts">
+                    <ul class="admin-quick-links">
+                        <?php foreach ($workspaceCards as $card): ?>
+                            <?php if (!isset($card['title'], $card['href'])) { continue; } ?>
+                            <?php $title = (string) $card['title']; ?>
+                            <?php $description = (string) ($card['description'] ?? ''); ?>
+                            <?php $href = (string) $card['href']; ?>
+                            <?php $action = (string) ($card['action'] ?? 'Open'); ?>
+                            <?php if ($title === '' || $href === '') { continue; } ?>
+                            <li>
+                                <a class="admin-quick-link" href="<?= esc($href); ?>">
+                                    <span class="admin-quick-link__title"><?= esc($title); ?></span>
+                                    <?php if ($description !== ''): ?>
+                                        <span class="admin-quick-link__description muted"><?= esc($description); ?></span>
+                                    <?php endif; ?>
+                                    <?php if ($action !== ''): ?>
+                                        <span class="admin-quick-link__action"><?= esc($action); ?></span>
+                                    <?php endif; ?>
+                                </a>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </nav>
+            </section>
+
+            <section class="card admin-panel__section">
+                <h2>Search the graph</h2>
+                <form method="get" action="<?= esc($overviewPath); ?>">
+                    <label for="graph-search">Run a graph query</label>
+                    <div class="admin-input-row">
+                        <input id="graph-search" name="q" type="search" placeholder="Search people, organisations, relations&hellip;" spellcheck="false">
+                        <button type="submit">Search</button>
                     </div>
-                <?php endforeach; ?>
-            </dl>
-        <?php endif; ?>
-    </section>
-
-    <section class="card">
-        <h2>Search &amp; suggested prompts</h2>
-        <form class="admin-space-top-sm" method="get" action="<?= esc($overviewPath); ?>">
-            <label for="graph-search">Search the knowledge graph</label>
-            <input id="graph-search" name="q" type="search" placeholder="Search people, organisations, relations&hellip;" spellcheck="false">
-            <button type="submit">Search graph</button>
-        </form>
-        <?php if ($trendingTopics !== []): ?>
-            <div class="recommended">
-                <span>Suggested queries</span>
-                <?php foreach ($trendingTopics as $topic): ?>
-                    <?php $topic = (string) $topic; ?>
-                    <?php if ($topic === '') { continue; } ?>
-                    <?php $href = $overviewPath . '?' . http_build_query(['q' => $topic]); ?>
-                    <a href="<?= esc($href); ?>" class="pill-link ghost"><?= esc($topic); ?></a>
-                <?php endforeach; ?>
-            </div>
-        <?php endif; ?>
-    </section>
-
-    <section class="card">
-        <h2>Workspace shortcuts</h2>
-        <div class="history-grid">
-            <?php foreach ($workspaceCards as $card): ?>
-                <?php if (!isset($card['title'], $card['description'], $card['href'], $card['action'])) { continue; } ?>
-                <article class="card card--ghost">
-                    <h3><?= esc((string) $card['title']); ?></h3>
-                    <p class="muted"><?= esc((string) $card['description']); ?></p>
-                    <a class="pill-link" href="<?= esc((string) $card['href']); ?>"><?= esc((string) $card['action']); ?></a>
-                </article>
-            <?php endforeach; ?>
-        </div>
-    </section>
-
-    <section class="card">
-        <h2>Graph spotlight</h2>
-        <?php if ($spotlight !== []): ?>
-            <p class="muted">Highlighted triple sourced from the latest ingestion run.</p>
-            <div class="admin-space-top-sm">
-                <strong><?= esc((string) ($spotlight['subject'] ?? '')); ?></strong>
-                <span class="muted"><?= esc((string) ($spotlight['relation'] ?? '')); ?></span>
-                <strong><?= esc((string) ($spotlight['object'] ?? '')); ?></strong>
-            </div>
-            <?php $sourceTitle = (string) ($spotlight['source_title'] ?? ''); ?>
-            <?php $sourceUrl = (string) ($spotlight['source_url'] ?? ''); ?>
-            <?php $sourcePreview = (string) ($spotlight['source_preview'] ?? ''); ?>
-            <div class="admin-space-top-sm">
-                <?php if ($sourceTitle !== '' && $sourceUrl !== ''): ?>
-                    <a class="admin-link" href="<?= esc($sourceUrl); ?>" target="_blank" rel="noopener"><?= esc($sourceTitle); ?></a>
-                <?php elseif ($sourceTitle !== ''): ?>
-                    <span class="muted"><?= esc($sourceTitle); ?></span>
+                </form>
+                <?php if ($trendingTopics !== []): ?>
+                    <p class="muted admin-text-xxs admin-space-top-sm">Suggested queries</p>
+                    <div class="admin-chip-group" role="list">
+                        <?php foreach ($trendingTopics as $topic): ?>
+                            <?php $topic = (string) $topic; ?>
+                            <?php if ($topic === '') { continue; } ?>
+                            <?php $href = $overviewPath . '?' . http_build_query(['q' => $topic]); ?>
+                            <a class="admin-chip" href="<?= esc($href); ?>" role="listitem"><?= esc($topic); ?></a>
+                        <?php endforeach; ?>
+                    </div>
                 <?php endif; ?>
-                <?php if ($sourcePreview !== ''): ?>
-                    <p class="muted admin-space-top-xxs"><?= esc($sourcePreview); ?></p>
-                <?php endif; ?>
-                <?php $fetchedAt = (string) ($spotlight['fetched_at'] ?? ''); ?>
-                <?php if ($fetchedAt !== ''): ?>
-                    <p class="muted admin-text-xxs admin-no-margin-bottom">Fetched <?= esc($fetchedAt); ?></p>
-                <?php endif; ?>
-            </div>
-        <?php else: ?>
-            <p class="muted">The crawler has not surfaced a featured triple yet. Keep ingestion running to populate this section.</p>
-        <?php endif; ?>
-    </section>
+            </section>
 
-    <section class="card">
-        <h2>Use the graph across the site</h2>
-        <div class="history-grid">
-            <?php foreach ($siteIntegrations as $integration): ?>
-                <?php $title = (string) ($integration['title'] ?? ''); ?>
-                <?php $description = (string) ($integration['description'] ?? ''); ?>
-                <?php $href = (string) ($integration['href'] ?? ''); ?>
-                <?php if ($title === '' || $href === '') { continue; } ?>
-                <article class="card card--ghost">
-                    <h3><?= esc($title); ?></h3>
-                    <?php if ($description !== ''): ?>
-                        <p class="muted"><?= esc($description); ?></p>
+            <?php if ($siteIntegrations !== [] || $graphRepositoryPath !== ''): ?>
+                <section class="card admin-panel__section">
+                    <h2>Integrations &amp; docs</h2>
+                    <?php if ($siteIntegrations !== []): ?>
+                        <ul class="admin-quick-links admin-quick-links--compact">
+                            <?php foreach ($siteIntegrations as $integration): ?>
+                                <?php $title = (string) ($integration['title'] ?? ''); ?>
+                                <?php $description = (string) ($integration['description'] ?? ''); ?>
+                                <?php $href = (string) ($integration['href'] ?? ''); ?>
+                                <?php $action = (string) ($integration['action'] ?? 'Visit'); ?>
+                                <?php if ($title === '' || $href === '') { continue; } ?>
+                                <li>
+                                    <a class="admin-quick-link" href="<?= esc($href); ?>">
+                                        <span class="admin-quick-link__title"><?= esc($title); ?></span>
+                                        <?php if ($description !== ''): ?>
+                                            <span class="admin-quick-link__description muted"><?= esc($description); ?></span>
+                                        <?php endif; ?>
+                                        <?php if ($action !== ''): ?>
+                                            <span class="admin-quick-link__action"><?= esc($action); ?></span>
+                                        <?php endif; ?>
+                                    </a>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
                     <?php endif; ?>
-                    <a class="pill-link ghost" href="<?= esc($href); ?>">Visit</a>
-                </article>
-            <?php endforeach; ?>
-        </div>
-        <?php if ($graphRepositoryPath !== ''): ?>
-            <p class="muted admin-space-top-md">Snapshots live at <code><?= esc($graphRepositoryPath); ?></code>.</p>
-        <?php endif; ?>
-    </section>
+                    <?php if ($graphRepositoryPath !== ''): ?>
+                        <p class="muted admin-text-xs admin-space-top-sm">Snapshots live at <code><?= esc($graphRepositoryPath); ?></code>.</p>
+                    <?php endif; ?>
+                </section>
+            <?php endif; ?>
+        </aside>
+    </div>
 </main>
 </body>
 </html>
