@@ -36,6 +36,46 @@ $overviewPath = PathResolver::url($assetBase, 'knowledge-graph-overview.php');
 $autopilotPath = PathResolver::url($assetBase, 'knowledge-graph-autopilot.php');
 $researchPath = PathResolver::url($assetBase, 'knowledge-graph-research.php');
 
+$entityFilter = isset($_GET['entity']) ? trim((string) $_GET['entity']) : '';
+$entityLimit = isset($_GET['limit']) ? (int) $_GET['limit'] : 5;
+$limitOptions = [5, 10, 15, 20];
+if (!in_array($entityLimit, $limitOptions, true)) {
+    $entityLimit = 5;
+}
+
+$entitiesFiltered = $entities;
+if ($entityFilter !== '') {
+    $entitiesFiltered = array_values(array_filter($entities, static function ($entity) use ($entityFilter): bool {
+        if (!is_array($entity)) {
+            return false;
+        }
+
+        $name = isset($entity['entity']) ? (string) $entity['entity'] : '';
+        if ($name !== '' && stripos($name, $entityFilter) !== false) {
+            return true;
+        }
+
+        $synonyms = $entity['summary']['synonyms'] ?? [];
+        if (is_array($synonyms)) {
+            foreach ($synonyms as $synonym) {
+                if (!is_string($synonym)) {
+                    continue;
+                }
+
+                if (stripos($synonym, $entityFilter) !== false) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }));
+}
+
+$entitiesSubset = array_slice($entitiesFiltered, 0, $entityLimit);
+$filterActive = $entityFilter !== '' || $entityLimit !== 5;
+$noEntityResults = $hasGraph && $filterActive && $entitiesSubset === [];
+
 $workspaceShortcuts = [
     [
         'title' => 'Autopilot briefs',
@@ -138,8 +178,18 @@ $siteIntegrations = [
             </div>
         </div>
     </section>
+    <nav class="graph-subnav" aria-label="Graph sections">
+        <div class="site-container">
+            <ul class="graph-subnav__list">
+                <li><a class="graph-subnav__link" href="#graph-snapshot">Snapshot</a></li>
+                <li><a class="graph-subnav__link" href="#graph-entities">Entity explorer</a></li>
+                <li><a class="graph-subnav__link" href="#graph-timeline">Ingestion timeline</a></li>
+                <li><a class="graph-subnav__link" href="#graph-spotlight">Spotlight</a></li>
+            </ul>
+        </div>
+    </nav>
     <?php if ($trendingTopics !== []): ?>
-        <section class="graph-suggestions site-container" data-graph-suggestions>
+        <section class="graph-suggestions site-container" data-graph-suggestions id="graph-suggestions">
             <div class="graph-suggestions__header">
                 <h2>Suggested graph prompts</h2>
                 <p>Spotlighted topics and suggested prompts pulled from the latest ingestion runs.</p>
@@ -154,16 +204,52 @@ $siteIntegrations = [
         </section>
     <?php endif; ?>
     <div class="graph-shell site-container">
-        <section class="panel">
+        <section class="panel" id="graph-snapshot">
             <header class="panel-header">
                 <div>
                     <h2>Graph snapshot</h2>
                     <p class="panel-subtitle">A concise look at coverage and fresh evidence.</p>
                 </div>
             </header>
-            <div class="graph-feedback<?= $hasGraph ? ' is-hidden' : '' ?>" data-graph-feedback role="status">
+            <form class="graph-filter" method="get" action="<?= $escape($overviewPath) ?>#graph-entities">
+                <div class="graph-filter__grid">
+                    <div class="graph-filter__field">
+                        <label for="entity-filter">Filter entities</label>
+                        <input
+                            id="entity-filter"
+                            name="entity"
+                            type="search"
+                            value="<?= $escape($entityFilter) ?>"
+                            placeholder="Search by entity or synonym"
+                        >
+                    </div>
+                    <div class="graph-filter__field">
+                        <label for="entity-limit">Show results</label>
+                        <select id="entity-limit" name="limit">
+                            <?php foreach ($limitOptions as $option): ?>
+                                <option value="<?= $option ?>"<?= $entityLimit === $option ? ' selected' : '' ?>><?= $option ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+                <div class="graph-filter__actions">
+                    <button type="submit" class="button primary">Apply filters</button>
+                    <?php if ($filterActive): ?>
+                        <a class="button button--ghost" href="<?= $escape($overviewPath) ?>#graph-entities">Reset</a>
+                    <?php endif; ?>
+                </div>
+            </form>
+            <?php
+                $feedbackClasses = 'graph-feedback';
+                if ($hasGraph && !$noEntityResults) {
+                    $feedbackClasses .= ' is-hidden';
+                }
+            ?>
+            <div class="<?= $escape($feedbackClasses) ?>" data-graph-feedback role="status">
                 <?php if (!$hasGraph): ?>
                     <p>No scraped documents yet. Use the <a href="<?= $escape($state['homePath']) ?>">Data Preparation Studio</a> to fetch an article and enrich the shared graph.</p>
+                <?php elseif ($noEntityResults): ?>
+                    <p>No entities matched <?= $entityFilter !== '' ? '<strong>' . $escape($entityFilter) . '</strong>' : 'the selected filters' ?>. Try broadening the query or <a href="<?= $escape($overviewPath) ?>#graph-entities">reset the filters</a>.</p>
                 <?php endif; ?>
             </div>
             <?php if ($hasGraph): ?>
@@ -186,12 +272,12 @@ $siteIntegrations = [
                         <?php endif; ?>
                     </article>
                 </div>
-                <div class="grid graph-grid" data-graph-grid>
+                <div class="grid graph-grid" data-graph-grid id="graph-entities">
                     <article class="card">
                         <h3>Key entities</h3>
-                        <p class="card-subtle" data-graph-entities-empty<?= $entities !== [] ? ' hidden' : '' ?>>Run a search to surface the most relevant entities.</p>
+                        <p class="card-subtle" data-graph-entities-empty<?= $entitiesSubset !== [] ? ' hidden' : '' ?>>Run a search or adjust the filters to surface the most relevant entities.</p>
                         <div class="entity-results" data-graph-entities>
-                            <?php foreach (array_slice($entities, 0, 5) as $entity): ?>
+                            <?php foreach ($entitiesSubset as $entity): ?>
                                 <?php $entityName = (string) ($entity['entity'] ?? ''); ?>
                                 <?php if ($entityName === '') { continue; } ?>
                                 <button type="button" class="entity-chip" data-entity="<?= $escape($entityName) ?>">
@@ -292,7 +378,7 @@ $siteIntegrations = [
                             <?php endforeach; ?>
                         </ul>
                     </article>
-                    <article class="card">
+                    <article class="card" id="graph-timeline">
                         <h3>Recent ingestion</h3>
                         <p class="card-subtle" data-graph-timeline-empty<?= $graphTimeline !== [] ? ' hidden' : '' ?>>Timeline updates appear once sources are merged into the knowledge graph.</p>
                         <?php $maxTimelineCount = $graphTimeline !== [] ? max(array_map(static fn($row) => (int) ($row['count'] ?? 0), $graphTimeline)) : 0; ?>
@@ -310,7 +396,7 @@ $siteIntegrations = [
                             <?php endforeach; ?>
                         </ul>
                     </article>
-                    <article class="card">
+                    <article class="card" id="graph-spotlight">
                         <h3>Graph spotlight</h3>
                         <p class="card-subtle" data-graph-spotlight-empty<?= is_array($spotlight) && $spotlight !== [] ? ' hidden' : '' ?>>Once ingestion runs, we highlight a fresh triple with its supporting source.</p>
                         <div class="graph-spotlight" data-graph-spotlight>
