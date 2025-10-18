@@ -1302,8 +1302,8 @@
 
 .graph-analytics__grid {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1.75rem;
 }
 
 .graph-timeline {

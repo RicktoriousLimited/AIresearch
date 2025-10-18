@@ -628,6 +628,33 @@
     }
 }
 
+.graph-page .insight-stack {
+    display: grid;
+    gap: 1.75rem;
+}
+
+.graph-page .insight-stack--two {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.graph-page .insight-stack__column {
+    display: grid;
+    gap: 1.75rem;
+}
+
+.graph-page .card--status {
+    border-left: 4px solid var(--accent);
+    padding-left: calc(1.75rem - 4px);
+}
+
+.graph-page .insight-toolbar {
+    gap: 1.5rem;
+}
+
+.graph-page .insight-toolbar .graph-filter__actions {
+    justify-content: flex-end;
+}
+
 @media (max-width: 640px) {
     .graph-page .graph-filter {
         padding: 1rem 1.1rem;

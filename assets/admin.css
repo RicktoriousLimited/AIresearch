@@ -156,6 +156,24 @@
     padding-top: 1.35rem;
 }
 
+.backend-admin .admin-insight-split {
+    display: grid;
+    gap: 1.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.backend-admin .admin-insight-split__column {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.backend-admin .admin-insight {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
 .backend-admin .admin-form-actions {
     display: flex;
     flex-wrap: wrap;

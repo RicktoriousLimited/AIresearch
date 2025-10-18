@@ -102,7 +102,7 @@ $integrationLinks = [
                 <div class="graph-hero__intro">
                     <p class="eyebrow">Operations console</p>
                     <h1>Grow the knowledge graph</h1>
-                    <p class="lead">Keep ingestion running smoothly with a focused set of tools.</p>
+                    <p class="lead">Keep ingestion running smoothly with AI-assisted triage and streamlined controls.</p>
                     <?php if ($heroDigest !== []): ?>
                         <ul class="graph-hero__metrics">
                             <?php foreach ($heroDigest as $metric): ?>
@@ -157,74 +157,79 @@ $integrationLinks = [
             <header class="panel-header">
                 <div>
                     <h2>Research console</h2>
-                    <p class="panel-subtitle">Review high-priority entities and run crawls without distraction.</p>
+                    <p class="panel-subtitle">Stay focused on the essentials with AI prioritisation and streamlined crawl controls.</p>
                 </div>
                 <div class="panel-actions">
                     <button type="button" class="button ghost" data-refresh-sources>Refresh stored sources</button>
                 </div>
             </header>
-            <div class="grid research-grid">
-                <article class="card">
-                    <h3>Recommended leads</h3>
-                    <p class="card-subtle" data-top-empty>No enriched entities yet. Run a crawl or scrape a page to surface suggestions.</p>
-                    <div class="entity-results entity-results--top" data-top-entities></div>
-                </article>
-                <article class="card">
-                    <h3>Auto crawler</h3>
-                    <form class="crawler-form" data-crawl-form>
-                        <div class="form-group">
-                            <label for="crawl-seeds">Seed URLs</label>
-                            <textarea id="crawl-seeds" data-crawl-seeds placeholder="https://example.com/news&#10;https://labs.example.org/blog" spellcheck="false" required></textarea>
-                            <p class="help-text">Provide one URL per line. The crawler fetches each page, follows in-domain links, and merges new triples into the shared graph.</p>
-                        </div>
-                        <div class="crawler-inline">
-                            <label>
-                                <span>Pages to crawl</span>
-                                <input type="number" min="1" max="50" value="5" data-crawl-limit>
-                            </label>
-                            <label>
-                                <span>Depth</span>
-                                <input type="number" min="0" max="5" value="2" data-crawl-depth>
-                            </label>
-                        </div>
-                        <label class="toggle crawler-toggle">
-                            <input type="checkbox" data-crawl-cross-domain>
-                            <span>Allow cross-domain crawling</span>
-                        </label>
-                        <div class="crawler-actions">
-                            <button type="submit" class="button primary">Start crawl</button>
-                        </div>
-                    </form>
-                    <div class="status crawler-status" data-crawl-status></div>
-                    <div class="crawler-results" data-crawl-results hidden>
-                        <h4>Latest crawl</h4>
-                        <ul class="list-block" data-crawl-ingested></ul>
-                        <div class="crawler-errors" data-crawl-errors hidden>
-                            <h5>Errors</h5>
+            <div class="insight-stack insight-stack--two research-console__stack">
+                <div class="insight-stack__column">
+                    <article class="card">
+                        <h3>Priority entities</h3>
+                        <p class="card-subtle" data-top-empty>No enriched entities yet. Run a crawl or scrape a page to surface suggestions.</p>
+                        <div class="entity-results entity-results--top" data-top-entities></div>
+                    </article>
+                    <article class="card card--status">
+                        <h3>Automation status</h3>
+                        <p class="card-subtle" data-crawl-summary-empty>No automated crawl has been run yet.</p>
+                        <dl class="summary-list" data-crawl-summary hidden></dl>
+                        <div class="crawler-queue" data-crawl-queue hidden>
+                            <h4>Queued URLs</h4>
+                            <p class="card-subtle" data-crawl-queue-empty>No queued URLs.</p>
                             <ul></ul>
                         </div>
-                    </div>
-                </article>
-                <article class="card">
-                    <h3>Crawl summary</h3>
-                    <p class="card-subtle" data-crawl-summary-empty>No automated crawl has been run yet.</p>
-                    <dl class="summary-list" data-crawl-summary hidden></dl>
-                    <div class="crawler-queue" data-crawl-queue hidden>
-                        <h4>Remaining queue</h4>
-                        <p class="card-subtle" data-crawl-queue-empty>No queued URLs.</p>
-                        <ul></ul>
-                    </div>
-                </article>
+                    </article>
+                </div>
+                <div class="insight-stack__column">
+                    <article class="card">
+                        <h3>Automated crawler</h3>
+                        <p class="card-subtle">Launch ingestion with tuned defaults monitored by our AI assistants.</p>
+                        <form class="crawler-form" data-crawl-form>
+                            <div class="form-group">
+                                <label for="crawl-seeds">Seed URLs</label>
+                                <textarea id="crawl-seeds" data-crawl-seeds placeholder="https://example.com/news&#10;https://labs.example.org/blog" spellcheck="false" required></textarea>
+                                <p class="help-text">Provide one URL per line. The crawler fetches each page, follows in-domain links, and merges new triples into the shared graph.</p>
+                            </div>
+                            <div class="crawler-inline">
+                                <label>
+                                    <span>Pages to crawl</span>
+                                    <input type="number" min="1" max="50" value="5" data-crawl-limit>
+                                </label>
+                                <label>
+                                    <span>Depth</span>
+                                    <input type="number" min="0" max="5" value="2" data-crawl-depth>
+                                </label>
+                            </div>
+                            <label class="toggle crawler-toggle">
+                                <input type="checkbox" data-crawl-cross-domain>
+                                <span>Allow cross-domain crawling</span>
+                            </label>
+                            <div class="crawler-actions">
+                                <button type="submit" class="button primary">Start crawl</button>
+                            </div>
+                        </form>
+                        <div class="status crawler-status" data-crawl-status></div>
+                        <div class="crawler-results" data-crawl-results hidden>
+                            <h4>Latest crawl</h4>
+                            <ul class="list-block" data-crawl-ingested></ul>
+                            <div class="crawler-errors" data-crawl-errors hidden>
+                                <h5>Errors</h5>
+                                <ul></ul>
+                            </div>
+                        </div>
+                    </article>
+                </div>
             </div>
         </section>
         <section class="panel">
             <header class="panel-header">
                 <div>
                     <h2>Graph health &amp; ingestion</h2>
-                    <p class="panel-subtitle">Stay ahead of ingestion trends and surface the freshest supporting context.</p>
+                    <p class="panel-subtitle">Monitor the pulse of the graph with condensed health signals and curated evidence.</p>
                 </div>
             </header>
-            <div class="grid graph-analytics__grid">
+            <div class="insight-stack insight-stack--two graph-analytics__stack">
                 <article class="card">
                     <h3>Graph health signals</h3>
                     <p class="card-subtle" data-graph-coverage-empty<?= $graphCoverageSignals !== [] ? ' hidden' : '' ?>>Keep crawls running to populate coverage, synonym, and ingestion metrics.</p>
