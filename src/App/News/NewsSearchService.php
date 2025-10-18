@@ -6,6 +6,7 @@ namespace App\News;
 
 use App\Crawler\HiddenCrawler;
 use App\KnowledgeGraph\GraphRepository;
+use App\KnowledgeGraph\GraphResearcher;
 use App\News\Ranking\BM25Ranker;
 use DateTimeImmutable;
 use Exception;
@@ -67,6 +68,8 @@ final class NewsSearchService
 
     private GraphRepository $graphRepository;
 
+    private ?GraphResearcher $graphResearcher = null;
+
     private ?BM25Ranker $bm25Ranker = null;
 
     /**
@@ -99,6 +102,16 @@ final class NewsSearchService
      */
     private ?array $graphSnapshot = null;
 
+    /**
+     * @var array<string, float>
+     */
+    private array $graphPreferredUrls = [];
+
+    /**
+     * @var array<string, float>
+     */
+    private array $graphPreferredDomains = [];
+
     public function __construct(HiddenCrawler $crawler, ?GraphRepository $graphRepository = null)
     {
         $this->crawler = $crawler;
@@ -122,7 +135,10 @@ final class NewsSearchService
 
         $this->graphSnapshot = null;
         $this->resetQueryState();
-        $this->prepareRanker($history, $terms);
+        $graphSignals = $this->buildGraphQuerySignals($query, $terms);
+        $this->graphPreferredUrls = $graphSignals['preferred_urls'];
+        $this->graphPreferredDomains = $graphSignals['preferred_domains'];
+        $this->prepareRanker($history, $terms, $graphSignals);
 
         $now = new DateTimeImmutable();
         $matches = [];
@@ -132,16 +148,18 @@ final class NewsSearchService
                 continue;
             }
 
-            $quality = (float) ($row['quality_score'] ?? 0.0);
+            $formatted = $this->formatRow($row);
 
-            $matchScore = $this->matchScore($row, $terms);
+            $quality = (float) ($formatted['quality_score'] ?? 0.0);
+
+            $matchScore = $this->matchScore($formatted, $terms);
             if ($terms !== [] && $matchScore <= 0.0) {
                 continue;
             }
 
-            $weight = $quality + $matchScore + $this->recencyBoost((string) ($row['fetched_at'] ?? ''), $now);
+            $weight = $quality + $matchScore + $this->recencyBoost((string) ($formatted['fetched_at'] ?? ''), $now);
 
-            $contentType = isset($row['content_type']) ? (string) $row['content_type'] : '';
+            $contentType = isset($formatted['content_type']) ? (string) $formatted['content_type'] : '';
             if ($contentType === 'article') {
                 $weight += 12.0;
             } elseif ($contentType === 'page') {
@@ -152,7 +170,9 @@ final class NewsSearchService
                 $weight -= 12.0;
             }
 
-            $this->upsertMatch($matches, $this->formatRow($row), $weight);
+            $weight += $this->graphBoostForEntry($formatted);
+
+            $this->upsertMatch($matches, $formatted, $weight);
         }
 
         if (count($matches) < $limit) {
@@ -347,19 +367,23 @@ final class NewsSearchService
         $this->expandedTermSet = [];
         $this->queryPhrases = [];
         $this->queryBigrams = [];
+        $this->graphPreferredUrls = [];
+        $this->graphPreferredDomains = [];
     }
 
     /**
      * @param array<int, array<string, mixed>> $history
      * @param array<int, string> $terms
      */
-    private function prepareRanker(array $history, array $terms): void
+    private function prepareRanker(array $history, array $terms, array $graphSignals = []): void
     {
-        if ($terms === []) {
+        $hasTermInput = $terms !== [];
+        $hasGraphInput = !empty($graphSignals['term_weights'] ?? []) || !empty($graphSignals['phrase_weights'] ?? []);
+        if (!$hasTermInput && !$hasGraphInput) {
             return;
         }
 
-        $profile = $this->buildQueryProfile($terms);
+        $profile = $this->buildQueryProfile($terms, $graphSignals);
         if ($profile['terms'] === []) {
             return;
         }
@@ -438,7 +462,7 @@ final class NewsSearchService
      *     bigrams: array<string, float>
      * }
      */
-    private function buildQueryProfile(array $terms): array
+    private function buildQueryProfile(array $terms, array $graphSignals = []): array
     {
         $original = [];
         $expanded = [];
@@ -479,6 +503,49 @@ final class NewsSearchService
 
                 $expanded[$token] = true;
                 $weights[$token] = max($weights[$token] ?? 0.0, 0.7);
+            }
+        }
+
+        $graphTermWeights = isset($graphSignals['term_weights']) && is_array($graphSignals['term_weights'])
+            ? $graphSignals['term_weights']
+            : [];
+        foreach ($graphTermWeights as $term => $weight) {
+            if (!is_string($term)) {
+                continue;
+            }
+
+            $normalised = trim(mb_strtolower($term, 'UTF-8'));
+            if ($normalised === '') {
+                continue;
+            }
+
+            $expanded[$normalised] = true;
+            $weights[$normalised] = max($weights[$normalised] ?? 0.0, min(1.0, max(0.0, (float) $weight)));
+        }
+
+        $graphPhraseWeights = isset($graphSignals['phrase_weights']) && is_array($graphSignals['phrase_weights'])
+            ? $graphSignals['phrase_weights']
+            : [];
+        foreach ($graphPhraseWeights as $phrase => $weight) {
+            if (!is_string($phrase)) {
+                continue;
+            }
+
+            $normalisedPhrase = trim(mb_strtolower($phrase, 'UTF-8'));
+            if ($normalisedPhrase === '') {
+                continue;
+            }
+
+            $weightValue = min(1.0, max(0.0, (float) $weight));
+
+            $phrases[$normalisedPhrase] = max($phrases[$normalisedPhrase] ?? 0.0, $weightValue);
+            foreach (BM25Ranker::tokenise($normalisedPhrase) as $token) {
+                if ($token === '') {
+                    continue;
+                }
+
+                $expanded[$token] = true;
+                $weights[$token] = max($weights[$token] ?? 0.0, min(1.0, $weightValue * 0.85));
             }
         }
 
@@ -824,21 +891,257 @@ final class NewsSearchService
             }
 
             $entry = $this->normaliseGraphSource($source);
-            $quality = (float) ($entry['quality_score'] ?? 0.0);
+            $formatted = $this->formatRow($entry);
+            $quality = (float) ($formatted['quality_score'] ?? 0.0);
 
-            $matchScore = $this->matchScore($entry, $terms);
+            $matchScore = $this->matchScore($formatted, $terms);
             if ($terms !== [] && $matchScore <= 0.0) {
                 continue;
             }
 
-            $weight = $quality + $matchScore + $this->recencyBoost((string) ($entry['fetched_at'] ?? ''), $now) + 6.0;
+            $weight = $quality + $matchScore + $this->recencyBoost((string) ($formatted['fetched_at'] ?? ''), $now) + 6.0;
+            $weight += $this->graphBoostForEntry($formatted);
 
-            $this->upsertMatch($matches, $this->formatRow($entry), $weight);
+            $this->upsertMatch($matches, $formatted, $weight);
 
             if ($limit > 0 && count($matches) >= $limit * 3) {
                 break;
             }
         }
+    }
+
+    private function graphResearcher(): GraphResearcher
+    {
+        if ($this->graphResearcher === null) {
+            $this->graphResearcher = new GraphResearcher($this->graphRepository);
+        }
+
+        return $this->graphResearcher;
+    }
+
+    /**
+     * @param array<int, string> $terms
+     * @return array{
+     *     term_weights: array<string, float>,
+     *     phrase_weights: array<string, float>,
+     *     preferred_urls: array<string, float>,
+     *     preferred_domains: array<string, float>
+     * }
+     */
+    private function buildGraphQuerySignals(string $query, array $terms): array
+    {
+        $signals = [
+            'term_weights' => [],
+            'phrase_weights' => [],
+            'preferred_urls' => [],
+            'preferred_domains' => [],
+        ];
+
+        $trimmed = trim($query);
+        if ($trimmed === '') {
+            return $signals;
+        }
+
+        try {
+            $result = $this->graphResearcher()->searchGraph($trimmed, 10);
+        } catch (Throwable $exception) {
+            return $signals;
+        }
+
+        $registerTerm = function (string $term, float $weight) use (&$signals): void {
+            $normalised = trim(mb_strtolower($term, 'UTF-8'));
+            if ($normalised === '') {
+                return;
+            }
+
+            $weight = min(1.0, max(0.0, $weight));
+            $existing = $signals['term_weights'][$normalised] ?? 0.0;
+            if ($weight > $existing) {
+                $signals['term_weights'][$normalised] = $weight;
+            }
+        };
+
+        $registerPhrase = function (string $phrase, float $weight) use (&$signals): void {
+            $normalised = trim(mb_strtolower($phrase, 'UTF-8'));
+            if ($normalised === '') {
+                return;
+            }
+
+            $weight = min(1.0, max(0.0, $weight));
+            $existing = $signals['phrase_weights'][$normalised] ?? 0.0;
+            if ($weight > $existing) {
+                $signals['phrase_weights'][$normalised] = $weight;
+            }
+        };
+
+        $registerDomain = function (string $domain, float $weight) use (&$signals): void {
+            $normalised = trim(mb_strtolower($domain, 'UTF-8'));
+            if ($normalised === '') {
+                return;
+            }
+
+            $weight = max(0.0, $weight);
+            $signals['preferred_domains'][$normalised] = max($signals['preferred_domains'][$normalised] ?? 0.0, $weight);
+        };
+
+        $entities = isset($result['entities']) && is_array($result['entities']) ? $result['entities'] : [];
+        foreach ($entities as $entity) {
+            if (!is_array($entity)) {
+                continue;
+            }
+
+            $score = (float) ($entity['score'] ?? 0.0);
+            $entityName = isset($entity['entity']) ? trim((string) $entity['entity']) : '';
+            if ($entityName !== '') {
+                $registerPhrase($entityName, 0.8 + min(0.18, $score * 0.2));
+            }
+
+            $synonyms = isset($entity['synonyms']) && is_array($entity['synonyms']) ? $entity['synonyms'] : [];
+            foreach ($synonyms as $synonym) {
+                if (!is_string($synonym)) {
+                    continue;
+                }
+
+                $registerPhrase($synonym, 0.72 + min(0.18, $score * 0.18));
+            }
+
+            $relatedTerms = isset($entity['related_terms']) && is_array($entity['related_terms'])
+                ? $entity['related_terms']
+                : [];
+            foreach ($relatedTerms as $related) {
+                if (!is_string($related)) {
+                    continue;
+                }
+
+                $registerTerm($related, 0.6 + min(0.2, $score * 0.2));
+            }
+
+            $facts = isset($entity['facts']) && is_array($entity['facts']) ? $entity['facts'] : [];
+            foreach ($facts as $fact) {
+                if (!is_array($fact)) {
+                    continue;
+                }
+
+                $relation = isset($fact['relation']) ? (string) $fact['relation'] : '';
+                $counterpart = isset($fact['counterpart']) ? (string) $fact['counterpart'] : '';
+
+                if ($relation !== '') {
+                    $registerTerm($relation, 0.58 + min(0.2, $score * 0.15));
+                }
+                if ($counterpart !== '') {
+                    $registerPhrase($counterpart, 0.68 + min(0.15, $score * 0.12));
+                }
+            }
+        }
+
+        $relationMatches = isset($result['relations']) && is_array($result['relations']) ? $result['relations'] : [];
+        foreach ($relationMatches as $relation) {
+            if (!is_array($relation)) {
+                continue;
+            }
+
+            $label = isset($relation['relation']) ? (string) $relation['relation'] : '';
+            if ($label === '') {
+                continue;
+            }
+
+            $score = (float) ($relation['score'] ?? 0.0);
+            $registerTerm($label, 0.55 + min(0.25, $score * 0.4));
+        }
+
+        $synonymMatches = isset($result['synonyms']) && is_array($result['synonyms']) ? $result['synonyms'] : [];
+        foreach ($synonymMatches as $match) {
+            if (!is_array($match)) {
+                continue;
+            }
+
+            $synonyms = isset($match['synonyms']) && is_array($match['synonyms']) ? $match['synonyms'] : [];
+            foreach ($synonyms as $synonym) {
+                if (!is_string($synonym)) {
+                    continue;
+                }
+
+                $registerPhrase($synonym, 0.66);
+            }
+        }
+
+        $triples = isset($result['triples']) && is_array($result['triples']) ? $result['triples'] : [];
+        foreach ($triples as $triple) {
+            if (!is_array($triple)) {
+                continue;
+            }
+
+            $subject = isset($triple['subject']) ? (string) $triple['subject'] : '';
+            $object = isset($triple['object']) ? (string) $triple['object'] : '';
+            $relation = isset($triple['relation']) ? (string) $triple['relation'] : '';
+            $score = (float) ($triple['score'] ?? 0.0);
+
+            if ($subject !== '') {
+                $registerPhrase($subject, 0.64 + min(0.2, $score * 0.18));
+            }
+            if ($object !== '') {
+                $registerPhrase($object, 0.64 + min(0.2, $score * 0.18));
+            }
+            if ($relation !== '') {
+                $registerTerm($relation, 0.5 + min(0.2, $score * 0.2));
+            }
+        }
+
+        $sources = isset($result['sources']) && is_array($result['sources']) ? $result['sources'] : [];
+        foreach ($sources as $index => $source) {
+            if (!is_array($source)) {
+                continue;
+            }
+
+            $url = isset($source['url']) ? trim((string) $source['url']) : '';
+            if ($url === '') {
+                continue;
+            }
+
+            $rankBoost = max(0.0, 4.5 - ($index * 0.4));
+            $key = $this->normaliseUrlKey($url);
+            if ($key !== '') {
+                $signals['preferred_urls'][$key] = max($signals['preferred_urls'][$key] ?? 0.0, $rankBoost);
+            }
+
+            $domain = isset($source['domain']) && is_string($source['domain'])
+                ? $source['domain']
+                : $this->domainFromUrl($url);
+            if ($domain !== '') {
+                $registerDomain($domain, max(0.0, 1.2 + $rankBoost * 0.25));
+            }
+        }
+
+        return $signals;
+    }
+
+    private function normaliseUrlKey(string $url): string
+    {
+        return $this->entryKey(['normalized_url' => $url, 'url' => $url]);
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     */
+    private function graphBoostForEntry(array $entry): float
+    {
+        $boost = 0.0;
+
+        $key = $this->entryKey($entry);
+        if ($key !== '' && isset($this->graphPreferredUrls[$key])) {
+            $boost += $this->graphPreferredUrls[$key];
+        }
+
+        $domain = (string) ($entry['source_domain'] ?? '');
+        if ($domain === '' && isset($entry['url'])) {
+            $domain = $this->domainFromUrl((string) $entry['url']);
+        }
+        $domain = trim(mb_strtolower($domain, 'UTF-8'));
+        if ($domain !== '' && isset($this->graphPreferredDomains[$domain])) {
+            $boost += $this->graphPreferredDomains[$domain];
+        }
+
+        return min(12.0, $boost);
     }
 
     /**
