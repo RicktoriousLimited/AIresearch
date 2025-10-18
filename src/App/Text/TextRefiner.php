@@ -88,6 +88,72 @@ final class TextRefiner
     ];
 
     /** @var array<string, bool> */
+    private static array $determiners = [
+        'a' => true,
+        'an' => true,
+        'the' => true,
+        'this' => true,
+        'that' => true,
+        'these' => true,
+        'those' => true,
+        'my' => true,
+        'your' => true,
+        'his' => true,
+        'her' => true,
+        'its' => true,
+        'our' => true,
+        'their' => true,
+        'each' => true,
+        'every' => true,
+        'any' => true,
+        'some' => true,
+    ];
+
+    /** @var array<string, bool> */
+    private static array $adjectiveIntensifiers = [
+        'very' => true,
+        'more' => true,
+        'most' => true,
+        'quite' => true,
+        'rather' => true,
+        'fairly' => true,
+        'extremely' => true,
+        'highly' => true,
+        'particularly' => true,
+        'especially' => true,
+        'incredibly' => true,
+        'remarkably' => true,
+        'significantly' => true,
+        'somewhat' => true,
+        'slightly' => true,
+        'too' => true,
+        'so' => true,
+    ];
+
+    /** @var array<int, string> */
+    private static array $adjectiveSuffixes = [
+        'ous',
+        'ive',
+        'ful',
+        'less',
+        'able',
+        'ible',
+        'al',
+        'ial',
+        'ic',
+        'ical',
+        'ish',
+        'ary',
+        'ory',
+        'ant',
+        'ent',
+        'ate',
+        'ing',
+        'ed',
+        'y',
+    ];
+
+    /** @var array<string, bool> */
     private static array $clausePronouns = [
         'i' => true,
         'you' => true,
@@ -1239,6 +1305,7 @@ final class TextRefiner
                 'topics' => $this->buildTopicHighlights('', []),
                 'narrative' => $this->evaluateNarrativeSignals(''),
                 'writing_quality' => $this->evaluateWritingQuality($original, '', [], $intent, $factuality),
+                'grammar' => $this->extractGrammarInsights(''),
             ];
         }
 
@@ -1258,6 +1325,7 @@ final class TextRefiner
             'topics' => $topics,
             'narrative' => $narrative,
             'writing_quality' => $writingQuality,
+            'grammar' => $this->extractGrammarInsights($source),
         ];
     }
 
@@ -1297,9 +1365,15 @@ final class TextRefiner
         );
 
         $pairs = [];
+        $questionLookup = [];
         $usedSentenceIndexes = [];
 
         foreach ($keywordTokens as $token) {
+            $token = trim($token);
+            if ($token === '') {
+                continue;
+            }
+
             foreach ($normalizedSentences as $index => $sentence) {
                 if (isset($usedSentenceIndexes[$index])) {
                     continue;
@@ -1310,6 +1384,10 @@ final class TextRefiner
                 }
 
                 $question = sprintf('What does the text say about %s?', $this->formatKeywordForQuestion($token));
+                if (isset($questionLookup[$question])) {
+                    continue;
+                }
+
                 $answer = $this->ensureSentencePunctuation($sentence);
 
                 $pairs[] = [
@@ -1318,7 +1396,9 @@ final class TextRefiner
                     'response' => $answer,
                 ];
 
+                $questionLookup[$question] = true;
                 $usedSentenceIndexes[$index] = true;
+
                 if (count($pairs) >= $limit) {
                     return $pairs;
                 }
@@ -1327,13 +1407,99 @@ final class TextRefiner
             }
         }
 
+        if (count($pairs) < $limit) {
+            $grammar = $this->extractGrammarInsights($cleaned);
+            $entityAssociations = is_array($grammar['entity_associations'] ?? null) ? $grammar['entity_associations'] : [];
+
+            foreach ($entityAssociations as $association) {
+                if (!is_array($association)) {
+                    continue;
+                }
+
+                $entity = trim((string) ($association['entity'] ?? ''));
+                if ($entity === '') {
+                    continue;
+                }
+
+                $entitySentence = $this->findSentenceForEntity($normalizedSentences, $entity);
+                $verbValues = is_array($association['verbs'] ?? null) ? $association['verbs'] : [];
+                $adjectiveValues = is_array($association['adjectives'] ?? null) ? $association['adjectives'] : [];
+                $verbs = array_values(array_filter(array_map(static fn($value): string => trim((string) $value), $verbValues)));
+                $adjectives = array_values(array_filter(array_map(static fn($value): string => trim((string) $value), $adjectiveValues)));
+
+                if ($verbs !== [] && count($pairs) < $limit) {
+                    $question = sprintf('What does %s do in the text?', $entity);
+                    if (!isset($questionLookup[$question])) {
+                        $answer = $entitySentence;
+                        if ($answer === null) {
+                            $verbList = $this->formatList($verbs);
+                            if ($verbList !== '') {
+                                $answer = $this->ensureSentencePunctuation(sprintf('The text notes that %s %s', $entity, $verbList));
+                            }
+                        }
+
+                        if ($answer !== null) {
+                            $pairs[] = [
+                                'question' => $question,
+                                'answer' => $answer,
+                                'response' => $answer,
+                            ];
+
+                            $questionLookup[$question] = true;
+
+                            if (count($pairs) >= $limit) {
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if ($adjectives !== [] && count($pairs) < $limit) {
+                    $question = sprintf('How is %s described in the text?', $entity);
+                    if (!isset($questionLookup[$question])) {
+                        $adjectiveList = $this->formatList($adjectives);
+                        if ($adjectiveList === '') {
+                            continue;
+                        }
+
+                        $answer = $entitySentence;
+                        if ($answer === null || stripos($answer, $adjectiveList) === false) {
+                            $answer = $this->ensureSentencePunctuation(sprintf('%s is described as %s', $entity, $adjectiveList));
+                        }
+
+                        if ($answer !== null) {
+                            $pairs[] = [
+                                'question' => $question,
+                                'answer' => $answer,
+                                'response' => $answer,
+                            ];
+
+                            $questionLookup[$question] = true;
+
+                            if (count($pairs) >= $limit) {
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (count($pairs) >= $limit) {
+                    break;
+                }
+            }
+        }
+
         if ($pairs === []) {
             $primarySentence = $this->ensureSentencePunctuation($normalizedSentences[0]);
+            $question = 'What is the main point of the text?';
+
             $pairs[] = [
-                'question' => 'What is the main point of the text?',
+                'question' => $question,
                 'answer' => $primarySentence,
                 'response' => $primarySentence,
             ];
+
+            $questionLookup[$question] = true;
         }
 
         if (count($pairs) < $limit) {
@@ -1342,7 +1508,11 @@ final class TextRefiner
                     continue;
                 }
 
-                $question = 'What additional detail does the text provide?';
+                $question = sprintf('What additional detail does the text provide in sentence %d?', $index + 1);
+                if (isset($questionLookup[$question])) {
+                    continue;
+                }
+
                 $answer = $this->ensureSentencePunctuation($sentence);
 
                 $pairs[] = [
@@ -1350,6 +1520,9 @@ final class TextRefiner
                     'answer' => $answer,
                     'response' => $answer,
                 ];
+
+                $questionLookup[$question] = true;
+                $usedSentenceIndexes[$index] = true;
 
                 if (count($pairs) >= $limit) {
                     break;
@@ -2325,6 +2498,593 @@ final class TextRefiner
         return 0.45;
     }
 
+    /**
+     * @return array{
+     *     nouns: array<int, string>,
+     *     verbs: array<int, string>,
+     *     adjectives: array<int, string>,
+     *     entity_associations: array<int, array{entity: string, adjectives: array<int, string>, verbs: array<int, string>}
+     * }
+     */
+    private function extractGrammarInsights(string $text): array
+    {
+        $trimmed = trim($text);
+        if ($trimmed === '') {
+            return [
+                'nouns' => [],
+                'verbs' => [],
+                'adjectives' => [],
+                'entity_associations' => [],
+            ];
+        }
+
+        $sentences = $this->extractSentences($text);
+        if ($sentences === []) {
+            $sentences = [$trimmed];
+        }
+
+        $nounCounts = [];
+        $nounDisplay = [];
+        $verbCounts = [];
+        $verbDisplay = [];
+        $adjectiveCounts = [];
+        $adjectiveDisplay = [];
+        $entityMap = [];
+
+        foreach ($sentences as $sentence) {
+            $tokens = $this->tokeniseForGrammar($sentence);
+            if ($tokens === []) {
+                continue;
+            }
+
+            foreach ($tokens as $token) {
+                $type = $token['type'];
+                if ($type === 'noun') {
+                    $this->registerTokenCount($nounCounts, $nounDisplay, $token['lower'], $token['original']);
+                } elseif ($type === 'verb') {
+                    $this->registerTokenCount($verbCounts, $verbDisplay, $token['lower'], $token['original']);
+                } elseif ($type === 'adjective') {
+                    $this->registerTokenCount($adjectiveCounts, $adjectiveDisplay, $token['lower'], $token['original']);
+                }
+            }
+
+            $entities = $this->detectEntitiesFromTokens($tokens);
+            if ($entities === []) {
+                $entities = $this->fallbackEntitiesFromTokens($tokens);
+            }
+
+            foreach ($entities as $entity) {
+                $label = trim((string) ($entity['label'] ?? ''));
+                if ($label === '') {
+                    continue;
+                }
+
+                $key = mb_strtolower($label, 'UTF-8');
+                if (!isset($entityMap[$key])) {
+                    $entityMap[$key] = [
+                        'label' => $label,
+                        'adjectives' => [],
+                        'adjectiveDisplay' => [],
+                        'verbs' => [],
+                        'verbDisplay' => [],
+                    ];
+                }
+
+                $start = (int) ($entity['start'] ?? 0);
+                $end = (int) ($entity['end'] ?? $start);
+                $contextStart = max(0, $start - 3);
+                $contextEnd = min(count($tokens) - 1, $end + 4);
+
+                for ($index = $contextStart; $index <= $contextEnd; $index++) {
+                    $contextType = $tokens[$index]['type'];
+                    if ($contextType === 'adjective') {
+                        $this->registerTokenCount(
+                            $entityMap[$key]['adjectives'],
+                            $entityMap[$key]['adjectiveDisplay'],
+                            $tokens[$index]['lower'],
+                            $tokens[$index]['original']
+                        );
+                    } elseif ($contextType === 'verb') {
+                        $this->registerTokenCount(
+                            $entityMap[$key]['verbs'],
+                            $entityMap[$key]['verbDisplay'],
+                            $tokens[$index]['lower'],
+                            $tokens[$index]['original']
+                        );
+                    }
+                }
+            }
+        }
+
+        $entityAssociations = [];
+        foreach ($entityMap as $info) {
+            $entityAssociations[] = [
+                'entity' => $info['label'],
+                'adjectives' => $this->reduceCounts($info['adjectives'], $info['adjectiveDisplay'], 5),
+                'verbs' => $this->reduceCounts($info['verbs'], $info['verbDisplay'], 5),
+            ];
+        }
+
+        usort(
+            $entityAssociations,
+            static function (array $left, array $right): int {
+                return strcmp($left['entity'], $right['entity']);
+            }
+        );
+
+        return [
+            'nouns' => $this->reduceCounts($nounCounts, $nounDisplay, 15),
+            'verbs' => $this->reduceCounts($verbCounts, $verbDisplay, 15),
+            'adjectives' => $this->reduceCounts($adjectiveCounts, $adjectiveDisplay, 15),
+            'entity_associations' => $entityAssociations,
+        ];
+    }
+
+    /**
+     * @return array<int, array{original: string, lower: string, type: string|null}>
+     */
+    private function tokeniseForGrammar(string $sentence): array
+    {
+        if ($sentence === '') {
+            return [];
+        }
+
+        if (preg_match_all('/\\b[\p{L}][\p{L}\'’]*\\b/u', $sentence, $matches) === 0) {
+            return [];
+        }
+
+        $tokens = [];
+        foreach ($matches[0] as $word) {
+            $lower = mb_strtolower($word, 'UTF-8');
+            $tokens[] = [
+                'original' => $word,
+                'lower' => $lower,
+                'type' => null,
+            ];
+        }
+
+        $count = count($tokens);
+
+        for ($index = 0; $index < $count; $index++) {
+            $previousLower = $tokens[$index - 1]['lower'] ?? null;
+            $nextLower = $tokens[$index + 1]['lower'] ?? null;
+            if ($this->looksLikeNounToken($tokens[$index]['original'], $tokens[$index]['lower'], $previousLower, $nextLower, $index === 0)) {
+                $tokens[$index]['type'] = 'noun';
+            }
+        }
+
+        for ($index = 0; $index < $count; $index++) {
+            $previousLower = $tokens[$index - 1]['lower'] ?? null;
+            $nextLower = $tokens[$index + 1]['lower'] ?? null;
+            $previousOriginal = $tokens[$index - 1]['original'] ?? null;
+            if ($this->looksLikeVerbTokenExtended($tokens[$index]['original'], $tokens[$index]['lower'], $previousLower, $nextLower, $previousOriginal)) {
+                $tokens[$index]['type'] = 'verb';
+            }
+        }
+
+        for ($index = 0; $index < $count; $index++) {
+            $previousLower = $tokens[$index - 1]['lower'] ?? null;
+            $nextLower = $tokens[$index + 1]['lower'] ?? null;
+            if ($this->looksLikeAdjectiveToken($tokens[$index]['original'], $tokens[$index]['lower'], $previousLower, $nextLower, $tokens, $index)) {
+                $tokens[$index]['type'] = 'adjective';
+            }
+        }
+
+        return $tokens;
+    }
+
+    private function looksLikeNounToken(string $original, string $lower, ?string $previousLower, ?string $nextLower, bool $isSentenceStart): bool
+    {
+        if ($lower === '') {
+            return false;
+        }
+
+        if (isset(self::$determiners[$lower])) {
+            return false;
+        }
+
+        if (isset(self::$stopwords[$lower]) && !isset(self::$determiners[$lower])) {
+            return false;
+        }
+
+        if (isset(self::$pronouns[$lower]) || isset(self::$verbForms[$lower]) || isset(self::$adjectiveIntensifiers[$lower])) {
+            return false;
+        }
+
+        if ($this->looksLikeVerbTokenExtended($original, $lower, $previousLower, $nextLower)) {
+            return false;
+        }
+
+        if (preg_match('/^\p{Lu}/u', $original) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^[A-Z0-9]{2,}$/', $original) === 1) {
+            return true;
+        }
+
+        if ($previousLower !== null && isset(self::$determiners[$previousLower])) {
+            return true;
+        }
+
+        $linkingVerbs = ['is', 'are', 'was', 'were', 'be', 'been', 'being', 'seems', 'seem', 'becomes', 'become', 'remains', 'remain', 'feels', 'feel', 'appears', 'appear', 'looks', 'look'];
+        if ($previousLower !== null && in_array($previousLower, $linkingVerbs, true)) {
+            return false;
+        }
+
+        foreach (self::$adjectiveSuffixes as $suffix) {
+            if (str_ends_with($lower, $suffix) && strlen($lower) >= strlen($suffix) + 1) {
+                return false;
+            }
+        }
+
+        $nounSuffixes = [
+            'tion',
+            'sion',
+            'ment',
+            'ness',
+            'ism',
+            'ity',
+            'ics',
+            'ship',
+            'hood',
+            'ance',
+            'ence',
+            'ery',
+            'ary',
+            'ory',
+            'dom',
+            'ist',
+            'er',
+            'or',
+            'ology',
+            'logy',
+            'age',
+            'ture',
+        ];
+
+        foreach ($nounSuffixes as $suffix) {
+            if (str_ends_with($lower, $suffix) && strlen($lower) >= strlen($suffix) + 2) {
+                return true;
+            }
+        }
+
+        if ($nextLower !== null && $nextLower === 'of') {
+            return true;
+        }
+
+        if (!$isSentenceStart && $this->lexicon->contains($lower) && strlen($lower) >= 3) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function looksLikeVerbTokenExtended(string $original, string $lower, ?string $previousLower, ?string $nextLower = null, ?string $previousOriginal = null): bool
+    {
+        if ($lower === '') {
+            return false;
+        }
+
+        if (isset(self::$stopwords[$lower]) && !isset(self::$verbForms[$lower])) {
+            return false;
+        }
+
+        if ($this->isLikelyVerbToken($lower)) {
+            return true;
+        }
+
+        if ($previousLower !== null && ($previousLower === 'to' || isset(self::$verbForms[$previousLower]))) {
+            return preg_match('/^[a-z]{3,}$/u', $lower) === 1;
+        }
+
+        if (preg_match('/^[a-z]{3,}(?:ed|ing|en)$/u', $lower) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^[a-z]{3,}(?:ise|ize|ify)$/u', $lower) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^[a-z]{3,}s$/u', $lower) === 1) {
+            $stem = substr($lower, 0, -1);
+            if ($stem !== '') {
+                $subjectCandidate = false;
+                if ($previousLower !== null && isset(self::$pronouns[$previousLower])) {
+                    $subjectCandidate = true;
+                }
+
+                if ($previousOriginal !== null && preg_match('/^\p{Lu}/u', $previousOriginal) === 1) {
+                    $subjectCandidate = true;
+                }
+
+                if (!$subjectCandidate && $previousLower !== null && !isset(self::$stopwords[$previousLower]) && !isset(self::$determiners[$previousLower])) {
+                    if ($nextLower !== null) {
+                        $prepositions = ['for', 'of', 'to', 'with', 'and', 'or', 'but', 'because', 'that'];
+                        if (!in_array($nextLower, $prepositions, true)) {
+                            $subjectCandidate = true;
+                        }
+                    }
+                }
+
+                if ($subjectCandidate) {
+                    if ($this->isLikelyVerbToken($stem)) {
+                        return true;
+                    }
+
+                    $stemEd = $stem . 'ed';
+                    $stemIng = $stem . 'ing';
+                    if ($this->lexicon->contains($stemEd) || $this->lexicon->contains($stemIng)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array{original: string, lower: string, type: string|null}> $tokens
+     */
+    private function looksLikeAdjectiveToken(string $original, string $lower, ?string $previousLower, ?string $nextLower, array $tokens, int $index): bool
+    {
+        if ($lower === '') {
+            return false;
+        }
+
+        if (preg_match('/^\p{Lu}/u', $original) === 1) {
+            $nextToken = $tokens[$index + 1] ?? null;
+            if ($index > 0 || ($nextToken !== null && preg_match('/^\p{Lu}/u', (string) ($nextToken['original'] ?? '')) === 1)) {
+                return false;
+            }
+        }
+
+        $nounLikeSuffixes = ['tion', 'sion', 'ment', 'ness', 'ism', 'ity', 'ics', 'ship', 'hood', 'ance', 'ence', 'dom', 'ology', 'logy', 'age', 'ture'];
+        foreach ($nounLikeSuffixes as $suffix) {
+            if (str_ends_with($lower, $suffix)) {
+                return false;
+            }
+        }
+
+        if (isset(self::$stopwords[$lower]) || isset(self::$pronouns[$lower]) || isset(self::$verbForms[$lower])) {
+            return false;
+        }
+
+        if ($previousLower !== null && isset(self::$adjectiveIntensifiers[$previousLower])) {
+            return true;
+        }
+
+        foreach (self::$adjectiveSuffixes as $suffix) {
+            if (str_ends_with($lower, $suffix) && strlen($lower) >= strlen($suffix) + 1) {
+                return true;
+            }
+        }
+
+        $nextToken = $tokens[$index + 1] ?? null;
+        if (is_array($nextToken) && ($nextToken['type'] ?? null) === 'noun') {
+            return true;
+        }
+
+        if ($previousLower !== null && ($previousLower === 'more' || $previousLower === 'most')) {
+            return true;
+        }
+
+        if ($nextLower !== null && isset(self::$determiners[$nextLower])) {
+            return false;
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<int, array{original: string, lower: string, type: string|null}> $tokens
+     * @return array<int, array{label: string, start: int, end: int}>
+     */
+    private function detectEntitiesFromTokens(array $tokens): array
+    {
+        $entities = [];
+        $buffer = [];
+        $start = null;
+
+        foreach ($tokens as $index => $token) {
+            if ($this->isEntityToken($token)) {
+                if ($buffer === []) {
+                    $start = $index;
+                }
+                $buffer[] = $token['original'];
+                continue;
+            }
+
+            if ($buffer !== [] && $this->isEntityConnector($token['lower'])) {
+                $buffer[] = $token['original'];
+                continue;
+            }
+
+            if ($buffer !== [] && $start !== null) {
+                $entities[] = [
+                    'label' => $this->normaliseEntityLabel($buffer),
+                    'start' => $start,
+                    'end' => $index - 1,
+                ];
+                $buffer = [];
+                $start = null;
+            }
+        }
+
+        if ($buffer !== [] && $start !== null) {
+            $entities[] = [
+                'label' => $this->normaliseEntityLabel($buffer),
+                'start' => $start,
+                'end' => count($tokens) - 1,
+            ];
+        }
+
+        return array_values(array_filter($entities, static fn(array $entity): bool => $entity['label'] !== ''));
+    }
+
+    /**
+     * @param array<int, array{original: string, lower: string, type: string|null}> $tokens
+     * @return array<int, array{label: string, start: int, end: int}>
+     */
+    private function fallbackEntitiesFromTokens(array $tokens): array
+    {
+        $fallback = [];
+
+        foreach ($tokens as $index => $token) {
+            if (($token['type'] ?? null) !== 'noun') {
+                continue;
+            }
+
+            $lower = $token['lower'];
+            if ($lower === '' || isset(self::$pronouns[$lower]) || isset(self::$determiners[$lower])) {
+                continue;
+            }
+
+            $label = trim($token['original']);
+            if ($label === '') {
+                continue;
+            }
+
+            $fallback[] = [
+                'label' => $label,
+                'start' => $index,
+                'end' => $index,
+            ];
+
+            if (count($fallback) >= 2) {
+                break;
+            }
+        }
+
+        return $fallback;
+    }
+
+    /**
+     * @param array{original: string, lower: string, type: string|null} $token
+     */
+    private function isEntityToken(array $token): bool
+    {
+        if (($token['type'] ?? null) !== 'noun') {
+            return false;
+        }
+
+        $original = $token['original'];
+        if ($original === '') {
+            return false;
+        }
+
+        if (preg_match('/^\p{Lu}/u', $original) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^[A-Z0-9]{2,}$/', $original) === 1) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function isEntityConnector(string $lower): bool
+    {
+        return in_array($lower, ['of', 'and', 'for', 'the', 'in'], true);
+    }
+
+    /**
+     * @param array<int, string> $parts
+     */
+    private function normaliseEntityLabel(array $parts): string
+    {
+        $cleanParts = [];
+        foreach ($parts as $part) {
+            $trimmed = trim((string) $part);
+            if ($trimmed !== '') {
+                $cleanParts[] = $trimmed;
+            }
+        }
+
+        while ($cleanParts !== []) {
+            $first = mb_strtolower($cleanParts[0], 'UTF-8');
+            if ($this->isEntityConnector($first)) {
+                array_shift($cleanParts);
+                continue;
+            }
+            break;
+        }
+
+        while ($cleanParts !== []) {
+            $lastIndex = count($cleanParts) - 1;
+            $last = mb_strtolower($cleanParts[$lastIndex], 'UTF-8');
+            if ($this->isEntityConnector($last)) {
+                array_pop($cleanParts);
+                continue;
+            }
+            break;
+        }
+
+        if ($cleanParts === []) {
+            return '';
+        }
+
+        $label = implode(' ', $cleanParts);
+        $normalized = preg_replace('/\s+/', ' ', $label);
+        if (!is_string($normalized)) {
+            return trim($label);
+        }
+
+        return trim($normalized);
+    }
+
+    /**
+     * @param array<string, int> $counts
+     * @param array<string, string> $display
+     * @return array<int, string>
+     */
+    private function reduceCounts(array $counts, array $display, int $limit): array
+    {
+        if ($counts === []) {
+            return [];
+        }
+
+        arsort($counts);
+
+        $results = [];
+        foreach ($counts as $key => $count) {
+            $value = trim((string) ($display[$key] ?? $key));
+            if ($value === '') {
+                continue;
+            }
+            $results[] = $value;
+            if (count($results) >= $limit) {
+                break;
+            }
+        }
+
+        return $this->uniqueStrings($results);
+    }
+
+    /**
+     * @param array<string, int> $counts
+     * @param array<string, string> $display
+     */
+    private function registerTokenCount(array &$counts, array &$display, string $normalized, string $original): void
+    {
+        $normalized = trim($normalized);
+        if ($normalized === '') {
+            return;
+        }
+
+        if (mb_strlen($normalized, 'UTF-8') < 2) {
+            return;
+        }
+
+        $counts[$normalized] = ($counts[$normalized] ?? 0) + 1;
+        if (!isset($display[$normalized])) {
+            $display[$normalized] = trim($original);
+        }
+    }
+
+
     private function splitParagraphs(string $text): array
     {
         $normalized = preg_replace('/\r\n|\r/', "\n", trim($text));
@@ -2599,6 +3359,52 @@ final class TextRefiner
         }
 
         return $sentence . '.';
+    }
+
+    /**
+     * @param array<int, string> $items
+     */
+    private function formatList(array $items): string
+    {
+        $items = $this->uniqueStrings($items);
+        $count = count($items);
+        if ($count === 0) {
+            return '';
+        }
+
+        if ($count === 1) {
+            return $items[0];
+        }
+
+        if ($count === 2) {
+            return $items[0] . ' and ' . $items[1];
+        }
+
+        $last = array_pop($items);
+        if ($last === null) {
+            return '';
+        }
+
+        return implode(', ', $items) . ', and ' . $last;
+    }
+
+    /**
+     * @param array<int, string> $sentences
+     */
+    private function findSentenceForEntity(array $sentences, string $entity): ?string
+    {
+        $needle = trim($entity);
+        if ($needle === '') {
+            return null;
+        }
+
+        foreach ($sentences as $sentence) {
+            if (stripos($sentence, $needle) !== false) {
+                return $this->ensureSentencePunctuation($sentence);
+            }
+        }
+
+        return null;
     }
 
     private function formatKeywordForQuestion(string $keyword): string

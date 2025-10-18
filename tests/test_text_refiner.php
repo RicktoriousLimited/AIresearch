@@ -79,6 +79,12 @@ assertTrue($analysis['rewritten'] !== '', 'Rewritten text should not be empty.')
 assertTrue(is_array($analysis['qa']) && $analysis['qa'] !== [], 'QA analysis should provide at least one entry.');
 assertTrue(is_bool($analysis['is_meaningful']), 'Meaningfulness flag should be boolean.');
 assertTrue($analysis['is_meaningful'], 'Expected sample document to be marked as meaningful.');
+assertTrue(isset($analysis['analytics']['grammar']), 'Analytics payload should include grammar insights.');
+$grammarInsights = $analysis['analytics']['grammar'];
+assertTrue(is_array($grammarInsights['nouns'] ?? null), 'Grammar nouns listing should be an array.');
+assertTrue(is_array($grammarInsights['verbs'] ?? null), 'Grammar verbs listing should be an array.');
+assertTrue(is_array($grammarInsights['adjectives'] ?? null), 'Grammar adjectives listing should be an array.');
+assertTrue(is_array($grammarInsights['entity_associations'] ?? null), 'Grammar entity associations should be an array.');
 
 $qaPairs = $refiner->generateQuestionAnswerPairs($raw);
 assertTrue($qaPairs !== [], 'Expected QA pairs to be generated.');
@@ -193,6 +199,32 @@ assertTrue(strpos($unknownCleaned, 'Xyzzor is qliph.') !== false, 'Expected stru
 assertTrue(strpos($unknownCleaned, 'asdf qwer zxcv') === false, 'Expected gibberish to still be filtered.');
 $unknownAnalysis = $refiner->analyseDocument($unknownVocabulary);
 assertTrue($unknownAnalysis['is_meaningful'] ?? false, 'Structured sentences with unknown vocabulary should still pass meaningfulness checks.');
+
+$entitySample = 'Acme Robotics develops innovative and reliable automation platforms for global clients.';
+$entityAnalysis = $refiner->analyseDocument($entitySample);
+$entityGrammar = $entityAnalysis['analytics']['grammar'] ?? [];
+$entityAssociations = $entityGrammar['entity_associations'] ?? [];
+$foundAcme = false;
+foreach ($entityAssociations as $association) {
+    if (!is_array($association)) {
+        continue;
+    }
+    $entityName = (string) ($association['entity'] ?? '');
+    if (stripos($entityName, 'Acme Robotics') === false) {
+        continue;
+    }
+
+    $foundAcme = true;
+    $verbs = array_map(static fn($value) => strtolower((string) $value), $association['verbs'] ?? []);
+    $adjectives = array_map(static fn($value) => strtolower((string) $value), $association['adjectives'] ?? []);
+
+    assertTrue(in_array('develops', $verbs, true), 'Expected action verb linked to Acme Robotics.');
+    assertTrue(
+        in_array('innovative', $adjectives, true) || in_array('reliable', $adjectives, true),
+        'Expected descriptive adjectives linked to Acme Robotics.'
+    );
+}
+assertTrue($foundAcme, 'Expected entity association for Acme Robotics.');
 
 $grammarSample = <<<TEXT
 Running down the street.
