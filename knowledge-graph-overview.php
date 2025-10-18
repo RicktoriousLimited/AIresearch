@@ -143,7 +143,7 @@ $siteIntegrations = [
                 <div class="graph-hero__intro">
                     <p class="eyebrow">Graph intelligence</p>
                     <h1>Knowledge graph overview</h1>
-                    <p class="lead">Track the core stats, emerging entities, and sources that keep the graph sharp.</p>
+                    <p class="lead">Track core stats, emerging entities, and sources with an AI-simplified overview.</p>
                     <?php if ($heroDigest !== []): ?>
                         <ul class="graph-hero__metrics">
                             <?php foreach ($heroDigest as $metric): ?>
@@ -192,7 +192,7 @@ $siteIntegrations = [
         <section class="graph-suggestions site-container" data-graph-suggestions id="graph-suggestions">
             <div class="graph-suggestions__header">
                 <h2>Suggested graph prompts</h2>
-                <p>Spotlighted topics and suggested prompts pulled from the latest ingestion runs.</p>
+                <p>AI-curated prompts refreshed from the latest ingestion runs.</p>
             </div>
             <div class="graph-suggestions__chips">
                 <?php foreach ($trendingTopics as $topic): ?>
@@ -208,10 +208,10 @@ $siteIntegrations = [
             <header class="panel-header">
                 <div>
                     <h2>Graph snapshot</h2>
-                    <p class="panel-subtitle">A concise look at coverage and fresh evidence.</p>
+                    <p class="panel-subtitle">A condensed view of coverage, activity, and supporting evidence.</p>
                 </div>
             </header>
-            <form class="graph-filter" method="get" action="<?= $escape($overviewPath) ?>#graph-entities">
+            <form class="graph-filter insight-toolbar" method="get" action="<?= $escape($overviewPath) ?>#graph-entities">
                 <div class="graph-filter__grid">
                     <div class="graph-filter__field">
                         <label for="entity-filter">Filter entities</label>
@@ -233,7 +233,7 @@ $siteIntegrations = [
                     </div>
                 </div>
                 <div class="graph-filter__actions">
-                    <button type="submit" class="button primary">Apply filters</button>
+                    <button type="submit" class="button primary">Update view</button>
                     <?php if ($filterActive): ?>
                         <a class="button button--ghost" href="<?= $escape($overviewPath) ?>#graph-entities">Reset</a>
                     <?php endif; ?>
@@ -272,7 +272,7 @@ $siteIntegrations = [
                         <?php endif; ?>
                     </article>
                 </div>
-                <div class="grid graph-grid" data-graph-grid id="graph-entities">
+                <div class="insight-stack insight-stack--two" data-graph-grid id="graph-entities">
                     <article class="card">
                         <h3>Key entities</h3>
                         <p class="card-subtle" data-graph-entities-empty<?= $entitiesSubset !== [] ? ' hidden' : '' ?>>Run a search or adjust the filters to surface the most relevant entities.</p>
@@ -356,7 +356,7 @@ $siteIntegrations = [
                         </ul>
                     </article>
                 </div>
-                <div class="grid graph-analytics__grid">
+                <div class="graph-analytics__grid insight-stack insight-stack--two">
                     <article class="card">
                         <h3>Graph health signals</h3>
                         <p class="card-subtle" data-graph-coverage-empty<?= $graphCoverageSignals !== [] ? ' hidden' : '' ?>>Keep ingestion running to surface coverage and enrichment metrics.</p>

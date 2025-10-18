@@ -204,7 +204,7 @@ function esc(string $value): string
     <header class="card admin-page-header">
         <div>
             <h1>Knowledge graph workspace</h1>
-            <p class="admin-page-header__meta">Monitor overall graph health, jump into focused workspaces, and keep ingestion moving.</p>
+            <p class="admin-page-header__meta">Monitor graph health with AI dashboards, launch automation, and move between focused workspaces instantly.</p>
         </div>
         <div class="admin-page-header__actions">
             <a class="pill-link" href="<?= esc($overviewPath); ?>">Open overview</a>
@@ -239,9 +239,9 @@ function esc(string $value): string
     <?php endif; ?>
 
     <nav class="admin-subnav" aria-label="Workspace sections">
-        <a class="admin-subnav__link" href="#graph-health">Graph health</a>
-        <a class="admin-subnav__link" href="#graph-spotlight">Spotlight triple</a>
-        <a class="admin-subnav__link" href="#graph-editor">Data entry</a>
+        <a class="admin-subnav__link" href="#graph-health">Health overview</a>
+        <a class="admin-subnav__link" href="#graph-spotlight">Spotlight</a>
+        <a class="admin-subnav__link" href="#graph-editor">Payload builder</a>
         <a class="admin-subnav__link" href="#graph-search">Graph search</a>
     </nav>
 
@@ -251,68 +251,74 @@ function esc(string $value): string
                 <header class="admin-panel__header">
                     <div>
                         <h2>Graph health</h2>
-                        <p class="muted admin-text-xs">Digest key coverage signals and ingestion pace at a glance.</p>
+                        <p class="muted admin-text-xs">Digest essential coverage signals and ingestion pace in a simplified view.</p>
                     </div>
                 </header>
-                <div class="admin-panel__body">
-                    <?php if ($heroDigest !== []): ?>
-                        <div class="summary-grid">
-                            <?php foreach ($heroDigest as $metric): ?>
-                                <?php $metricLabel = (string) ($metric['label'] ?? ''); ?>
-                                <?php $metricValue = (string) ($metric['value'] ?? ''); ?>
-                                <?php if ($metricLabel === '' || $metricValue === '') { continue; } ?>
-                                <div class="summary-card">
-                                    <h3><?= esc($metricLabel); ?></h3>
-                                    <p><strong><?= esc($metricValue); ?></strong></p>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php else: ?>
-                        <p class="muted">Run a crawl or ingest sources to populate the knowledge graph.</p>
-                    <?php endif; ?>
-
-                    <?php if ($graphCoverageSignals !== []): ?>
-                        <div>
-                            <h3 class="admin-card__title">Coverage signals</h3>
-                            <dl class="progress-grid">
-                                <?php foreach ($graphCoverageSignals as $signal): ?>
-                                    <?php $label = (string) ($signal['label'] ?? ''); ?>
-                                    <?php $value = (string) ($signal['value'] ?? ''); ?>
-                                    <?php $hint = (string) ($signal['hint'] ?? ''); ?>
-                                    <?php if ($label === '' || $value === '') { continue; } ?>
-                                    <div>
-                                        <dt><?= esc($label); ?></dt>
-                                        <dd><?= esc($value); ?></dd>
-                                        <?php if ($hint !== ''): ?>
-                                            <p class="muted admin-text-xxs admin-space-top-xxs"><?= esc($hint); ?></p>
-                                        <?php endif; ?>
+                <div class="admin-panel__body admin-insight-split">
+                    <div class="admin-insight-split__column">
+                        <?php if ($heroDigest !== []): ?>
+                            <div class="summary-grid">
+                                <?php foreach ($heroDigest as $metric): ?>
+                                    <?php $metricLabel = (string) ($metric['label'] ?? ''); ?>
+                                    <?php $metricValue = (string) ($metric['value'] ?? ''); ?>
+                                    <?php if ($metricLabel === '' || $metricValue === '') { continue; } ?>
+                                    <div class="summary-card">
+                                        <h3><?= esc($metricLabel); ?></h3>
+                                        <p><strong><?= esc($metricValue); ?></strong></p>
                                     </div>
                                 <?php endforeach; ?>
-                            </dl>
-                        </div>
-                    <?php endif; ?>
+                            </div>
+                        <?php else: ?>
+                            <p class="muted">Run a crawl or ingest sources to populate the knowledge graph.</p>
+                        <?php endif; ?>
 
-                    <?php if ($graphTimeline !== []): ?>
-                        <div>
+                        <?php if ($graphCoverageSignals !== []): ?>
+                            <div class="admin-insight">
+                                <h3 class="admin-card__title">Coverage signals</h3>
+                                <dl class="progress-grid">
+                                    <?php foreach ($graphCoverageSignals as $signal): ?>
+                                        <?php $label = (string) ($signal['label'] ?? ''); ?>
+                                        <?php $value = (string) ($signal['value'] ?? ''); ?>
+                                        <?php $hint = (string) ($signal['hint'] ?? ''); ?>
+                                        <?php if ($label === '' || $value === '') { continue; } ?>
+                                        <div>
+                                            <dt><?= esc($label); ?></dt>
+                                            <dd><?= esc($value); ?></dd>
+                                            <?php if ($hint !== ''): ?>
+                                                <p class="muted admin-text-xxs admin-space-top-xxs"><?= esc($hint); ?></p>
+                                            <?php endif; ?>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </dl>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                    <div class="admin-insight-split__column">
+                        <div class="admin-insight">
                             <h3 class="admin-card__title">Recent ingestion</h3>
-                            <dl class="progress-grid progress-grid--timeline">
-                                <?php foreach ($graphTimeline as $bucket): ?>
-                                    <?php $label = (string) ($bucket['label'] ?? ''); ?>
-                                    <?php $count = (int) ($bucket['count'] ?? 0); ?>
-                                    <?php if ($label === '') { continue; } ?>
-                                    <div>
-                                        <dt><?= esc($label); ?></dt>
-                                        <dd><?= esc(number_format($count)); ?> sources</dd>
-                                    </div>
-                                <?php endforeach; ?>
-                            </dl>
+                            <?php if ($graphTimeline === []): ?>
+                                <p class="muted">The ingestion timeline will populate as new sources are merged.</p>
+                            <?php else: ?>
+                                <dl class="progress-grid progress-grid--timeline">
+                                    <?php foreach ($graphTimeline as $bucket): ?>
+                                        <?php $label = (string) ($bucket['label'] ?? ''); ?>
+                                        <?php $count = (int) ($bucket['count'] ?? 0); ?>
+                                        <?php if ($label === '') { continue; } ?>
+                                        <div>
+                                            <dt><?= esc($label); ?></dt>
+                                            <dd><?= esc(number_format($count)); ?> sources</dd>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </dl>
+                            <?php endif; ?>
                         </div>
-                    <?php endif; ?>
+                    </div>
                 </div>
             </article>
 
             <article class="card admin-panel__section" id="graph-spotlight">
                 <h2>Graph spotlight</h2>
+                <p class="muted admin-text-xs">AI assistants surface the most relevant triple with its supporting evidence.</p>
                 <?php if ($spotlight !== []): ?>
                     <?php $sourceTitle = (string) ($spotlight['source_title'] ?? ''); ?>
                     <?php $sourceUrl = (string) ($spotlight['source_url'] ?? ''); ?>
@@ -348,8 +354,8 @@ function esc(string $value): string
             <article class="card admin-panel__section" id="graph-editor">
                 <header class="admin-panel__header">
                     <div>
-                        <h2>Graph data entry</h2>
-                        <p class="muted admin-text-xs">Capture the metrics, suggested prompts, and spotlight triple you want to publish.</p>
+                        <h2>Graph payload builder</h2>
+                        <p class="muted admin-text-xs">Capture hero metrics, AI-suggested prompts, and spotlight triples before publishing.</p>
                     </div>
                 </header>
                 <div class="admin-panel__body">
