@@ -132,6 +132,22 @@ if (!array_key_exists('next_due_at', $knownSeed)) {
     throw new RuntimeException('Known URL entries should expose the next due timestamp.');
 }
 
+$progressState = $crawler->progress();
+$discoverySummary = $progressState['discovery_summary'] ?? null;
+if (!is_array($discoverySummary)) {
+    throw new RuntimeException('Crawler progress should include a discovery summary.');
+}
+
+$discoveryTotals = $discoverySummary['totals'] ?? null;
+if (!is_array($discoveryTotals) || (int) ($discoveryTotals['links'] ?? 0) < 1) {
+    throw new RuntimeException('Discovery summary should record at least one tracked link.');
+}
+
+$discoveryDomains = $discoverySummary['domains'] ?? null;
+if (!is_array($discoveryDomains) || $discoveryDomains === []) {
+    throw new RuntimeException('Discovery summary should group links by domain.');
+}
+
 $secondResult = $crawler->crawl(['https://example.com?utm_source=twitter']);
 if (count($secondResult) !== 1) {
     throw new RuntimeException('Expected a single crawl result on second run.');
