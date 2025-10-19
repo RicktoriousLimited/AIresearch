@@ -125,6 +125,39 @@ class SemanticEngine
         'ms',
     ];
 
+    /** @var array<string, true> */
+    private static array $genericSubjects = [
+        'it' => true,
+        'they' => true,
+        'we' => true,
+        'he' => true,
+        'she' => true,
+        'this' => true,
+        'that' => true,
+        'these' => true,
+        'those' => true,
+        'there' => true,
+        'someone' => true,
+        'somebody' => true,
+        'something' => true,
+        'anything' => true,
+        'everything' => true,
+    ];
+
+    /** @var array<string, true> */
+    private static array $genericObjects = [
+        'it' => true,
+        'them' => true,
+        'everything' => true,
+        'nothing' => true,
+        'something' => true,
+        'anything' => true,
+        'us' => true,
+        'him' => true,
+        'her' => true,
+        'you' => true,
+    ];
+
     public function __construct(?EnglishLexicon $englishLexicon = null)
     {
         $this->englishLexicon = $englishLexicon ?? EnglishLexicon::loadDefault();
@@ -417,6 +450,30 @@ class SemanticEngine
             [
                 'regex' => '/^(?P<subject>.+?)\s+collaborates\s+with\s+(?P<object>.+)$/iu',
                 'relation' => 'collaborates_with',
+            ],
+            [
+                'regex' => '/^(?P<subject>.+?)\s+(?:acquired|acquires|acquiring|buys|bought|purchased)\s+(?P<object>.+)$/iu',
+                'relation' => 'acquired',
+            ],
+            [
+                'regex' => '/^(?P<subject>.+?)\s+(?:invests\s+in|invested\s+in|investing\s+in|backs|funded|funds)\s+(?P<object>.+)$/iu',
+                'relation' => 'invested_in',
+            ],
+            [
+                'regex' => '/^(?P<subject>.+?)\s+(?:partnered\s+with|partners\s+with|partnered|partners|teams\s+up\s+with|teamed\s+up\s+with)\s+(?P<object>.+)$/iu',
+                'relation' => 'partnered_with',
+            ],
+            [
+                'regex' => '/^(?P<subject>.+?)\s+(?:appoints|appointed|names)\s+(?P<object>.+)$/iu',
+                'relation' => 'appointed',
+            ],
+            [
+                'regex' => '/^(?P<subject>.+?)\s+(?:launched|launches|introduces|introduced)\s+(?P<object>.+)$/iu',
+                'relation' => 'launched',
+            ],
+            [
+                'regex' => '/^(?P<subject>.+?)\s+includes\s+(?P<object>.+)$/iu',
+                'relation' => 'includes',
             ],
         ];
 
@@ -1480,6 +1537,14 @@ class SemanticEngine
             return $result;
         }
 
+        if ($this->isGenericSubjectSpan($subjectTokens)) {
+            return $result;
+        }
+
+        if ($this->isGenericObjectSpan($objectTokens)) {
+            return $result;
+        }
+
         if (
             !$this->isReasonableSpan($subjectTokens, $subjectRaw, 8, 80)
             || !$this->isReasonableSpan($objectTokens, $objectRaw, 12, 120)
@@ -1689,6 +1754,64 @@ class SemanticEngine
         }
 
         return false;
+    }
+
+    /**
+     * @param array<int, string> $tokens
+     */
+    private function isGenericSubjectSpan(array $tokens): bool
+    {
+        $normalized = [];
+        foreach ($tokens as $token) {
+            $value = $this->norm($token);
+            if ($value !== '') {
+                $normalized[] = $value;
+            }
+        }
+
+        if ($normalized === []) {
+            return true;
+        }
+
+        $nonGeneric = 0;
+        foreach ($normalized as $value) {
+            if (
+                !isset(self::$genericSubjects[$value])
+                && !isset(self::$determinants[$value])
+                && !isset(self::$entityStopwords[$value])
+            ) {
+                $nonGeneric++;
+            }
+        }
+
+        return $nonGeneric === 0;
+    }
+
+    /**
+     * @param array<int, string> $tokens
+     */
+    private function isGenericObjectSpan(array $tokens): bool
+    {
+        $normalized = [];
+        foreach ($tokens as $token) {
+            $value = $this->norm($token);
+            if ($value !== '') {
+                $normalized[] = $value;
+            }
+        }
+
+        if ($normalized === []) {
+            return true;
+        }
+
+        $nonGeneric = 0;
+        foreach ($normalized as $value) {
+            if (!isset(self::$genericObjects[$value]) && !isset(self::$determinants[$value])) {
+                $nonGeneric++;
+            }
+        }
+
+        return $nonGeneric === 0;
     }
 
     /**
