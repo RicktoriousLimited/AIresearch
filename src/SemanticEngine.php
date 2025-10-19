@@ -158,6 +158,13 @@ class SemanticEngine
         'you' => true,
     ];
 
+    /**
+     * Cached set of compiled relation detection patterns.
+     *
+     * @var array<int, array{relation: string, regex: string}>|null
+     */
+    private static ?array $compiledRelationPatterns = null;
+
     public function __construct(?EnglishLexicon $englishLexicon = null)
     {
         $this->englishLexicon = $englishLexicon ?? EnglishLexicon::loadDefault();
@@ -426,56 +433,7 @@ class SemanticEngine
             $sentences = [];
         }
 
-        $relationPatterns = [
-            [
-                'regex' => '/^(?P<subject>.+?)\s+works\s+(?:at|for)\s+(?P<object>.+)$/iu',
-                'relation' => 'works_at',
-            ],
-            [
-                'regex' => '/^(?P<subject>.+?)\s+lives\s+(?:in|at)\s+(?P<object>.+)$/iu',
-                'relation' => 'lives_in',
-            ],
-            [
-                'regex' => '/^(?P<subject>.+?)\s+(?:leads|heads)\s+(?P<object>.+)$/iu',
-                'relation' => 'leads',
-            ],
-            [
-                'regex' => '/^(?P<subject>.+?)\s+focuses\s+on\s+(?P<object>.+)$/iu',
-                'relation' => 'focuses_on',
-            ],
-            [
-                'regex' => '/^(?P<subject>.+?)\s+located\s+(?:in|at)\s+(?P<object>.+)$/iu',
-                'relation' => 'located_in',
-            ],
-            [
-                'regex' => '/^(?P<subject>.+?)\s+collaborates\s+with\s+(?P<object>.+)$/iu',
-                'relation' => 'collaborates_with',
-            ],
-            [
-                'regex' => '/^(?P<subject>.+?)\s+(?:acquired|acquires|acquiring|buys|bought|purchased)\s+(?P<object>.+)$/iu',
-                'relation' => 'acquired',
-            ],
-            [
-                'regex' => '/^(?P<subject>.+?)\s+(?:invests\s+in|invested\s+in|investing\s+in|backs|funded|funds)\s+(?P<object>.+)$/iu',
-                'relation' => 'invested_in',
-            ],
-            [
-                'regex' => '/^(?P<subject>.+?)\s+(?:partnered\s+with|partners\s+with|partnered|partners|teams\s+up\s+with|teamed\s+up\s+with)\s+(?P<object>.+)$/iu',
-                'relation' => 'partnered_with',
-            ],
-            [
-                'regex' => '/^(?P<subject>.+?)\s+(?:appoints|appointed|names)\s+(?P<object>.+)$/iu',
-                'relation' => 'appointed',
-            ],
-            [
-                'regex' => '/^(?P<subject>.+?)\s+(?:launched|launches|introduces|introduced)\s+(?P<object>.+)$/iu',
-                'relation' => 'launched',
-            ],
-            [
-                'regex' => '/^(?P<subject>.+?)\s+includes\s+(?P<object>.+)$/iu',
-                'relation' => 'includes',
-            ],
-        ];
+        $relationPatterns = $this->getRelationPatterns();
 
         foreach ($sentences as $sentence) {
             $sentence = trim($sentence);
@@ -606,6 +564,374 @@ class SemanticEngine
         }
 
         return $triples;
+    }
+
+    /**
+     * Compile and cache the relation detection patterns used during extraction.
+     *
+     * @return array<int, array{relation: string, regex: string}>
+     */
+    private function getRelationPatterns(): array
+    {
+        if (self::$compiledRelationPatterns !== null) {
+            return self::$compiledRelationPatterns;
+        }
+
+        $compiled = [];
+
+        foreach ($this->relationPatternBlueprints() as $definition) {
+            if (!is_array($definition)) {
+                continue;
+            }
+
+            $relation = (string) ($definition['relation'] ?? '');
+            if ($relation === '') {
+                continue;
+            }
+
+            $templates = $definition['templates'] ?? [];
+            if (!is_array($templates)) {
+                continue;
+            }
+
+            foreach ($templates as $template) {
+                if (!is_array($template)) {
+                    continue;
+                }
+
+                $verbs = $this->normalizeVerbTemplates($template['verbs'] ?? []);
+                if ($verbs === []) {
+                    continue;
+                }
+
+                $connectors = $template['connectors'] ?? [null];
+                if (!is_array($connectors) || $connectors === []) {
+                    $connectors = [null];
+                }
+
+                $compiled[] = [
+                    'relation' => $relation,
+                    'regex' => $this->buildRelationRegex($verbs, $connectors),
+                ];
+            }
+        }
+
+        self::$compiledRelationPatterns = $compiled;
+
+        return self::$compiledRelationPatterns;
+    }
+
+    /**
+     * Blueprint definitions for relation extraction rules.
+     *
+     * @return array<int, array{relation: string, templates: array<int, array<string, mixed>>}>
+     */
+    private function relationPatternBlueprints(): array
+    {
+        return [
+            [
+                'relation' => 'works_at',
+                'templates' => [
+                    [
+                        'verbs' => ['work', 'serve', 'consult'],
+                        'connectors' => ['at', 'for'],
+                    ],
+                ],
+            ],
+            [
+                'relation' => 'lives_in',
+                'templates' => [
+                    [
+                        'verbs' => ['live', 'reside'],
+                        'connectors' => ['in', 'at'],
+                    ],
+                ],
+            ],
+            [
+                'relation' => 'leads',
+                'templates' => [
+                    [
+                        'verbs' => [
+                            ['base' => 'lead', 'variants' => ['led']],
+                            'head',
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'relation' => 'focuses_on',
+                'templates' => [
+                    [
+                        'verbs' => [
+                            'focus',
+                            ['base' => 'center', 'variants' => ['centre', 'centres', 'centred', 'centring']],
+                        ],
+                        'connectors' => ['on', 'around'],
+                    ],
+                ],
+            ],
+            [
+                'relation' => 'located_in',
+                'templates' => [
+                    [
+                        'verbs' => ['locate', 'situate'],
+                        'connectors' => ['in', 'at'],
+                    ],
+                ],
+            ],
+            [
+                'relation' => 'collaborates_with',
+                'templates' => [
+                    [
+                        'verbs' => ['collaborate', 'cooperate'],
+                        'connectors' => ['with'],
+                    ],
+                ],
+            ],
+            [
+                'relation' => 'acquired',
+                'templates' => [
+                    [
+                        'verbs' => [
+                            'acquire',
+                            'purchase',
+                            ['base' => 'buy', 'variants' => ['bought']],
+                        ],
+                    ],
+                ],
+            ],
+            [
+                'relation' => 'invested_in',
+                'templates' => [
+                    [
+                        'verbs' => ['invest'],
+                        'connectors' => ['in', 'into'],
+                    ],
+                    [
+                        'verbs' => ['back', 'fund'],
+                    ],
+                ],
+            ],
+            [
+                'relation' => 'partnered_with',
+                'templates' => [
+                    [
+                        'verbs' => ['partner'],
+                        'connectors' => ['with'],
+                    ],
+                    [
+                        'verbs' => ['team'],
+                        'connectors' => ['up with'],
+                    ],
+                ],
+            ],
+            [
+                'relation' => 'appointed',
+                'templates' => [
+                    [
+                        'verbs' => ['appoint', 'name'],
+                    ],
+                ],
+            ],
+            [
+                'relation' => 'launched',
+                'templates' => [
+                    [
+                        'verbs' => ['launch', 'introduce'],
+                    ],
+                ],
+            ],
+            [
+                'relation' => 'includes',
+                'templates' => [
+                    [
+                        'verbs' => ['include', 'feature'],
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * Normalise a set of verb blueprints into explicit verb forms.
+     *
+     * @param array<int, array<string, mixed>|string> $verbs
+     * @return array<int, string>
+     */
+    private function normalizeVerbTemplates(array $verbs): array
+    {
+        $forms = [];
+
+        foreach ($verbs as $verb) {
+            foreach ($this->expandVerbDefinition($verb) as $form) {
+                $form = strtolower(trim($form));
+                if ($form === '') {
+                    continue;
+                }
+                $forms[$form] = true;
+            }
+        }
+
+        return array_keys($forms);
+    }
+
+    /**
+     * Expand a verb definition into matching forms.
+     *
+     * @param array<string, mixed>|string $verb
+     * @return array<int, string>
+     */
+    private function expandVerbDefinition($verb): array
+    {
+        if (is_string($verb)) {
+            return $this->generateVerbForms(strtolower($verb));
+        }
+
+        if (!is_array($verb)) {
+            return [];
+        }
+
+        $forms = [];
+
+        if (isset($verb['base']) && is_string($verb['base'])) {
+            $base = strtolower(trim($verb['base']));
+            if ($base !== '') {
+                $forms = array_merge($forms, $this->generateVerbForms($base));
+            }
+        }
+
+        if (isset($verb['variants']) && is_array($verb['variants'])) {
+            foreach ($verb['variants'] as $variant) {
+                if (!is_string($variant)) {
+                    continue;
+                }
+
+                $variant = strtolower(trim($variant));
+                if ($variant === '') {
+                    continue;
+                }
+
+                $forms[] = $variant;
+            }
+        }
+
+        return $forms;
+    }
+
+    /**
+     * Generate a naive set of verb inflections for pattern matching.
+     *
+     * @return array<int, string>
+     */
+    private function generateVerbForms(string $base): array
+    {
+        $base = strtolower(trim($base));
+        if ($base === '') {
+            return [];
+        }
+
+        $forms = [$base];
+
+        $irregular = [
+            'lead' => ['leads', 'leading', 'led'],
+            'buy' => ['buys', 'buying', 'bought'],
+        ];
+
+        if (isset($irregular[$base])) {
+            return array_values(array_unique(array_merge($forms, $irregular[$base])));
+        }
+
+        if (str_ends_with($base, 'y')) {
+            $forms[] = substr($base, 0, -1) . 'ies';
+            $forms[] = $base . 'ed';
+            $forms[] = $base . 'ing';
+        } elseif (str_ends_with($base, 'e')) {
+            $forms[] = $base . 's';
+            $forms[] = $base . 'd';
+            $forms[] = substr($base, 0, -1) . 'ing';
+        } elseif (preg_match('/(s|sh|ch|x|z)$/', $base) === 1) {
+            $forms[] = $base . 'es';
+            $forms[] = $base . 'ed';
+            $forms[] = $base . 'ing';
+        } else {
+            $forms[] = $base . 's';
+            $forms[] = $base . 'ed';
+            $forms[] = $base . 'ing';
+        }
+
+        return array_values(array_unique($forms));
+    }
+
+    /**
+     * Build a regex capable of recognising a relation subject/verb/object structure.
+     *
+     * @param array<int, string> $verbs
+     * @param array<int, string|null> $connectors
+     */
+    private function buildRelationRegex(array $verbs, array $connectors): string
+    {
+        $verbTokens = [];
+        foreach ($verbs as $verb) {
+            $verb = strtolower(trim($verb));
+            if ($verb === '') {
+                continue;
+            }
+            $verbTokens[] = preg_quote($verb, '/');
+        }
+
+        if ($verbTokens === []) {
+            return '/^$/u';
+        }
+
+        $verbPattern = '(?:' . implode('|', $verbTokens) . ')';
+
+        $connectorPatterns = [];
+        $allowEmpty = false;
+        foreach ($connectors as $connector) {
+            if ($connector === null) {
+                $allowEmpty = true;
+                continue;
+            }
+
+            $compiled = $this->buildConnectorRegex((string) $connector);
+            if ($compiled === '') {
+                continue;
+            }
+
+            $connectorPatterns[] = $compiled;
+        }
+
+        if ($connectorPatterns === []) {
+            return '/^(?P<subject>.+?)\s+' . $verbPattern . '\s+(?P<object>.+)$/iu';
+        }
+
+        $connectorBody = '(?:' . implode('|', $connectorPatterns) . ')';
+        if ($allowEmpty) {
+            $connectorBody = '(?:' . $connectorBody . ')?';
+        }
+
+        return '/^(?P<subject>.+?)\s+' . $verbPattern . $connectorBody . '\s+(?P<object>.+)$/iu';
+    }
+
+    /**
+     * Translate a connector phrase into a whitespace-aware pattern fragment.
+     */
+    private function buildConnectorRegex(string $connector): string
+    {
+        $tokens = preg_split('/\s+/', strtolower(trim($connector)));
+        if ($tokens === false) {
+            $tokens = [];
+        }
+
+        $pattern = '';
+        foreach ($tokens as $token) {
+            if ($token === '') {
+                continue;
+            }
+            $pattern .= '\\s+' . preg_quote($token, '/');
+        }
+
+        return $pattern;
     }
 
     /**
