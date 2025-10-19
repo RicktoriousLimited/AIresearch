@@ -11,6 +11,9 @@ require_once __DIR__ . '/../src/App/Crawler/HiddenCrawler.php';
 use App\Crawler\HiddenCrawler;
 use App\KnowledgeGraph\ResearchService;
 
+ignore_user_abort(true);
+set_time_limit(0);
+
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate');
 
@@ -73,6 +76,104 @@ $refreshAfter = array_key_exists('refresh_after', $payload)
     ? (int) $payload['refresh_after']
     : (int) ($_SESSION['backend_refresh_after'] ?? ($progressOptions['refresh_after'] ?? ($progressData['refresh_after'] ?? 0)));
 $refreshAfter = max(0, $refreshAfter);
+
+if ($action === 'queue') {
+    $urlsRaw = $payload['urls'] ?? '';
+    $targetsRaw = $payload['targets'] ?? null;
+    $targets = [];
+
+    if (is_array($targetsRaw)) {
+        foreach ($targetsRaw as $target) {
+            if (!is_string($target)) {
+                continue;
+            }
+            $candidate = trim($target);
+            if ($candidate === '') {
+                continue;
+            }
+            $targets[] = $candidate;
+        }
+    } elseif (is_string($urlsRaw)) {
+        $lines = preg_split('/\r?\n/', $urlsRaw) ?: [];
+        foreach ($lines as $line) {
+            $candidate = trim($line);
+            if ($candidate === '') {
+                continue;
+            }
+            $targets[] = $candidate;
+        }
+    }
+
+    if ($targets === [] && is_array($progressData['seed_urls'] ?? null)) {
+        foreach ($progressData['seed_urls'] as $seed) {
+            if (!is_string($seed)) {
+                continue;
+            }
+
+            $candidate = trim($seed);
+            if ($candidate === '') {
+                continue;
+            }
+
+            $targets[] = $candidate;
+        }
+    }
+
+    if ($targets === []) {
+        http_response_code(422);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Provide at least one URL to crawl.',
+        ]);
+        return;
+    }
+
+    $depth = array_key_exists('depth', $payload)
+        ? (int) $payload['depth']
+        : (int) ($_SESSION['backend_depth'] ?? ($progressOptions['depth'] ?? 0));
+    $depth = max(0, $depth);
+
+    $_SESSION['backend_urls'] = implode("\n", $targets);
+    $_SESSION['backend_depth'] = $depth;
+    $_SESSION['backend_auto_interval'] = $autoInterval;
+    $_SESSION['backend_auto_start'] = $autoStart;
+    $_SESSION['backend_refresh_after'] = $refreshAfter;
+
+    try {
+        $summary = $crawler->queueManualRun($targets, $depth, $autoInterval, $autoStart, $refreshAfter);
+        $scheduled = (int) ($summary['scheduled'] ?? 0);
+        $pendingRun = is_array($summary['pending_run'] ?? null) ? $summary['pending_run'] : null;
+        $message = $scheduled > 0
+            ? 'Queued ' . $scheduled . ' page(s) for crawling.'
+            : 'No valid targets were queued.';
+
+        $responsePayload = [
+            'success' => true,
+            'queued' => $scheduled,
+            'message' => $message,
+            'scheduled_total' => (int) ($summary['scheduled_total'] ?? 0),
+        ];
+
+        if ($pendingRun !== null) {
+            $responsePayload['pending_run'] = $pendingRun;
+        }
+
+        $json = json_encode($responsePayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if (!is_string($json)) {
+            throw new RuntimeException('Failed to encode queue response.');
+        }
+
+        echo $json;
+    } catch (Throwable $exception) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Unable to queue crawl: ' . $exception->getMessage(),
+        ]);
+    }
+
+    return;
+}
 
 if ($action === 'run-scheduled') {
     $scheduledLimit = array_key_exists('scheduled_limit', $payload)
@@ -146,6 +247,39 @@ if ($action === 'run-scheduled') {
             $message = implode(' ', $messageParts);
         }
 
+        $currentProgress = $crawler->progress();
+        $context = [
+            'scheduled_total' => (int) ($run['scheduled_total'] ?? $remaining),
+            'scheduled_preview' => is_array($run['scheduled_preview'] ?? null) ? $run['scheduled_preview'] : [],
+        ];
+
+        if (is_array($currentProgress['last_result'] ?? null)) {
+            $context['last_result'] = $currentProgress['last_result'];
+        }
+
+        if (is_array($currentProgress['errors'] ?? null)) {
+            $context['errors'] = $currentProgress['errors'];
+        }
+
+        if (is_array($currentProgress['tasks'] ?? null)) {
+            $context['tasks'] = $currentProgress['tasks'];
+        }
+
+        if (is_array($currentProgress['task_totals'] ?? null)) {
+            $context['task_totals'] = $currentProgress['task_totals'];
+        }
+
+        $pendingRun = $crawler->updatePendingRunProgress(
+            $remaining,
+            [
+                'depth' => $scheduledDepth,
+                'auto_interval' => $autoInterval,
+                'auto_start' => $autoStart,
+                'refresh_after' => $refreshAfter,
+            ],
+            $context
+        );
+
         $responsePayload = [
             'success' => $failedCount === 0,
             'count' => $processedCount,
@@ -154,6 +288,10 @@ if ($action === 'run-scheduled') {
             'scheduled_remaining' => $remaining,
             'targets' => $targetsRun,
         ];
+
+        if ($pendingRun !== null) {
+            $responsePayload['pending_run'] = $pendingRun;
+        }
 
         if ($failedDetails !== []) {
             $responsePayload['errors'] = $failedDetails;
