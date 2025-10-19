@@ -132,6 +132,24 @@ body.search-page .sr-only {
   gap: 12px;
 }
 
+.search-summary__notice {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  background: rgba(99, 102, 241, 0.08);
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.search-summary__notice strong {
+  display: block;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
 .metric-pill {
   min-width: 160px;
   padding: 12px 14px;

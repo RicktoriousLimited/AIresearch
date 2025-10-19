@@ -491,6 +491,9 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
                         $queuedFreshLabel = trim((string) ($queuedItem['freshness_label'] ?? ''));
                         $queuedQueuedLabel = trim((string) ($queuedItem['queued_label'] ?? ''));
                         $queuedLastSeen = trim((string) ($queuedItem['last_seen_at'] ?? ''));
+                        $queuedCadenceLabel = trim((string) ($queuedItem['cadence_label'] ?? ''));
+                        $queuedCadenceState = trim((string) ($queuedItem['cadence_state'] ?? ''));
+                        $queuedCadenceSamples = isset($queuedItem['cadence_samples']) ? (int) $queuedItem['cadence_samples'] : 0;
                     ?>
                     <li class="task-item">
                         <strong>
@@ -505,6 +508,11 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
                             <span>Depth <?= esc((string) $queuedDepth); ?></span>
                             <span>Priority <?= esc(number_format($queuedPriority, 2)); ?></span>
                             <?php if ($queuedSeed): ?><span class="task-chip task-chip--seed">Seed</span><?php endif; ?>
+                            <?php if ($queuedCadenceLabel !== ''): ?>
+                                <span class="task-chip task-chip--cadence"<?php if ($queuedCadenceState !== ''): ?> data-state="<?= esc($queuedCadenceState); ?>"<?php endif; ?><?php if ($queuedCadenceSamples > 0): ?> title="<?= esc($queuedCadenceSamples === 1 ? 'Observed once' : sprintf('%d observations', $queuedCadenceSamples)); ?>"<?php endif; ?>>
+                                    <?= esc($queuedCadenceLabel); ?>
+                                </span>
+                            <?php endif; ?>
                             <?php if ($queuedFreshLabel !== ''): ?>
                                 <span class="task-chip"<?php if ($queuedFreshState !== ''): ?> data-state="<?= esc($queuedFreshState); ?>"<?php endif; ?><?php if ($queuedDueAt !== ''): ?> title="<?= esc($queuedDueAt); ?>"<?php endif; ?>>
                                     <?= esc($queuedFreshLabel); ?>
@@ -1449,6 +1457,9 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
             const freshnessLabel = typeof item.freshness_label === 'string' ? item.freshness_label.trim() : '';
             const queuedLabel = typeof item.queued_label === 'string' ? item.queued_label.trim() : '';
             const lastSeen = typeof item.last_seen_at === 'string' ? item.last_seen_at.trim() : '';
+            const cadenceLabel = typeof item.cadence_label === 'string' ? item.cadence_label.trim() : '';
+            const cadenceState = typeof item.cadence_state === 'string' ? item.cadence_state : '';
+            const cadenceSamples = Number.isFinite(item.cadence_samples) ? Number(item.cadence_samples) : 0;
 
             const li = document.createElement('li');
             li.className = 'task-item';
@@ -1488,6 +1499,19 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
                 seedSpan.className = 'task-chip task-chip--seed';
                 seedSpan.textContent = 'Seed';
                 meta.appendChild(seedSpan);
+            }
+
+            if (cadenceLabel !== '') {
+                const cadenceSpan = document.createElement('span');
+                cadenceSpan.className = 'task-chip task-chip--cadence';
+                cadenceSpan.textContent = cadenceLabel;
+                if (cadenceState !== '') {
+                    cadenceSpan.setAttribute('data-state', cadenceState);
+                }
+                if (cadenceSamples > 0) {
+                    cadenceSpan.title = cadenceSamples === 1 ? 'Observed once' : `${cadenceSamples} observations`;
+                }
+                meta.appendChild(cadenceSpan);
             }
 
             if (freshnessLabel !== '') {

@@ -115,6 +115,20 @@ final class NewsSearchService
 
     private ?string $querySemanticFingerprint = null;
 
+    private string $activeQuery = '';
+
+    /**
+     * @var array<string, float>
+     */
+    private array $queryFingerprint = [];
+
+    /**
+     * @var array<string, array<string, float>>
+     */
+    private array $fingerprintCache = [];
+
+    private float $lastSemanticBoost = 0.0;
+
     /**
      * @var array{graph: array<string, mixed>|null, sources: array<int, array<string, mixed>>, updated_at: string|null}|null
      */
@@ -134,7 +148,9 @@ final class NewsSearchService
     {
         $this->crawler = $crawler;
         $this->graphRepository = $graphRepository ?? new GraphRepository();
-        $this->refiner = $refiner ?? new TextRefiner();
+        $refinerInstance = $refiner ?? new TextRefiner();
+        $this->refiner = $refinerInstance;
+        $this->textRefiner = $refinerInstance;
     }
 
     /**
@@ -144,6 +160,7 @@ final class NewsSearchService
      */
     public function search(string $query, array $options = []): array
     {
+        $this->activeQuery = $query;
         $history = $this->crawler->history();
         $limit = (int) ($options['limit'] ?? 24);
         $limit = max(1, min(100, $limit));
@@ -1987,6 +2004,14 @@ final class NewsSearchService
                         break;
                     }
                 }
+            }
+        }
+
+        if ($this->queryFingerprint !== []) {
+            $semanticBoost = $this->semanticSimilarityScore($entry, $text);
+            if ($semanticBoost > 0.0) {
+                $this->lastSemanticBoost = $semanticBoost;
+                $score += $semanticBoost;
             }
         }
 

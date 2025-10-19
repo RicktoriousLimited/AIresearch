@@ -1489,6 +1489,71 @@ final class TextRefiner
     }
 
     /**
+     * @return array<string, float>
+     */
+    public function buildSemanticFingerprint(string $text, int $limit = 16): array
+    {
+        $profile = $this->buildSemanticProfile($text, max(6, $limit));
+
+        $fingerprint = [];
+        foreach ($profile['term_weights'] as $term => $weight) {
+            $fingerprint[$term] = (float) $weight;
+        }
+
+        foreach ($profile['phrase_weights'] as $phrase => $weight) {
+            if (!isset($fingerprint[$phrase]) || $weight > $fingerprint[$phrase]) {
+                $fingerprint[$phrase] = (float) $weight;
+            }
+        }
+
+        if ($profile['fingerprint'] !== '') {
+            $fingerprint[$profile['fingerprint']] = 1.0;
+        }
+
+        return $fingerprint;
+    }
+
+    /**
+     * @param array<string, float> $first
+     * @param array<string, float> $second
+     */
+    public function compareFingerprints(array $first, array $second): float
+    {
+        if ($first === [] || $second === []) {
+            return 0.0;
+        }
+
+        $dotProduct = 0.0;
+        $firstMagnitude = 0.0;
+        $secondMagnitude = 0.0;
+
+        foreach ($first as $term => $weight) {
+            $normalised = max(0.0, (float) $weight);
+            $firstMagnitude += $normalised * $normalised;
+
+            if (isset($second[$term])) {
+                $dotProduct += $normalised * max(0.0, (float) $second[$term]);
+            }
+        }
+
+        foreach ($second as $weight) {
+            $normalised = max(0.0, (float) $weight);
+            $secondMagnitude += $normalised * $normalised;
+        }
+
+        if ($dotProduct <= 0.0 || $firstMagnitude <= 0.0 || $secondMagnitude <= 0.0) {
+            return 0.0;
+        }
+
+        $denominator = sqrt($firstMagnitude) * sqrt($secondMagnitude);
+        if ($denominator <= 0.0) {
+            return 0.0;
+        }
+
+        return min(1.0, $dotProduct / $denominator);
+    }
+
+    /**
      * Produce short semantic highlights that can be attached to crawler results or search matches.
      *
      * @return array<int, array{phrase: string, snippet: string}>
