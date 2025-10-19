@@ -309,6 +309,11 @@ final class HiddenCrawler
      */
     private ?array $discoveryLedgerCache = null;
 
+    /**
+     * @var array<string, string>
+     */
+    private array $contentDigestIndex = [];
+
     public function __construct(
         string $storagePath,
         ?ScraperInterface $scraper = null,
@@ -4157,7 +4162,10 @@ final class HiddenCrawler
             return [$history, $this->createFailedEntry($url, $exception->getMessage()), null];
         }
 
-        $analysis = $this->refiner->analyseDocument($scraped->text());
+        $rawText = $scraped->text();
+        $contentDigest = $this->digestContent($rawText);
+
+        $analysis = $this->refiner->analyseDocument($rawText);
         $meaningful = (bool) ($analysis['is_meaningful'] ?? false);
 
         $keywords = $this->formatKeywords($analysis['keywords'] ?? []);
@@ -4180,6 +4188,9 @@ final class HiddenCrawler
         $summaryClean = $this->refiner->cleanDocument($summaryRaw);
         if ($summaryClean === '') {
             $summaryClean = $summaryRaw;
+        }
+        if ($contentDigest === '' && $summaryClean !== '') {
+            $contentDigest = $this->digestContent($summaryClean);
         }
         if (!$meaningful) {
             $preview = '';
@@ -4246,6 +4257,7 @@ final class HiddenCrawler
             'normalized_url' => $normalizedUrl,
             'content_type' => $contentType,
             'fingerprint' => $fingerprint,
+            'content_digest' => $contentDigest,
         ]);
 
         [$history, $merged] = $this->mergeEntry($fullEntry, $history);
@@ -4316,7 +4328,74 @@ final class HiddenCrawler
             return $right <=> $left;
         });
 
+        $this->registerExistingDigests($entries);
+
         return $entries;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $entries
+     */
+    private function registerExistingDigests(array $entries): void
+    {
+        $index = [];
+
+        foreach ($entries as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $digest = '';
+            if (isset($entry['content_digest']) && is_string($entry['content_digest'])) {
+                $digest = trim($entry['content_digest']);
+            }
+
+            if ($digest === '') {
+                $digest = $this->deriveEntryDigest($entry);
+            }
+
+            if ($digest === '') {
+                continue;
+            }
+
+            $key = (string) ($entry['normalized_url'] ?? $entry['url'] ?? '');
+            if ($key === '') {
+                $key = $this->normaliseStoredUrl((string) ($entry['url'] ?? ''));
+            }
+
+            if ($key === '') {
+                continue;
+            }
+
+            $index[$digest] = $key;
+
+            if (isset($entry['versions']) && is_array($entry['versions'])) {
+                foreach ($entry['versions'] as $version) {
+                    if (!is_array($version)) {
+                        continue;
+                    }
+
+                    $versionDigest = '';
+                    if (isset($version['content_digest']) && is_string($version['content_digest'])) {
+                        $versionDigest = trim($version['content_digest']);
+                    }
+
+                    if ($versionDigest === '') {
+                        $versionDigest = $this->deriveEntryDigest($version);
+                    }
+
+                    if ($versionDigest === '') {
+                        continue;
+                    }
+
+                    if (!isset($index[$versionDigest])) {
+                        $index[$versionDigest] = $key;
+                    }
+                }
+            }
+        }
+
+        $this->contentDigestIndex = $index;
     }
 
     /**
@@ -4395,6 +4474,30 @@ final class HiddenCrawler
         $entry['changes'] = $this->normaliseChanges($entry['changes'] ?? null);
         $entry['unchanged'] = false;
 
+        $digest = isset($entry['content_digest']) && is_string($entry['content_digest'])
+            ? trim($entry['content_digest'])
+            : '';
+        $isDuplicate = false;
+        $duplicateKey = null;
+
+        if ($digest !== '') {
+            if (isset($this->contentDigestIndex[$digest]) && $this->contentDigestIndex[$digest] !== $key) {
+                $duplicateKey = $this->contentDigestIndex[$digest];
+                $isDuplicate = true;
+                $entry['duplicate_of'] = $duplicateKey;
+                $entry['ingest'] = false;
+                $entry['quality_score'] = max(0.0, (float) ($entry['quality_score'] ?? 0.0) - 25.0);
+                $entry['quality_label'] = $this->labelForScore((float) $entry['quality_score']);
+                $reasons = is_array($entry['quality_reasons'] ?? null) ? $entry['quality_reasons'] : [];
+                $reasons[] = 'Detected duplicate content from ' . $duplicateKey . '.';
+                $entry['quality_reasons'] = array_values(array_unique($reasons));
+            } else {
+                unset($entry['duplicate_of']);
+            }
+        } else {
+            unset($entry['duplicate_of']);
+        }
+
         if (isset($history[$key])) {
             $existing = $history[$key];
             $existing['changes'] = $this->normaliseChanges($existing['changes'] ?? null);
@@ -4420,6 +4523,12 @@ final class HiddenCrawler
         }
 
         $history[$key] = $entry;
+
+        if ($digest !== '') {
+            if (!$isDuplicate || ($this->contentDigestIndex[$digest] ?? '') === $key) {
+                $this->contentDigestIndex[$digest] = $key;
+            }
+        }
 
         return [$history, $entry];
     }
@@ -4557,6 +4666,64 @@ final class HiddenCrawler
         }
 
         return $version;
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     */
+    private function deriveEntryDigest(array $entry): string
+    {
+        $fragments = [];
+
+        foreach (['summary', 'preview', 'content', 'body', 'meta_description'] as $field) {
+            if (!isset($entry[$field])) {
+                continue;
+            }
+
+            $raw = is_string($entry[$field]) ? $entry[$field] : '';
+            if ($raw === '') {
+                continue;
+            }
+
+            $clean = $this->refiner->cleanDocument($raw);
+            if ($clean === '') {
+                $clean = $raw;
+            }
+
+            $clean = trim($clean);
+            if ($clean !== '') {
+                $fragments[] = $clean;
+            }
+        }
+
+        if ($fragments === []) {
+            return '';
+        }
+
+        $normalised = preg_replace('/\s+/u', ' ', implode(' ', $fragments));
+        $normalised = is_string($normalised) ? mb_strtolower(trim($normalised)) : '';
+        if ($normalised === '') {
+            return '';
+        }
+
+        return hash('sha256', $normalised);
+    }
+
+    private function digestContent(string $text): string
+    {
+        $clean = $this->refiner->cleanDocument($text);
+        if ($clean === '') {
+            $clean = trim($text);
+        }
+
+        if ($clean === '') {
+            return '';
+        }
+
+        $normalised = preg_replace('/\s+/u', ' ', $clean);
+        $normalised = is_string($normalised) ? mb_strtolower(trim($normalised)) : '';
+
+        return $normalised === '' ? '' : hash('sha256', $normalised);
     }
 
     /**
@@ -4847,6 +5014,10 @@ final class HiddenCrawler
                 'sha256',
                 mb_strtolower((string) ($entry['summary'] ?? '')) . '|' . mb_strtolower((string) ($entry['title'] ?? ''))
             );
+        }
+
+        if (!isset($entry['content_digest']) || !is_string($entry['content_digest']) || trim($entry['content_digest']) === '') {
+            $entry['content_digest'] = $this->deriveEntryDigest($entry);
         }
 
         if (!isset($entry['discovery']) || !is_array($entry['discovery'])) {

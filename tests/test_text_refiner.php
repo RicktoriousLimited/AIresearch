@@ -94,6 +94,16 @@ assertTrue($firstPair['question'] !== '', 'QA question should not be empty.');
 assertTrue($firstPair['answer'] !== '', 'QA answer should not be empty.');
 assertTrue($firstPair['response'] === $firstPair['answer'], 'QA response should mirror the answer payload.');
 
+$fingerprintA = $refiner->buildSemanticFingerprint('Quantum computing advances are transforming healthcare diagnostics.');
+$fingerprintB = $refiner->buildSemanticFingerprint('Healthcare leaders adopt quantum computing tools for diagnostics.');
+$fingerprintC = $refiner->buildSemanticFingerprint('Local football clubs celebrate regional tournament victories.');
+
+assertTrue($fingerprintA !== [] && $fingerprintB !== [], 'Semantic fingerprints should capture meaningful text.');
+$similarityAB = $refiner->compareFingerprints($fingerprintA, $fingerprintB);
+$similarityAC = $refiner->compareFingerprints($fingerprintA, $fingerprintC);
+assertTrue($similarityAB > 0.0, 'Related passages should yield a positive similarity score.');
+assertTrue($similarityAB > $similarityAC, 'Unrelated passages should produce a lower similarity score.');
+
 $bbcNav = <<<TEXT
 BBC Homepage
 Skip to content

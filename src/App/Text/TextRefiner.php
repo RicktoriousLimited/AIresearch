@@ -1051,6 +1051,177 @@ final class TextRefiner
     }
 
     /**
+     * Generate a weighted semantic fingerprint for a block of text.
+     *
+     * The fingerprint blends high-signal keywords with lightweight phrase
+     * statistics so downstream consumers (search, deduplication) can compare
+     * documents without reprocessing the original corpus.
+     *
+     * @return array<string, float>
+     */
+    public function buildSemanticFingerprint(string $text, int $limit = 24): array
+    {
+        $cleaned = $this->cleanDocument($text);
+        if ($cleaned === '') {
+            return [];
+        }
+
+        $limit = max(8, $limit);
+
+        $keywords = $this->extractKeywords($cleaned, $limit * 2);
+        $fingerprint = [];
+        $position = 0;
+
+        foreach ($keywords as $keyword) {
+            if (!is_array($keyword)) {
+                continue;
+            }
+
+            $token = isset($keyword['token']) ? trim((string) $keyword['token']) : '';
+            if ($token === '') {
+                continue;
+            }
+
+            $count = isset($keyword['count']) && is_numeric($keyword['count'])
+                ? (float) $keyword['count']
+                : 1.0;
+
+            $decay = max(0.25, 1.0 - ($position / max(1, $limit)));
+            $weight = $count * (1.0 + $decay);
+
+            $lower = mb_strtolower($token, 'UTF-8');
+            $fingerprint[$lower] = max($fingerprint[$lower] ?? 0.0, $weight);
+
+            $position++;
+            if ($position >= $limit) {
+                break;
+            }
+        }
+
+        $tokens = $this->tokeniseFingerprintSource($cleaned);
+        $totalTokens = count($tokens);
+        if ($totalTokens >= 2) {
+            $bigramCounts = [];
+            for ($i = 0; $i < $totalTokens - 1; $i++) {
+                $first = $tokens[$i];
+                $second = $tokens[$i + 1];
+                if ($first === '' || $second === '') {
+                    continue;
+                }
+
+                if (isset(self::$stopwords[$first]) || isset(self::$stopwords[$second])) {
+                    continue;
+                }
+
+                $phrase = $first . ' ' . $second;
+                if (!isset($bigramCounts[$phrase])) {
+                    $bigramCounts[$phrase] = 0.0;
+                }
+
+                $bigramCounts[$phrase] += 1.0;
+            }
+
+            foreach ($bigramCounts as $phrase => $count) {
+                $fingerprint[$phrase] = max($fingerprint[$phrase] ?? 0.0, $count * 0.9);
+            }
+        }
+
+        if ($fingerprint === []) {
+            return [];
+        }
+
+        $maxWeight = max($fingerprint);
+        if ($maxWeight <= 0.0) {
+            return [];
+        }
+
+        foreach ($fingerprint as $token => $weight) {
+            $fingerprint[$token] = $weight / $maxWeight;
+        }
+
+        return $fingerprint;
+    }
+
+    /**
+     * Compare two semantic fingerprints using cosine similarity.
+     *
+     * @param array<string, float> $left
+     * @param array<string, float> $right
+     */
+    public function compareFingerprints(array $left, array $right): float
+    {
+        if ($left === [] || $right === []) {
+            return 0.0;
+        }
+
+        $dot = 0.0;
+        $leftMagnitude = 0.0;
+        $rightMagnitude = 0.0;
+
+        foreach ($left as $token => $weight) {
+            if (!is_string($token) || $weight <= 0.0) {
+                continue;
+            }
+
+            $leftMagnitude += $weight * $weight;
+            if (isset($right[$token])) {
+                $otherWeight = $right[$token];
+                if ($otherWeight > 0.0) {
+                    $dot += $weight * $otherWeight;
+                }
+            }
+        }
+
+        foreach ($right as $weight) {
+            if ($weight > 0.0) {
+                $rightMagnitude += $weight * $weight;
+            }
+        }
+
+        if ($dot <= 0.0 || $leftMagnitude <= 0.0 || $rightMagnitude <= 0.0) {
+            return 0.0;
+        }
+
+        return $dot / sqrt($leftMagnitude * $rightMagnitude);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function tokeniseFingerprintSource(string $text): array
+    {
+        $lower = mb_strtolower($text, 'UTF-8');
+        $parts = preg_split('/[^a-z0-9\']+/u', $lower);
+        if ($parts === false) {
+            $parts = [];
+        }
+
+        $tokens = [];
+        foreach ($parts as $part) {
+            if (!is_string($part)) {
+                continue;
+            }
+
+            $token = trim($part);
+            if ($token === '' || is_numeric($token)) {
+                continue;
+            }
+
+            if (isset(self::$stopwords[$token])) {
+                continue;
+            }
+
+            if (strlen($token) < 2 && !$this->lexicon->contains($token)) {
+                continue;
+            }
+
+            $tokens[] = $token;
+        }
+
+        return $tokens;
+    }
+
+    /**
      * @return array<int, array{token: string, count: int, suggestions: array<int, string>}>
      */
     public function spellCheck(string $text, int $maxSuggestions = 3): array
