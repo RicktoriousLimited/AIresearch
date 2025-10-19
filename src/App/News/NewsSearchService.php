@@ -8,6 +8,7 @@ use App\Crawler\HiddenCrawler;
 use App\KnowledgeGraph\GraphRepository;
 use App\KnowledgeGraph\GraphResearcher;
 use App\News\Ranking\BM25Ranker;
+use App\Text\TextRefiner;
 use DateTimeImmutable;
 use Exception;
 
@@ -30,6 +31,7 @@ use function levenshtein;
 use function max;
 use function mb_strlen;
 use function mb_strtolower;
+use function mb_strtoupper;
 use function mb_strpos;
 use function mb_substr;
 use function min;
@@ -68,6 +70,8 @@ final class NewsSearchService
 
     private GraphRepository $graphRepository;
 
+    private TextRefiner $refiner;
+
     private ?GraphResearcher $graphResearcher = null;
 
     private ?BM25Ranker $bm25Ranker = null;
@@ -98,6 +102,18 @@ final class NewsSearchService
     private array $queryBigrams = [];
 
     /**
+     * @var array<string, float>
+     */
+    private array $querySemanticTermWeights = [];
+
+    /**
+     * @var array<string, float>
+     */
+    private array $querySemanticPhraseWeights = [];
+
+    private ?string $querySemanticFingerprint = null;
+
+    /**
      * @var array{graph: array<string, mixed>|null, sources: array<int, array<string, mixed>>, updated_at: string|null}|null
      */
     private ?array $graphSnapshot = null;
@@ -112,10 +128,11 @@ final class NewsSearchService
      */
     private array $graphPreferredDomains = [];
 
-    public function __construct(HiddenCrawler $crawler, ?GraphRepository $graphRepository = null)
+    public function __construct(HiddenCrawler $crawler, ?GraphRepository $graphRepository = null, ?TextRefiner $refiner = null)
     {
         $this->crawler = $crawler;
         $this->graphRepository = $graphRepository ?? new GraphRepository();
+        $this->refiner = $refiner ?? new TextRefiner();
     }
 
     /**
@@ -135,6 +152,7 @@ final class NewsSearchService
 
         $this->graphSnapshot = null;
         $this->resetQueryState();
+        $this->prepareSemanticContext($query, $terms);
         $graphSignals = $this->buildGraphQuerySignals($query, $terms);
         $this->graphPreferredUrls = $graphSignals['preferred_urls'];
         $this->graphPreferredDomains = $graphSignals['preferred_domains'];
@@ -369,6 +387,78 @@ final class NewsSearchService
         $this->queryBigrams = [];
         $this->graphPreferredUrls = [];
         $this->graphPreferredDomains = [];
+        $this->querySemanticTermWeights = [];
+        $this->querySemanticPhraseWeights = [];
+        $this->querySemanticFingerprint = null;
+    }
+
+    /**
+     * @param array<int, string> $terms
+     */
+    private function prepareSemanticContext(string $query, array $terms): void
+    {
+        $seed = trim($query);
+        if ($seed === '') {
+            $seed = trim(implode(' ', $terms));
+        }
+
+        if ($seed === '') {
+            return;
+        }
+
+        $profile = $this->refiner->buildSemanticProfile($seed, 12);
+        $this->querySemanticTermWeights = $this->normaliseWeightMap($profile['term_weights'] ?? [], 24);
+        $this->querySemanticPhraseWeights = $this->normaliseWeightMap($profile['phrase_weights'] ?? [], 20);
+        $fingerprint = isset($profile['fingerprint']) && is_string($profile['fingerprint'])
+            ? trim($profile['fingerprint'])
+            : '';
+        $this->querySemanticFingerprint = $fingerprint !== '' ? $fingerprint : null;
+    }
+
+    /**
+     * @param mixed $weights
+     *
+     * @return array<string, float>
+     */
+    private function normaliseWeightMap($weights, int $limit = 24): array
+    {
+        if (!is_array($weights)) {
+            return [];
+        }
+
+        $normalised = [];
+        foreach ($weights as $token => $weight) {
+            if (!is_string($token)) {
+                continue;
+            }
+
+            $normalized = preg_replace('/\s+/', ' ', mb_strtolower($token, 'UTF-8'));
+            if (!is_string($normalized)) {
+                $normalized = mb_strtolower($token, 'UTF-8');
+            }
+
+            $normalized = trim($normalized);
+            if ($normalized === '') {
+                continue;
+            }
+
+            if (!is_numeric($weight)) {
+                $weight = 0.0;
+            }
+
+            $normalised[$normalized] = max(
+                $normalised[$normalized] ?? 0.0,
+                round(min(1.0, max(0.0, (float) $weight)), 3)
+            );
+        }
+
+        if ($normalised === []) {
+            return [];
+        }
+
+        arsort($normalised, SORT_NUMERIC);
+
+        return array_slice($normalised, 0, $limit, true);
     }
 
     /**
@@ -546,6 +636,35 @@ final class NewsSearchService
 
                 $expanded[$token] = true;
                 $weights[$token] = max($weights[$token] ?? 0.0, min(1.0, $weightValue * 0.85));
+            }
+        }
+
+        if ($this->querySemanticTermWeights !== []) {
+            foreach ($this->querySemanticTermWeights as $term => $weight) {
+                if (!is_string($term) || $term === '') {
+                    continue;
+                }
+
+                $expanded[$term] = true;
+                $weights[$term] = max($weights[$term] ?? 0.0, min(1.0, $weight));
+            }
+        }
+
+        if ($this->querySemanticPhraseWeights !== []) {
+            foreach ($this->querySemanticPhraseWeights as $phrase => $weight) {
+                if (!is_string($phrase) || $phrase === '') {
+                    continue;
+                }
+
+                $phrases[$phrase] = max($phrases[$phrase] ?? 0.0, min(1.0, $weight));
+                foreach (BM25Ranker::tokenise($phrase) as $token) {
+                    if ($token === '') {
+                        continue;
+                    }
+
+                    $expanded[$token] = true;
+                    $weights[$token] = max($weights[$token] ?? 0.0, min(1.0, $weight * 0.85));
+                }
             }
         }
 
@@ -1670,7 +1789,132 @@ final class NewsSearchService
             }
         }
 
+        $entrySemanticWeights = $this->extractSemanticWeightsFromEntry($entry);
+        if ($entrySemanticWeights !== [] && $this->querySemanticTermWeights !== []) {
+            foreach ($entrySemanticWeights as $token => $weight) {
+                if (isset($this->querySemanticTermWeights[$token])) {
+                    $score += 4.6 * (($this->querySemanticTermWeights[$token] + $weight) / 2);
+                    continue;
+                }
+
+                foreach ($this->querySemanticTermWeights as $queryToken => $queryWeight) {
+                    if ($queryToken === $token) {
+                        continue;
+                    }
+
+                    if (abs(mb_strlen($queryToken, 'UTF-8') - mb_strlen($token, 'UTF-8')) > 4) {
+                        continue;
+                    }
+
+                    if (levenshtein($queryToken, $token) <= 2) {
+                        $score += 2.2 * (($queryWeight + $weight) / 2);
+                        break;
+                    }
+                }
+            }
+        }
+
+        $entrySemanticPhrases = $this->extractSemanticPhrasesFromEntry($entry);
+        if ($entrySemanticPhrases !== [] && $this->querySemanticPhraseWeights !== []) {
+            foreach ($entrySemanticPhrases as $phrase => $weight) {
+                if (isset($this->querySemanticPhraseWeights[$phrase])) {
+                    $score += 5.2 * (($this->querySemanticPhraseWeights[$phrase] + $weight) / 2);
+                }
+            }
+        }
+
+        if ($entrySemanticPhrases !== [] && $this->querySemanticTermWeights !== []) {
+            foreach ($entrySemanticPhrases as $phrase => $weight) {
+                foreach ($this->querySemanticTermWeights as $token => $tokenWeight) {
+                    if (str_contains($phrase, $token)) {
+                        $score += 1.4 * (($tokenWeight + $weight) / 2);
+                        break;
+                    }
+                }
+            }
+        }
+
         return max(0.0, $score);
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     *
+     * @return array<string, float>
+     */
+    private function extractSemanticWeightsFromEntry(array $entry): array
+    {
+        $weights = $this->normaliseWeightMap($entry['semantic_term_weights'] ?? [], 24);
+
+        if (isset($entry['semantic_tags']) && is_array($entry['semantic_tags'])) {
+            foreach ($entry['semantic_tags'] as $tag) {
+                if (!is_string($tag)) {
+                    continue;
+                }
+
+                $normalized = preg_replace('/\s+/', ' ', mb_strtolower($tag, 'UTF-8'));
+                if (!is_string($normalized)) {
+                    $normalized = mb_strtolower($tag, 'UTF-8');
+                }
+
+                $normalized = trim($normalized);
+                if ($normalized === '') {
+                    continue;
+                }
+
+                $weights[$normalized] = max($weights[$normalized] ?? 0.0, 0.45);
+            }
+        }
+
+        if ($weights !== []) {
+            arsort($weights, SORT_NUMERIC);
+            $weights = array_slice($weights, 0, 24, true);
+        }
+
+        return $weights;
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     *
+     * @return array<string, float>
+     */
+    private function extractSemanticPhrasesFromEntry(array $entry): array
+    {
+        $weights = $this->normaliseWeightMap($entry['semantic_phrase_weights'] ?? [], 20);
+
+        if (isset($entry['key_phrases']) && is_array($entry['key_phrases'])) {
+            foreach ($entry['key_phrases'] as $candidate) {
+                if (is_array($candidate)) {
+                    $phrase = isset($candidate['phrase']) ? (string) $candidate['phrase'] : '';
+                    $score = isset($candidate['score']) ? (float) $candidate['score'] : 0.0;
+                } elseif (is_string($candidate)) {
+                    $phrase = $candidate;
+                    $score = 0.0;
+                } else {
+                    continue;
+                }
+
+                $normalized = preg_replace('/\s+/', ' ', mb_strtolower($phrase, 'UTF-8'));
+                if (!is_string($normalized)) {
+                    $normalized = mb_strtolower($phrase, 'UTF-8');
+                }
+
+                $normalized = trim($normalized);
+                if ($normalized === '') {
+                    continue;
+                }
+
+                $weights[$normalized] = max($weights[$normalized] ?? 0.0, round(min(1.0, max(0.0, $score)), 3));
+            }
+        }
+
+        if ($weights !== []) {
+            arsort($weights, SORT_NUMERIC);
+            $weights = array_slice($weights, 0, 20, true);
+        }
+
+        return $weights;
     }
 
     private function recencyBoost(string $fetchedAt, DateTimeImmutable $now): float
@@ -1886,6 +2130,8 @@ final class NewsSearchService
         $qualityScores = [];
         $ingested = 0;
         $typeBreakdown = [];
+        $semanticCounts = [];
+        $semanticWeights = [];
         $recencyBuckets = [
             'past_hour' => 0,
             'past_day' => 0,
@@ -1915,6 +2161,12 @@ final class NewsSearchService
                 $sourceCounts[$domain] = $sourceCounts[$domain] ?? ['count' => 0, 'score' => 0.0];
                 $sourceCounts[$domain]['count']++;
                 $sourceCounts[$domain]['score'] += (float) ($item['quality_score'] ?? 0.0);
+            }
+
+            $semanticWeightsForItem = $this->extractSemanticWeightsFromEntry($item);
+            foreach ($semanticWeightsForItem as $tag => $weight) {
+                $semanticCounts[$tag] = ($semanticCounts[$tag] ?? 0) + 1;
+                $semanticWeights[$tag] = ($semanticWeights[$tag] ?? 0.0) + $weight;
             }
 
             $qualityScore = (float) ($item['quality_score'] ?? 0.0);
@@ -1972,6 +2224,19 @@ final class NewsSearchService
             $averageQuality = round(array_sum($qualityScores) / max(1, count($qualityScores)), 1);
         }
 
+        arsort($semanticCounts);
+        $semanticTags = [];
+        foreach (array_slice(array_keys($semanticCounts), 0, 8) as $tag) {
+            $count = $semanticCounts[$tag];
+            $totalWeight = $semanticWeights[$tag] ?? 0.0;
+            $semanticTags[] = [
+                'tag' => $tag,
+                'label' => $this->presentSemanticLabel($tag),
+                'count' => $count,
+                'average_weight' => $count > 0 ? round($totalWeight / $count, 3) : 0.0,
+            ];
+        }
+
         $facets = [
             'recency' => $this->formatFacetList($recencyBuckets, [
                 'past_hour' => 'Past hour',
@@ -2007,6 +2272,16 @@ final class NewsSearchService
             ]),
         ];
 
+        if ($semanticCounts !== []) {
+            $facets['semantic'] = $this->formatFacetList(
+                $semanticCounts,
+                null,
+                fn(string $key): string => $this->presentSemanticLabel($key)
+            );
+        }
+
+        $facetList = array_filter($facets, static fn(array $facet): bool => $facet !== []);
+
         return [
             'total_matches' => count($items),
             'average_quality' => $averageQuality,
@@ -2014,9 +2289,10 @@ final class NewsSearchService
             'sources' => $sources,
             'high_quality' => count(array_filter($qualityScores, static fn(float $score): bool => $score >= 70.0)),
             'ingested' => $ingested,
-            'suggested_queries' => array_map(static fn(array $row): string => (string) $row['topic'], array_slice($topics, 0, 5)),
+            'semantic_tags' => $semanticTags,
+            'suggested_queries' => $this->mergeSuggestedQueries($topics, $semanticTags),
             'types' => $typeBreakdown,
-            'facets' => array_filter($facets, static fn(array $facet): bool => $facet !== []),
+            'facets' => $facetList,
         ];
     }
 
@@ -2127,6 +2403,71 @@ final class NewsSearchService
         usort($formatted, static fn(array $a, array $b): int => $b['count'] <=> $a['count']);
 
         return $formatted;
+    }
+
+    /**
+     * @param array<int, array{topic: string, count: int}> $topics
+     * @param array<int, array{tag: string, label: string, count: int, average_weight: float}> $semanticTags
+     *
+     * @return array<int, string>
+     */
+    private function mergeSuggestedQueries(array $topics, array $semanticTags): array
+    {
+        $topicSuggestions = array_map(
+            static fn(array $row): string => (string) ($row['topic'] ?? ''),
+            array_slice($topics, 0, 5)
+        );
+
+        $semanticSuggestions = array_map(
+            static fn(array $row): string => (string) ($row['label'] ?? ''),
+            array_slice($semanticTags, 0, 5)
+        );
+
+        $combined = array_merge($topicSuggestions, $semanticSuggestions);
+        $unique = [];
+        foreach ($combined as $candidate) {
+            $candidate = trim($candidate);
+            if ($candidate === '') {
+                continue;
+            }
+
+            if (!in_array($candidate, $unique, true)) {
+                $unique[] = $candidate;
+            }
+        }
+
+        return array_slice($unique, 0, 8);
+    }
+
+    private function presentSemanticLabel(string $key): string
+    {
+        $key = trim($key);
+        if ($key === '') {
+            return 'Unknown';
+        }
+
+        $upper = mb_strtoupper($key, 'UTF-8');
+        if ($upper === $key && mb_strlen($key, 'UTF-8') <= 4) {
+            return $upper;
+        }
+
+        $parts = preg_split('/[\s_-]+/u', $key) ?: [$key];
+        $parts = array_map(static function (string $part): string {
+            $part = trim($part);
+            if ($part === '') {
+                return '';
+            }
+
+            if (mb_strlen($part, 'UTF-8') <= 3 && strtoupper($part) === $part) {
+                return strtoupper($part);
+            }
+
+            return ucfirst($part);
+        }, $parts);
+
+        $parts = array_values(array_filter($parts, static fn(string $part): bool => $part !== ''));
+
+        return $parts === [] ? ucfirst($key) : implode(' ', $parts);
     }
 
     /**

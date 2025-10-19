@@ -84,6 +84,21 @@ if (!is_array($narrative)) {
     throw new RuntimeException('Crawler results should expose narrative analytics.');
 }
 
+$keyPhrases = $first['key_phrases'] ?? null;
+if (!is_array($keyPhrases)) {
+    throw new RuntimeException('Crawler results should expose key phrase signals.');
+}
+
+$semanticTags = $first['semantic_tags'] ?? null;
+if (!is_array($semanticTags)) {
+    throw new RuntimeException('Crawler results should include semantic tags.');
+}
+
+$semanticFingerprint = $first['semantic_fingerprint'] ?? null;
+if (!is_string($semanticFingerprint)) {
+    throw new RuntimeException('Crawler results should compute a semantic fingerprint.');
+}
+
 $graph = $first['graph'] ?? [];
 if (!is_array($graph) || !array_key_exists('ingested', $graph)) {
     throw new RuntimeException('Crawler results should include graph integration metadata.');

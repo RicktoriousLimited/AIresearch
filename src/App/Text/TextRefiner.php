@@ -1051,6 +1051,296 @@ final class TextRefiner
     }
 
     /**
+     * @return array<int, array{phrase: string, score: float}>
+     */
+    public function extractKeyPhrases(string $text, int $limit = 12): array
+    {
+        $source = $this->cleanDocument($text);
+        if ($source === '') {
+            $source = $text;
+        }
+
+        $source = trim($source);
+        if ($source === '') {
+            return [];
+        }
+
+        $sentences = preg_split('/(?<=[.!?])\s+|\n+/u', $source);
+        if ($sentences === false) {
+            $sentences = [$source];
+        }
+
+        $scores = [];
+        $phrases = [];
+
+        foreach ($sentences as $sentence) {
+            $sentence = trim($sentence);
+            if ($sentence === '') {
+                continue;
+            }
+
+            preg_match_all('/\b[\p{L}\p{N}][\p{L}\p{N}\'-]*\b/u', $sentence, $matches);
+            $tokens = is_array($matches[0] ?? null) ? $matches[0] : [];
+            if ($tokens === []) {
+                continue;
+            }
+
+            $buffer = [];
+            foreach ($tokens as $token) {
+                if (!is_string($token)) {
+                    continue;
+                }
+
+                $normalized = mb_strtolower($token, 'UTF-8');
+                if ($this->isPhraseBoundaryToken($normalized)) {
+                    if ($buffer !== []) {
+                        $this->scorePhraseCandidate($buffer, $scores, $phrases);
+                        $buffer = [];
+                    }
+                    continue;
+                }
+
+                $buffer[] = [
+                    'normalized' => $normalized,
+                    'original' => $token,
+                ];
+            }
+
+            if ($buffer !== []) {
+                $this->scorePhraseCandidate($buffer, $scores, $phrases);
+            }
+        }
+
+        if ($scores === []) {
+            return [];
+        }
+
+        arsort($scores, SORT_NUMERIC);
+        $maxScore = max($scores);
+
+        $results = [];
+        foreach ($scores as $key => $score) {
+            $phrase = $phrases[$key] ?? $key;
+            $normalizedScore = $maxScore > 0.0 ? round(min(1.0, $score / $maxScore), 3) : 0.0;
+
+            $results[] = [
+                'phrase' => $phrase,
+                'score' => $normalizedScore,
+            ];
+
+            if (count($results) >= $limit) {
+                break;
+            }
+        }
+
+        return $results;
+    }
+
+    /**
+     * @return array{
+     *     fingerprint: string,
+     *     terms: array<int, string>,
+     *     term_weights: array<string, float>,
+     *     phrase_weights: array<string, float>,
+     *     key_phrases: array<int, array{phrase: string, score: float}>
+     * }
+     */
+    public function buildSemanticProfile(string $text, int $limit = 12): array
+    {
+        $source = $this->cleanDocument($text);
+        if ($source === '') {
+            $source = $text;
+        }
+
+        $source = trim($source);
+        if ($source === '') {
+            return [
+                'fingerprint' => '',
+                'terms' => [],
+                'term_weights' => [],
+                'phrase_weights' => [],
+                'key_phrases' => [],
+            ];
+        }
+
+        preg_match_all('/\b[\p{L}\p{N}][\p{L}\p{N}\'-]*\b/u', $source, $matches);
+        $tokens = is_array($matches[0] ?? null) ? $matches[0] : [];
+
+        $frequencies = [];
+        $totalTokens = 0;
+        foreach ($tokens as $token) {
+            if (!is_string($token)) {
+                continue;
+            }
+
+            $normalized = mb_strtolower($token, 'UTF-8');
+            $normalized = preg_replace('/[^\p{L}\p{N}\'-]+/u', '', $normalized);
+            if (!is_string($normalized)) {
+                $normalized = mb_strtolower($token, 'UTF-8');
+            }
+
+            $normalized = trim($normalized);
+            if ($normalized === '' || is_numeric($normalized)) {
+                continue;
+            }
+
+            if ($this->isPhraseBoundaryToken($normalized)) {
+                continue;
+            }
+
+            $frequencies[$normalized] = ($frequencies[$normalized] ?? 0) + 1;
+            $totalTokens++;
+        }
+
+        $termWeights = [];
+        foreach ($frequencies as $token => $count) {
+            $lengthWeight = min(0.4, max(0.0, (mb_strlen($token, 'UTF-8') - 4) / 12));
+            $freqWeight = $totalTokens > 0 ? ($count / $totalTokens) * 4.2 : 0.0;
+            $lexiconBonus = $this->lexicon->contains($token) || $this->looksLikeName($token) ? 0.2 : 0.0;
+            $score = max(0.05, min(1.0, 0.35 + $freqWeight + $lengthWeight + $lexiconBonus));
+            $termWeights[$token] = round($score, 3);
+        }
+
+        arsort($termWeights, SORT_NUMERIC);
+        if (count($termWeights) > $limit * 2) {
+            $termWeights = array_slice($termWeights, 0, $limit * 2, true);
+        }
+
+        $keyPhrases = $this->extractKeyPhrases($source, $limit);
+        $phraseWeights = [];
+        foreach ($keyPhrases as $phrase) {
+            $normalized = mb_strtolower($phrase['phrase'], 'UTF-8');
+            $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+            $normalized = trim($normalized);
+            if ($normalized === '') {
+                continue;
+            }
+
+            $phraseWeights[$normalized] = max(0.0, min(1.0, (float) $phrase['score']));
+        }
+
+        if ($phraseWeights !== []) {
+            arsort($phraseWeights, SORT_NUMERIC);
+            $phraseWeights = array_slice($phraseWeights, 0, $limit, true);
+        }
+
+        $terms = array_keys($termWeights);
+        $terms = array_slice($terms, 0, $limit);
+
+        $fingerprintSeed = $terms;
+        if ($fingerprintSeed === [] && $phraseWeights !== []) {
+            $fingerprintSeed = array_keys($phraseWeights);
+        }
+
+        $fingerprint = '';
+        if ($fingerprintSeed !== []) {
+            $fingerprint = substr(hash('sha256', implode('|', $fingerprintSeed)), 0, 48);
+        }
+
+        return [
+            'fingerprint' => $fingerprint,
+            'terms' => $terms,
+            'term_weights' => $termWeights,
+            'phrase_weights' => $phraseWeights,
+            'key_phrases' => $keyPhrases,
+        ];
+    }
+
+    /**
+     * @param array<int, array{normalized: string, original: string}> $tokens
+     * @param array<string, float> $scores
+     * @param array<string, string> $phrases
+     */
+    private function scorePhraseCandidate(array $tokens, array &$scores, array &$phrases): void
+    {
+        $normalizedTokens = [];
+        $originalTokens = [];
+
+        foreach ($tokens as $token) {
+            $normalized = preg_replace('/[^\p{L}\p{N}\'-]+/u', '', $token['normalized']);
+            if (!is_string($normalized)) {
+                $normalized = $token['normalized'];
+            }
+
+            $normalized = trim($normalized);
+            if ($normalized === '') {
+                continue;
+            }
+
+            $normalizedTokens[] = $normalized;
+            $originalTokens[] = $token['original'];
+        }
+
+        if ($normalizedTokens === []) {
+            return;
+        }
+
+        $key = implode(' ', $normalizedTokens);
+        if (mb_strlen($key, 'UTF-8') < 4) {
+            return;
+        }
+
+        $length = count($normalizedTokens);
+        $uniqueCount = count(array_unique($normalizedTokens));
+        $lengthWeight = 1.0 + min(0.9, ($length - 1) * 0.35);
+        $diversityWeight = 1.0 + min(0.6, ($uniqueCount - 1) * 0.2);
+        $entropyBonus = 0.0;
+
+        foreach ($normalizedTokens as $token) {
+            if (mb_strlen($token, 'UTF-8') >= 7) {
+                $entropyBonus += 0.05;
+            }
+        }
+
+        $score = ($lengthWeight * $diversityWeight) + $entropyBonus;
+
+        $scores[$key] = ($scores[$key] ?? 0.0) + $score;
+        if (!isset($phrases[$key])) {
+            $phrases[$key] = $this->formatPhraseForDisplay($originalTokens);
+        }
+    }
+
+    /**
+     * @param array<int, string> $tokens
+     */
+    private function formatPhraseForDisplay(array $tokens): string
+    {
+        $segments = [];
+        foreach ($tokens as $token) {
+            if (!is_string($token)) {
+                continue;
+            }
+
+            $segments[] = trim($token, " \t\n\r\0\x0B-");
+        }
+
+        $joined = implode(' ', array_filter($segments, static fn(string $segment): bool => $segment !== ''));
+        $normalized = preg_replace('/\s+/', ' ', $joined);
+        if (!is_string($normalized)) {
+            $normalized = $joined;
+        }
+
+        return trim($normalized);
+    }
+
+    private function isPhraseBoundaryToken(string $token): bool
+    {
+        if ($token === '') {
+            return true;
+        }
+
+        if (isset(self::$stopwords[$token]) || isset(self::$pronouns[$token]) || isset(self::$determiners[$token])) {
+            return true;
+        }
+
+        if (mb_strlen($token, 'UTF-8') <= 2 && !$this->lexicon->contains($token) && !$this->looksLikeName($token)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * @return array<int, array{token: string, count: int, suggestions: array<int, string>}>
      */
     public function spellCheck(string $text, int $maxSuggestions = 3): array
