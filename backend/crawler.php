@@ -1038,6 +1038,8 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
         pendingReload: false,
         lastRunAt: typeof initialProgress.last_run_at === 'string' ? initialProgress.last_run_at : null,
         pollTimer: null,
+        processingQueue: false,
+        queueTimer: null,
     };
 
     const statusPill = document.getElementById('progress-status-pill');
@@ -1077,6 +1079,10 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
     const discoveryLinksEmpty = document.getElementById('progress-discovery-links-empty');
     const form = document.getElementById('crawler-form');
     const runButton = form ? form.querySelector('button[type="submit"]') : null;
+    const autoIntervalInput = document.getElementById('auto_interval');
+    const depthInput = document.getElementById('crawl_depth');
+    const refreshInput = document.getElementById('refresh_after');
+    const autoStartInput = document.getElementById('auto_start');
 
     function normaliseStatus(value) {
         const status = (value || '').toString().toLowerCase();
@@ -1094,6 +1100,197 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
         const totalValue = Number.isFinite(total) ? total : 0;
         const denominator = totalValue > 0 ? totalValue : Math.max(totalValue, processedValue);
         return processedValue + ' / ' + denominator;
+    }
+
+    function getInputNumber(input, fallback) {
+        if (!input) {
+            return fallback;
+        }
+
+        const raw = typeof input.value === 'string' ? input.value.trim() : '';
+        if (raw === '') {
+            return fallback;
+        }
+
+        const parsed = Number(raw);
+        return Number.isFinite(parsed) ? parsed : fallback;
+    }
+
+    function resolvePendingOptions(pending) {
+        const fallbackPending = state.data && typeof state.data.pending_run === 'object'
+            ? state.data.pending_run
+            : null;
+        const source = pending && typeof pending === 'object' ? pending : fallbackPending;
+
+        const optionDefaults = {
+            depth: getInputNumber(depthInput, 0),
+            auto_interval: getInputNumber(autoIntervalInput, 0),
+            auto_start: autoStartInput ? !!autoStartInput.checked : false,
+            refresh_after: getInputNumber(refreshInput, 0),
+        };
+
+        const options = source && typeof source.options === 'object' ? source.options : {};
+        const depth = Number(options.depth);
+        const autoInterval = Number(options.auto_interval);
+        const refreshAfterMinutes = Number(options.refresh_after);
+
+        return {
+            limit: 1,
+            depth: Number.isFinite(depth) ? depth : optionDefaults.depth,
+            autoInterval: Number.isFinite(autoInterval) ? autoInterval : optionDefaults.auto_interval,
+            autoStart: typeof options.auto_start === 'boolean' ? options.auto_start : optionDefaults.auto_start,
+            refreshAfter: Number.isFinite(refreshAfterMinutes) ? refreshAfterMinutes : optionDefaults.refresh_after,
+        };
+    }
+
+    function ensureQueueProcessing(pending) {
+        if (!state.data || typeof state.data !== 'object') {
+            state.data = {};
+        }
+
+        if (pending && typeof pending === 'object') {
+            state.data.pending_run = pending;
+        } else if (pending === null) {
+            state.data.pending_run = null;
+        }
+
+        const activePending = state.data && typeof state.data.pending_run === 'object'
+            ? state.data.pending_run
+            : null;
+
+        if (!activePending) {
+            if (state.queueTimer) {
+                clearTimeout(state.queueTimer);
+                state.queueTimer = null;
+            }
+            return;
+        }
+
+        const remaining = Number(activePending.scheduled_remaining ?? 0);
+        if (!Number.isFinite(remaining) || remaining <= 0) {
+            if (state.queueTimer) {
+                clearTimeout(state.queueTimer);
+                state.queueTimer = null;
+            }
+            return;
+        }
+
+        if (state.processingQueue || state.queueTimer) {
+            return;
+        }
+
+        state.queueTimer = setTimeout(function () {
+            state.queueTimer = null;
+            driveQueueProcessing();
+        }, 250);
+    }
+
+    async function runScheduledBatch(options) {
+        options = options || {};
+
+        const limit = Number.isFinite(options.limit) ? Math.max(1, Number(options.limit)) : 1;
+        const depth = Number.isFinite(options.depth) ? Math.max(0, Number(options.depth)) : 0;
+        const autoInterval = Number.isFinite(options.autoInterval) ? Math.max(0, Number(options.autoInterval)) : 0;
+        const refreshAfterMinutes = Number.isFinite(options.refreshAfter) ? Math.max(0, Number(options.refreshAfter)) : 0;
+        const autoStart = !!options.autoStart;
+
+        const formData = new FormData();
+        formData.set('action', 'run-scheduled');
+        formData.set('scheduled_limit', String(limit));
+        formData.set('scheduled_depth', String(depth));
+        formData.set('auto_interval', String(autoInterval));
+        formData.set('auto_start', autoStart ? '1' : '0');
+        formData.set('refresh_after', String(refreshAfterMinutes));
+
+        const response = await fetch('/backend/crawler-run.php', {
+            method: 'POST',
+            body: formData,
+            credentials: 'same-origin',
+        });
+
+        let payload;
+        try {
+            payload = await response.json();
+        } catch (error) {
+            throw new Error('Scheduled crawl failed: invalid response.');
+        }
+
+        if (!response.ok) {
+            const message = payload && typeof payload.error === 'string' && payload.error.trim() !== ''
+                ? payload.error.trim()
+                : 'Scheduled crawl failed.';
+            throw new Error(message);
+        }
+
+        const message = payload && typeof payload.message === 'string' ? payload.message : '';
+        const success = !!(payload && payload.success);
+        const pending = payload && typeof payload.pending_run === 'object' ? payload.pending_run : null;
+        const remainingRaw = payload && Object.prototype.hasOwnProperty.call(payload, 'scheduled_remaining')
+            ? Number(payload.scheduled_remaining)
+            : 0;
+        const remaining = Number.isFinite(remainingRaw) ? remainingRaw : 0;
+
+        if (message) {
+            setMessage(message, !success);
+        }
+
+        return {
+            success,
+            pending,
+            remaining,
+            payload,
+        };
+    }
+
+    async function driveQueueProcessing() {
+        const pending = state.data && typeof state.data.pending_run === 'object'
+            ? state.data.pending_run
+            : null;
+
+        if (!pending) {
+            return;
+        }
+
+        const remaining = Number(pending.scheduled_remaining ?? 0);
+        if (!Number.isFinite(remaining) || remaining <= 0) {
+            return;
+        }
+
+        if (state.processingQueue) {
+            return;
+        }
+
+        state.processingQueue = true;
+
+        let shouldContinue = false;
+        let nextPending = null;
+
+        try {
+            const options = resolvePendingOptions(pending);
+            const result = await runScheduledBatch(options);
+
+            if (result.pending) {
+                state.data.pending_run = result.pending;
+            }
+
+            if (result.success && result.pending) {
+                shouldContinue = true;
+                nextPending = result.pending;
+            } else if (result.success && result.remaining > 0) {
+                shouldContinue = true;
+                nextPending = state.data.pending_run || pending;
+            }
+        } catch (error) {
+            const message = error instanceof Error && typeof error.message === 'string' && error.message !== ''
+                ? error.message
+                : 'Scheduled crawl request failed.';
+            setMessage(message, true);
+        } finally {
+            state.processingQueue = false;
+            if (shouldContinue) {
+                ensureQueueProcessing(nextPending || null);
+            }
+        }
     }
 
     function escapeHtml(value) {
@@ -1790,6 +1987,9 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
             state.lastRunAt = data.last_run_at;
         }
 
+        const pendingRun = data && typeof data.pending_run === 'object' ? data.pending_run : null;
+        ensureQueueProcessing(pendingRun);
+
         maybeAutoStart(data, statusNormalised);
     }
 
@@ -1839,14 +2039,18 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
 
     async function startRun(formData, options) {
         options = options || {};
+
         if (state.isRunning) {
             return;
         }
 
+        const actionValue = String(formData.get('action') || '').toLowerCase();
+        const isQueueRequest = actionValue === 'queue';
+
         state.isRunning = true;
         if (runButton) {
             runButton.disabled = true;
-            runButton.textContent = 'Running…';
+            runButton.textContent = isQueueRequest ? 'Queueing…' : 'Running…';
         }
 
         try {
@@ -1856,7 +2060,35 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
                 credentials: 'same-origin',
             });
 
-            const payload = await response.json();
+            let payload;
+            try {
+                payload = await response.json();
+            } catch (parseError) {
+                throw new Error('Crawler request failed: invalid response.');
+            }
+
+            if (!response.ok) {
+                const message = payload && typeof payload.error === 'string' && payload.error.trim() !== ''
+                    ? payload.error.trim()
+                    : 'Crawler request failed.';
+                throw new Error(message);
+            }
+
+            if (payload && payload.error) {
+                setMessage(payload.error, true);
+                return;
+            }
+
+            if (isQueueRequest) {
+                if (payload && typeof payload.message === 'string' && payload.message !== '') {
+                    setMessage(payload.message, false);
+                }
+
+                const pending = payload && typeof payload.pending_run === 'object' ? payload.pending_run : null;
+                ensureQueueProcessing(pending);
+                return;
+            }
+
             if (payload && payload.success) {
                 if (options.reloadOnFinish !== false) {
                     state.pendingReload = true;
@@ -1867,7 +2099,10 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
                 setMessage('Crawler request failed.', true);
             }
         } catch (error) {
-            setMessage('Crawler request failed.', true);
+            const message = error instanceof Error && typeof error.message === 'string' && error.message !== ''
+                ? error.message
+                : 'Crawler request failed.';
+            setMessage(message, true);
         } finally {
             state.isRunning = false;
             if (runButton) {
@@ -1878,7 +2113,19 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
     }
 
     function maybeAutoStart(data, statusNormalised) {
-        if (!data || !data.auto_start || statusNormalised !== 'idle' || state.isRunning) {
+        if (!data || !data.auto_start || statusNormalised !== 'idle') {
+            return;
+        }
+
+        if (state.isRunning || state.processingQueue) {
+            return;
+        }
+
+        const pending = data && typeof data.pending_run === 'object' ? data.pending_run : null;
+        const pendingRemaining = pending && Object.prototype.hasOwnProperty.call(pending, 'scheduled_remaining')
+            ? Number(pending.scheduled_remaining)
+            : 0;
+        if (Number.isFinite(pendingRemaining) && pendingRemaining > 0) {
             return;
         }
 
@@ -1896,7 +2143,7 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
         }
 
         const formData = new FormData();
-        formData.set('action', 'crawl');
+        formData.set('action', 'queue');
         formData.set('urls', data.seed_urls.join('\n'));
         formData.set('depth', String(data.options && typeof data.options.depth === 'number' ? data.options.depth : 0));
         formData.set('auto_interval', String(Number(data.auto_interval || 0)));
@@ -1906,17 +2153,15 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
             : Number(data.refresh_after || 0);
         formData.set('refresh_after', String(Math.max(0, Number(refreshValue || 0))));
 
-        state.pendingReload = true;
-        startRun(formData, { reloadOnFinish: true });
+        startRun(formData, { reloadOnFinish: false });
     }
 
     if (form) {
         form.addEventListener('submit', function (event) {
             event.preventDefault();
             const formData = new FormData(form);
-            formData.set('action', 'crawl');
-            state.pendingReload = true;
-            startRun(formData, { reloadOnFinish: true });
+            formData.set('action', 'queue');
+            startRun(formData, { reloadOnFinish: false });
         });
     }
 })();
