@@ -1256,6 +1256,10 @@ final class HiddenCrawler
             }
 
             $sourceCount = is_array($meta['sources'] ?? null) ? count($meta['sources']) : 0;
+            $cadenceMinutes = isset($meta['change_cadence_minutes']) && $meta['change_cadence_minutes'] !== null
+                ? (int) $meta['change_cadence_minutes']
+                : null;
+            $cadenceSamples = isset($meta['change_samples']) ? (int) $meta['change_samples'] : 0;
 
             $candidates[] = [
                 'url' => $url,
@@ -1266,6 +1270,8 @@ final class HiddenCrawler
                 'last_seen_at' => (string) ($meta['last_seen_at'] ?? ''),
                 'next_due_at' => $dueAt !== null ? $dueAt->format(DATE_ATOM) : '',
                 'source_count' => $sourceCount,
+                'change_cadence_minutes' => $cadenceMinutes,
+                'change_samples' => $cadenceSamples,
             ];
         }
 
@@ -2541,6 +2547,110 @@ final class HiddenCrawler
         }
     }
 
+    /**
+     * @param array<string, mixed>|null $entry
+     *
+     * @return array{median:int, samples:int, latest:int|null}|null
+     */
+    private function summariseChangeCadence(?array $entry): ?array
+    {
+        if (!is_array($entry)) {
+            return null;
+        }
+
+        $timestamps = [];
+
+        if ($this->entryHasMeaningfulChange($entry)) {
+            $currentTimestamp = $this->parseDateTime((string) ($entry['fetched_at'] ?? $entry['last_checked_at'] ?? ''));
+            if ($currentTimestamp !== null) {
+                $timestamps[] = $currentTimestamp->getTimestamp();
+            }
+        }
+
+        $versions = is_array($entry['versions'] ?? null) ? $entry['versions'] : [];
+        foreach ($versions as $version) {
+            if (!is_array($version)) {
+                continue;
+            }
+
+            if (!$this->entryHasMeaningfulChange($version)) {
+                continue;
+            }
+
+            $versionTimestamp = $this->parseDateTime((string) ($version['fetched_at'] ?? $version['last_checked_at'] ?? ''));
+            if ($versionTimestamp === null) {
+                continue;
+            }
+
+            $timestamps[] = $versionTimestamp->getTimestamp();
+        }
+
+        $timestamps = array_values(array_unique(array_filter($timestamps, static fn($value): bool => is_int($value))));
+        rsort($timestamps);
+
+        if (count($timestamps) < 2) {
+            return null;
+        }
+
+        $intervals = [];
+        $latest = null;
+
+        $count = count($timestamps);
+        for ($index = 0; $index < $count - 1; $index++) {
+            $current = $timestamps[$index];
+            $previous = $timestamps[$index + 1];
+            $difference = (int) round(($current - $previous) / 60);
+            if ($difference <= 0) {
+                continue;
+            }
+
+            if ($latest === null) {
+                $latest = $difference;
+            }
+
+            $intervals[] = $difference;
+        }
+
+        if ($intervals === []) {
+            return null;
+        }
+
+        sort($intervals);
+        $samples = count($intervals);
+        $middle = (int) floor($samples / 2);
+        if ($samples % 2 === 0) {
+            $median = (int) round(($intervals[$middle - 1] + $intervals[$middle]) / 2);
+        } else {
+            $median = $intervals[$middle];
+        }
+
+        return [
+            'median' => max(5, $median),
+            'samples' => $samples,
+            'latest' => $latest,
+        ];
+    }
+
+    private function entryHasMeaningfulChange(array $entry): bool
+    {
+        $changes = $entry['changes'] ?? null;
+
+        if (is_array($changes)) {
+            $summary = (string) ($changes['summary'] ?? '');
+            if ($summary !== '' && stripos($summary, 'no content changes') !== false) {
+                return false;
+            }
+
+            return true;
+        }
+
+        if (is_string($changes)) {
+            return stripos($changes, 'no content changes') === false;
+        }
+
+        return true;
+    }
+
     private function determineRefreshInterval(?array $entry, array $ledgerEntry, int $defaultInterval): int
     {
         $defaultInterval = max(0, $defaultInterval);
@@ -2629,6 +2739,19 @@ final class HiddenCrawler
             }
         }
 
+        $cadenceSummary = $this->summariseChangeCadence($entry);
+        if ($cadenceSummary !== null) {
+            $observedMedian = max(5, (int) $cadenceSummary['median']);
+            if ($observedMedian < $interval) {
+                $interval = (int) round(($interval * 0.5) + ($observedMedian * 0.5));
+            } else {
+                $interval = (int) round(($interval * 0.6) + ($observedMedian * 0.4));
+            }
+            if ($defaultInterval > 0) {
+                $interval = max(15, min($interval, max(15, $defaultInterval)));
+            }
+        }
+
         if ($revision <= 2) {
             $cap = $defaultInterval > 0 ? max(30, $defaultInterval) : 240;
             $interval = min($interval, $cap);
@@ -2704,6 +2827,16 @@ final class HiddenCrawler
 
         $interval = $this->determineRefreshInterval($result, $ledger[$key], $defaultInterval);
         $this->registerSchedule($ledger, $url, 'crawl', $interval, null);
+
+        $cadenceSummary = $this->summariseChangeCadence($result);
+        if ($cadenceSummary !== null) {
+            $ledger[$key]['change_cadence_minutes'] = (int) $cadenceSummary['median'];
+            $ledger[$key]['change_samples'] = (int) $cadenceSummary['samples'];
+            $ledger[$key]['change_latest_minutes'] = $cadenceSummary['latest'] !== null
+                ? (int) $cadenceSummary['latest']
+                : null;
+            $ledger[$key]['change_updated_at'] = (string) ($result['fetched_at'] ?? $result['last_checked_at'] ?? date(DATE_ATOM));
+        }
     }
 
     private function parseDateTime(string $value): ?DateTimeImmutable
@@ -3588,6 +3721,12 @@ final class HiddenCrawler
             }
         }
 
+        $cadenceMinutes = isset($ledgerEntry['change_cadence_minutes']) && $ledgerEntry['change_cadence_minutes'] !== null
+            ? (int) $ledgerEntry['change_cadence_minutes']
+            : null;
+        $cadenceSamples = isset($ledgerEntry['change_samples']) ? (int) $ledgerEntry['change_samples'] : 0;
+        $cadenceDescriptor = $this->formatCadenceDescriptor($cadenceMinutes, $cadenceSamples);
+
         return [
             'due_sort' => $dueTimestamp ?? $queuedSort,
             'queued_sort' => $queuedSort,
@@ -3598,7 +3737,41 @@ final class HiddenCrawler
             'queued_label' => $queuedLabel,
             'last_seen_at' => $lastSeen,
             'staleness_minutes' => $stalenessMinutes,
+            'cadence_minutes' => $cadenceMinutes,
+            'cadence_label' => $cadenceDescriptor['label'],
+            'cadence_state' => $cadenceDescriptor['state'],
+            'cadence_samples' => $cadenceSamples,
         ];
+    }
+
+    private function formatCadenceDescriptor(?int $minutes, int $samples): array
+    {
+        $minutes = $minutes !== null ? max(5, (int) $minutes) : null;
+        $samples = max(0, $samples);
+
+        if ($minutes === null) {
+            if ($samples === 0) {
+                return ['label' => '', 'state' => 'unknown'];
+            }
+
+            return ['label' => 'Cadence uncertain', 'state' => 'unknown'];
+        }
+
+        $intervalLabel = $this->describeInterval($minutes * 60);
+        $label = 'Changes about every ' . $intervalLabel;
+        if ($samples > 0) {
+            $label .= $samples === 1 ? ' · 1 observation' : sprintf(' · %d observations', $samples);
+        }
+
+        if ($minutes <= 90) {
+            $state = 'frequent';
+        } elseif ($minutes <= 360) {
+            $state = 'steady';
+        } else {
+            $state = 'slow';
+        }
+
+        return ['label' => $label, 'state' => $state];
     }
 
     /**
@@ -3794,6 +3967,10 @@ final class HiddenCrawler
                 'queued_label' => (string) $meta['queued_label'],
                 'last_seen_at' => (string) $meta['last_seen_at'],
                 'staleness_minutes' => $meta['staleness_minutes'],
+                'cadence_minutes' => $meta['cadence_minutes'],
+                'cadence_label' => (string) $meta['cadence_label'],
+                'cadence_state' => (string) $meta['cadence_state'],
+                'cadence_samples' => $meta['cadence_samples'],
             ];
         }
 
@@ -3874,6 +4051,22 @@ final class HiddenCrawler
             $firstSeen = (string) ($discovery['first_seen_at'] ?? ($entry['fetched_at'] ?? ''));
             $lastSeen = (string) ($discovery['last_seen_at'] ?? ($entry['last_checked_at'] ?? ($entry['fetched_at'] ?? '')));
 
+            $cadenceSummary = $this->summariseChangeCadence($entry);
+            $derivedCadenceMinutes = is_array($cadenceSummary) ? (int) $cadenceSummary['median'] : null;
+            $derivedCadenceSamples = is_array($cadenceSummary) ? (int) $cadenceSummary['samples'] : 0;
+            $derivedLatestCadence = is_array($cadenceSummary) && $cadenceSummary['latest'] !== null
+                ? (int) $cadenceSummary['latest']
+                : null;
+            $cadenceMinutes = isset($discovery['change_cadence_minutes']) && $discovery['change_cadence_minutes'] !== null
+                ? (int) $discovery['change_cadence_minutes']
+                : $derivedCadenceMinutes;
+            $cadenceSamples = isset($discovery['change_samples'])
+                ? (int) $discovery['change_samples']
+                : $derivedCadenceSamples;
+            $latestCadence = isset($discovery['change_latest_minutes']) && $discovery['change_latest_minutes'] !== null
+                ? (int) $discovery['change_latest_minutes']
+                : $derivedLatestCadence;
+
             $ledger[$key] = [
                 'url' => $candidate !== '' ? $candidate : $url,
                 'seed' => !empty($discovery['seed']),
@@ -3881,6 +4074,9 @@ final class HiddenCrawler
                 'last_seen_at' => $lastSeen,
                 'sources' => [],
                 'schedule' => $this->normaliseSchedule($discovery['schedule'] ?? []),
+                'change_cadence_minutes' => $cadenceMinutes !== null ? max(5, (int) $cadenceMinutes) : null,
+                'change_samples' => max(0, (int) $cadenceSamples),
+                'change_latest_minutes' => $latestCadence !== null ? max(1, (int) $latestCadence) : null,
             ];
 
             $sources = is_array($discovery['sources'] ?? null) ? $discovery['sources'] : [];
@@ -4183,6 +4379,12 @@ final class HiddenCrawler
             return (int) ($right['count'] ?? 0) <=> (int) ($left['count'] ?? 0);
         });
 
+        $cadenceMinutes = isset($ledgerEntry['change_cadence_minutes']) && $ledgerEntry['change_cadence_minutes'] !== null
+            ? (int) $ledgerEntry['change_cadence_minutes']
+            : null;
+        $cadenceSamples = isset($ledgerEntry['change_samples']) ? (int) $ledgerEntry['change_samples'] : 0;
+        $cadenceDescriptor = $this->formatCadenceDescriptor($cadenceMinutes, $cadenceSamples);
+
         return [
             'seed' => !empty($ledgerEntry['seed']),
             'first_seen_at' => (string) ($ledgerEntry['first_seen_at'] ?? ''),
@@ -4191,6 +4393,10 @@ final class HiddenCrawler
             'total_sources' => $totalReferences,
             'unique_source_domains' => count($uniqueDomains),
             'schedule' => $this->summariseSchedule($ledgerEntry['schedule'] ?? []),
+            'change_cadence_minutes' => $cadenceMinutes,
+            'change_samples' => $cadenceSamples,
+            'change_cadence_label' => $cadenceDescriptor['label'],
+            'change_cadence_state' => $cadenceDescriptor['state'],
         ];
     }
 

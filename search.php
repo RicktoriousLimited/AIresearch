@@ -6,6 +6,7 @@ require __DIR__ . '/src/App/bootstrap.php';
 
 use App\Crawler\HiddenCrawler;
 use App\News\NewsSearchService;
+use App\News\SearchCache;
 use App\Web\PathResolver;
 use App\Web\SearchViewHelpers;
 
@@ -240,13 +241,21 @@ $results = [];
 $meta = [];
 $status = $query === '' ? 'Streaming the latest crawler intelligence.' : sprintf('Searching for “%s”…', $query);
 $crawlerUnavailable = false;
+$usingCachedResults = false;
+$cachedFallbackSource = '';
+
+$cache = new SearchCache(__DIR__ . '/storage/backend/search-cache.json');
+$searchLimit = 30;
+$cacheKey = $cache->fingerprint($query, $filters, $searchLimit);
+$baselineCacheKey = $cache->fingerprint('', [], $searchLimit);
+$latestCacheKey = $cache->fingerprint('__LATEST__', [], $searchLimit);
 
 try {
     $storage = __DIR__ . '/storage/backend/crawler-history.json';
     $crawler = new HiddenCrawler($storage);
     $newsService = new NewsSearchService($crawler);
     $payload = $newsService->search($query, [
-        'limit' => 30,
+        'limit' => $searchLimit,
         'filters' => $filters,
     ]);
     if (is_array($payload)) {
@@ -256,12 +265,40 @@ try {
         if (isset($payload['meta']) && is_array($payload['meta'])) {
             $meta = $payload['meta'];
         }
+        $cache->store($cacheKey, $payload);
+        if ($cacheKey === $baselineCacheKey) {
+            $cache->store($latestCacheKey, $payload);
+        }
     }
 } catch (Throwable $exception) {
-    $results = [];
-    $meta = [];
-    $status = 'Crawler results are temporarily unavailable.';
-    $crawlerUnavailable = true;
+    $cachedPayload = $cache->fetch($cacheKey);
+    if ($cachedPayload === null && $query !== '') {
+        $cachedFallbackSource = 'latest';
+        $cachedPayload = $cache->fetch($latestCacheKey) ?? $cache->fetch($baselineCacheKey);
+    } elseif ($cachedPayload !== null) {
+        $cachedFallbackSource = 'query';
+    }
+
+    if (is_array($cachedPayload)) {
+        $results = isset($cachedPayload['results']) && is_array($cachedPayload['results'])
+            ? $cachedPayload['results']
+            : [];
+        $meta = isset($cachedPayload['meta']) && is_array($cachedPayload['meta'])
+            ? $cachedPayload['meta']
+            : [];
+        $status = $query === ''
+            ? 'Crawler is restarting – showing cached intelligence.'
+            : sprintf('Crawler is restarting – showing cached insights for “%s”.', $query);
+        if ($cachedFallbackSource === 'latest' && $query !== '') {
+            $status = 'Crawler is restarting – showing cached trending intelligence.';
+        }
+        $usingCachedResults = true;
+    } else {
+        $results = [];
+        $meta = [];
+        $status = 'Crawler results are temporarily unavailable.';
+        $crawlerUnavailable = true;
+    }
 }
 
 $resultCount = count($results);
@@ -545,6 +582,15 @@ if ($heroSuggestions === [] && $query === '') {
     ];
 }
 
+$cachedNotice = '';
+if ($usingCachedResults) {
+    if ($cachedFallbackSource === 'latest' && $query !== '') {
+        $cachedNotice = 'Serving cached trending intelligence while the crawler restarts.';
+    } else {
+        $cachedNotice = 'Serving cached intelligence from the last successful crawl while the crawler restarts.';
+    }
+}
+
 $resultSubtitle = '';
 if ($resultCount > 0) {
     if ($filterCount === 0) {
@@ -641,6 +687,11 @@ if ($crawlerUnavailable) {
         <div class="search-main__primary">
             <div class="search-summary">
                 <p class="search-summary__status"><?= esc($status) ?></p>
+                <?php if ($cachedNotice !== ''): ?>
+                    <div class="search-summary__notice" role="status">
+                        <strong>Cached results.</strong> <?= esc($cachedNotice) ?>
+                    </div>
+                <?php endif; ?>
                 <?php if ($metricCards !== []): ?>
                     <div class="search-summary__metrics">
                         <?php foreach ($metricCards as $card): ?>
