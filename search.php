@@ -239,6 +239,7 @@ $filters = normaliseQueryParams([
 $results = [];
 $meta = [];
 $status = $query === '' ? 'Streaming the latest crawler intelligence.' : sprintf('Searching for “%s”…', $query);
+$crawlerUnavailable = false;
 
 try {
     $storage = __DIR__ . '/storage/backend/crawler-history.json';
@@ -260,6 +261,7 @@ try {
     $results = [];
     $meta = [];
     $status = 'Crawler results are temporarily unavailable.';
+    $crawlerUnavailable = true;
 }
 
 $resultCount = count($results);
@@ -272,7 +274,7 @@ $ingestedCount = isset($meta['ingested']) ? (int) $meta['ingested'] : null;
 
 $filterCount = count($filters);
 
-if ($status !== 'Crawler results are temporarily unavailable.') {
+if (!$crawlerUnavailable) {
     if ($query === '') {
         $status = $filterCount === 0
             ? sprintf('Streaming %s newly enriched highlights.', formatNumber($totalMatches))
@@ -563,38 +565,50 @@ if ($resultCount > 0) {
     }
 }
 
-$metricCards = [
-    [
-        'label' => 'Live matches',
-        'value' => formatNumber($totalMatches),
-        'hint' => $filterCount === 0 ? 'Ready to review now' : 'After applied filters',
-    ],
-    [
-        'label' => 'Catalogue size',
-        'value' => formatNumber($totalAvailable),
-        'hint' => $filterCount === 0 ? 'Matching crawler docs' : 'Before filters',
-    ],
-    [
-        'label' => 'Avg. quality',
-        'value' => formatScore($averageQuality),
-        'hint' => 'Mean editorial score',
-    ],
-];
-
-if ($highQuality !== null) {
-    $metricCards[] = [
-        'label' => 'High-quality hits',
-        'value' => formatNumber($highQuality),
-        'hint' => 'Score ≥ 70',
+if ($crawlerUnavailable) {
+    $metricCards = [];
+} else {
+    $metricCards = [
+        [
+            'label' => 'Live matches',
+            'value' => formatNumber($totalMatches),
+            'hint' => $filterCount === 0 ? 'Ready to review now' : 'After applied filters',
+        ],
+        [
+            'label' => 'Catalogue size',
+            'value' => formatNumber($totalAvailable),
+            'hint' => $filterCount === 0 ? 'Matching crawler docs' : 'Before filters',
+        ],
+        [
+            'label' => 'Avg. quality',
+            'value' => formatScore($averageQuality),
+            'hint' => 'Mean editorial score',
+        ],
     ];
+
+    if ($highQuality !== null) {
+        $metricCards[] = [
+            'label' => 'High-quality hits',
+            'value' => formatNumber($highQuality),
+            'hint' => 'Score ≥ 70',
+        ];
+    }
+
+    if ($ingestedCount !== null) {
+        $metricCards[] = [
+            'label' => 'Enriched sources',
+            'value' => formatNumber($ingestedCount),
+            'hint' => 'Captured & enriched',
+        ];
+    }
 }
 
-if ($ingestedCount !== null) {
-    $metricCards[] = [
-        'label' => 'Enriched sources',
-        'value' => formatNumber($ingestedCount),
-        'hint' => 'Captured & enriched',
-    ];
+if ($crawlerUnavailable) {
+    $emptyStateHeading = 'Crawler temporarily offline';
+    $emptyStateMessage = 'Please check back shortly as we restore the latest intelligence.';
+} else {
+    $emptyStateHeading = 'No crawler matches yet';
+    $emptyStateMessage = 'Try broadening your keywords or clearing filters to relaunch the crawl.';
 }
 
 ?><!DOCTYPE html>
@@ -668,8 +682,8 @@ if ($ingestedCount !== null) {
             <?php endif; ?>
             <?php if ($resultCount === 0): ?>
                 <div class="empty-state">
-                    <h2>No crawler matches yet</h2>
-                    <p>Try broadening your keywords or clearing filters to relaunch the crawl.</p>
+                    <h2><?= esc($emptyStateHeading) ?></h2>
+                    <p><?= esc($emptyStateMessage) ?></p>
                     <?php if ($trendingTopics !== []): ?>
                         <div class="empty-state__suggestions">
                             <span>Jump to a trending theme:</span>
