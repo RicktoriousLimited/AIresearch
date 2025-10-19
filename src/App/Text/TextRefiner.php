@@ -906,67 +906,309 @@ final class TextRefiner
             return '';
         }
 
-        $paragraphs = preg_split('/\n\s*\n/', $cleaned);
-        if ($paragraphs === false) {
-            $paragraphs = [$cleaned];
+        $sections = $this->segmentContextualSections($cleaned);
+        $rewritten = [];
+        $fallback = '';
+        $fallbackScore = 0.0;
+
+        foreach ($sections as $section) {
+            $score = $this->scoreSectionSignificance($section);
+            $normalized = $this->rewriteSection($section);
+
+            if ($normalized === '') {
+                continue;
+            }
+
+            if ($score >= 0.35) {
+                $rewritten[] = $normalized;
+                continue;
+            }
+
+            if ($score > $fallbackScore) {
+                $fallbackScore = $score;
+                $fallback = $normalized;
+            }
         }
 
-        $rewritten = [];
+        if ($rewritten === [] && $fallback !== '') {
+            $rewritten[] = $fallback;
+        }
+
+        return implode("\n\n", $rewritten);
+    }
+
+    private function rewriteSection(string $section): string
+    {
+        $lines = preg_split('/\n/', $section);
+        if ($lines === false) {
+            $lines = [$section];
+        }
+
+        $filteredLines = $this->filterContextualLines($lines);
+        $normalized = trim(implode("\n", $filteredLines));
+        if ($normalized === '') {
+            return '';
+        }
+
+        $paragraphs = preg_split('/\n\s*\n/', $normalized);
+        if ($paragraphs === false) {
+            $paragraphs = [$normalized];
+        }
+
+        $rewrittenParagraphs = [];
+        foreach ($paragraphs as $paragraph) {
+            $block = $this->rewriteParagraphBlock($paragraph);
+            if ($block === null) {
+                continue;
+            }
+
+            $rewrittenParagraphs[] = $block;
+        }
+
+        return trim(implode("\n\n", $rewrittenParagraphs));
+    }
+
+    private function rewriteParagraphBlock(string $paragraph): ?string
+    {
+        $paragraph = trim($paragraph);
+        if ($paragraph === '') {
+            return null;
+        }
+
+        $lines = preg_split('/\n/', $paragraph);
+        if ($lines === false) {
+            $lines = [$paragraph];
+        }
+
+        $isList = true;
+        foreach ($lines as $line) {
+            $trimmed = ltrim($line);
+            if (preg_match('/^[-*•·]+\s+/u', $trimmed) !== 1) {
+                $isList = false;
+                break;
+            }
+        }
+
+        if ($isList) {
+            $items = [];
+            foreach ($lines as $line) {
+                $content = ltrim($line);
+                $content = preg_replace('/^[-*•·]+\s*/u', '', $content);
+                if (!is_string($content)) {
+                    $content = ltrim($line);
+                }
+
+                $content = trim($content);
+                if ($content === '') {
+                    continue;
+                }
+
+                $items[] = '- ' . $this->capitaliseSentence($content, false);
+            }
+
+            if ($items === []) {
+                return null;
+            }
+
+            return implode("\n", $items);
+        }
+
+        $sentences = preg_split('/(?<=[.!?])\s+/u', $paragraph);
+        if ($sentences === false) {
+            $sentences = [$paragraph];
+        }
+
+        $normalizedSentences = [];
+        foreach ($sentences as $sentence) {
+            $sentence = trim($sentence, " \t\n\r\0\x0B-•·");
+            if ($sentence === '') {
+                continue;
+            }
+
+            if ($this->looksLikeMeaninglessText($sentence)) {
+                continue;
+            }
+
+            $normalizedSentences[] = $this->capitaliseSentence($sentence, true);
+        }
+
+        if ($normalizedSentences === []) {
+            return null;
+        }
+
+        return implode(' ', $normalizedSentences);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function segmentContextualSections(string $text): array
+    {
+        $paragraphs = preg_split('/\n\s*\n/', $text);
+        if ($paragraphs === false) {
+            $paragraphs = [$text];
+        }
+
+        $sections = [];
+        $currentParagraphs = [];
+        $currentTokens = [];
+
         foreach ($paragraphs as $paragraph) {
             $paragraph = trim($paragraph);
             if ($paragraph === '') {
                 continue;
             }
 
-            $lines = preg_split('/\n/', $paragraph);
-            if ($lines === false) {
-                $lines = [$paragraph];
+            $paragraphTokens = $this->collectContentTokens($paragraph, 16);
+            $isHeading = $this->isContextualHeading($paragraph);
+
+            if ($isHeading && $currentParagraphs !== []) {
+                $sections[] = implode("\n\n", $currentParagraphs);
+                $currentParagraphs = [];
+                $currentTokens = [];
             }
 
-            $isList = true;
-            foreach ($lines as $line) {
-                if (strpos(ltrim($line), '- ') !== 0) {
-                    $isList = false;
-                    break;
-                }
-            }
-
-            if ($isList) {
-                $items = [];
-                foreach ($lines as $line) {
-                    $content = trim(mb_substr(ltrim($line), 2));
-                    if ($content === '') {
-                        continue;
+            $similarity = 1.0;
+            if ($currentParagraphs !== []) {
+                $overlap = 0;
+                foreach ($paragraphTokens as $token) {
+                    if (isset($currentTokens[$token])) {
+                        $overlap++;
                     }
-                    $items[] = '- ' . $this->capitaliseSentence($content, false);
-                }
-                if ($items !== []) {
-                    $rewritten[] = implode("\n", $items);
-                }
-                continue;
-            }
-
-            $sentences = preg_split('/(?<=[.!?])\s+/u', $paragraph);
-            if ($sentences === false) {
-                $sentences = [$paragraph];
-            }
-
-            $normalizedSentences = [];
-            foreach ($sentences as $sentence) {
-                $sentence = trim($sentence, " \t\n\r\0\x0B-•·");
-                if ($sentence === '') {
-                    continue;
                 }
 
-                $normalizedSentences[] = $this->capitaliseSentence($sentence, true);
+                $denominator = max(count($paragraphTokens), count($currentTokens), 1);
+                $similarity = $denominator === 0 ? 0.0 : $overlap / $denominator;
+
+                $lastParagraph = (string) $currentParagraphs[count($currentParagraphs) - 1];
+                if (
+                    $similarity < 0.3
+                    && !(count($currentParagraphs) === 1 && $this->isContextualHeading($lastParagraph))
+                ) {
+                    $sections[] = implode("\n\n", $currentParagraphs);
+                    $currentParagraphs = [];
+                    $currentTokens = [];
+                }
             }
 
-            if ($normalizedSentences !== []) {
-                $rewritten[] = implode(' ', $normalizedSentences);
+            $currentParagraphs[] = $paragraph;
+
+            if ($currentTokens === []) {
+                foreach ($paragraphTokens as $token) {
+                    $currentTokens[$token] = true;
+                }
+            } else {
+                foreach ($paragraphTokens as $token) {
+                    $currentTokens[$token] = true;
+                }
             }
         }
 
-        return implode("\n\n", $rewritten);
+        if ($currentParagraphs !== []) {
+            $sections[] = implode("\n\n", $currentParagraphs);
+        }
+
+        if ($sections === []) {
+            $sections[] = trim($text);
+        }
+
+        return $sections;
+    }
+
+    private function scoreSectionSignificance(string $section): float
+    {
+        $lines = preg_split('/\n/', $section);
+        if ($lines === false) {
+            $lines = [$section];
+        }
+
+        $candidateLines = 0;
+        $meaningfulLines = 0;
+
+        foreach ($lines as $line) {
+            $trimmed = trim($line);
+            if ($trimmed === '') {
+                continue;
+            }
+
+            $candidateLines++;
+            if ($this->looksLikeBoilerplate($trimmed) || $this->looksLikeMeaninglessText($trimmed)) {
+                continue;
+            }
+
+            $meaningfulLines++;
+        }
+
+        $meaningRatio = $candidateLines === 0 ? 0.0 : $meaningfulLines / $candidateLines;
+
+        $contentTokens = $this->collectContentTokens($section, 16);
+        $tokenScore = $contentTokens === [] ? 0.0 : min(1.0, count($contentTokens) / 10);
+
+        $sentences = $this->extractSentences($section);
+        $validSentences = 0;
+        foreach ($sentences as $sentence) {
+            if ($this->isGrammaticallySoundSentence($sentence)) {
+                $validSentences++;
+            }
+        }
+
+        $sentenceScore = $sentences === [] ? 0.0 : $validSentences / count($sentences);
+
+        $score = (0.45 * $meaningRatio) + (0.3 * $tokenScore) + (0.25 * $sentenceScore);
+
+        return $this->clamp($score, 0.0, 1.0);
+    }
+
+    private function isContextualHeading(string $paragraph): bool
+    {
+        if ($paragraph === '') {
+            return false;
+        }
+
+        $line = preg_replace('/\s+/u', ' ', $paragraph);
+        if (!is_string($line)) {
+            $line = $paragraph;
+        }
+
+        $line = trim($line);
+        if ($line === '') {
+            return false;
+        }
+
+        if (preg_match('/[:\-–—]\s*$/u', $line) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^#[^#]/', $line) === 1) {
+            return true;
+        }
+
+        $words = preg_split('/\s+/u', $line);
+        if ($words === false) {
+            $words = [$line];
+        }
+
+        if (count($words) <= 8) {
+            $upper = 0;
+            foreach ($words as $word) {
+                if ($word === '') {
+                    continue;
+                }
+                if (preg_match('/^[A-Z0-9\p{Lu}][A-Z0-9\p{Lu}\-]*$/u', $word) === 1) {
+                    $upper++;
+                }
+            }
+
+            if ($upper >= max(2, (int) floor(count($words) / 2))) {
+                return true;
+            }
+        }
+
+        if (count($words) <= 4 && mb_strlen($line, 'UTF-8') <= 48) {
+            return true;
+        }
+
+        return false;
     }
 
     /**
