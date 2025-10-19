@@ -86,6 +86,13 @@ assertTrue(is_array($grammarInsights['verbs'] ?? null), 'Grammar verbs listing s
 assertTrue(is_array($grammarInsights['adjectives'] ?? null), 'Grammar adjectives listing should be an array.');
 assertTrue(is_array($grammarInsights['entity_associations'] ?? null), 'Grammar entity associations should be an array.');
 
+$highlights = $refiner->semanticHighlights($raw, 3);
+assertTrue(is_array($highlights) && $highlights !== [], 'Expected semantic highlights to be generated.');
+$highlight = $highlights[0];
+assertTrue(isset($highlight['phrase'], $highlight['snippet']), 'Semantic highlight should expose phrase and snippet keys.');
+assertTrue($highlight['phrase'] !== '', 'Semantic highlight phrase should not be empty.');
+assertTrue($highlight['snippet'] !== '', 'Semantic highlight snippet should not be empty.');
+
 $qaPairs = $refiner->generateQuestionAnswerPairs($raw);
 assertTrue($qaPairs !== [], 'Expected QA pairs to be generated.');
 $firstPair = $qaPairs[0];

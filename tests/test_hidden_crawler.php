@@ -12,7 +12,7 @@ use App\Text\TextRefiner;
 
 class StubScraper implements ScraperInterface
 {
-    public string $text = 'Signal Ledger automatically gathers intelligence across markets.';
+    public string $text = 'Signal Ledger automatically gathers intelligence across markets, summarising investor moves for analysts.';
 
     public function scrape(string $url): ScrapeResult
     {
@@ -86,6 +86,35 @@ if (!is_array($versions) || $versions !== []) {
 $narrative = $first['narrative'] ?? [];
 if (!is_array($narrative)) {
     throw new RuntimeException('Crawler results should expose narrative analytics.');
+}
+
+$keyPhrases = $first['key_phrases'] ?? null;
+if (!is_array($keyPhrases)) {
+    throw new RuntimeException('Crawler results should expose key phrase signals.');
+}
+
+$semanticTags = $first['semantic_tags'] ?? null;
+if (!is_array($semanticTags)) {
+    throw new RuntimeException('Crawler results should include semantic tags.');
+}
+
+$semanticFingerprint = $first['semantic_fingerprint'] ?? null;
+if (!is_string($semanticFingerprint)) {
+    throw new RuntimeException('Crawler results should compute a semantic fingerprint.');
+}
+
+$semanticHighlights = $first['semantic_highlights'] ?? null;
+if (!is_array($semanticHighlights) || $semanticHighlights === []) {
+    throw new RuntimeException('Crawler results should include semantic highlights.');
+}
+
+$firstHighlight = $semanticHighlights[0];
+if (!is_string($firstHighlight['phrase'] ?? '') || $firstHighlight['phrase'] === '') {
+    throw new RuntimeException('Semantic highlight entries should expose a phrase.');
+}
+
+if (!is_string($firstHighlight['snippet'] ?? '') || $firstHighlight['snippet'] === '') {
+    throw new RuntimeException('Semantic highlight entries should expose a snippet.');
 }
 
 $graph = $first['graph'] ?? [];

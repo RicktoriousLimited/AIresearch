@@ -63,6 +63,7 @@ use function sprintf;
 use function strtotime;
 use function floor;
 use function stripos;
+use function strcasecmp;
 
 
 use const DATE_ATOM;
@@ -4168,11 +4169,46 @@ final class HiddenCrawler
         $analysis = $this->refiner->analyseDocument($rawText);
         $meaningful = (bool) ($analysis['is_meaningful'] ?? false);
 
+        $semanticProfile = $this->refiner->buildSemanticProfile($scraped->text(), 14);
+        $semanticTermWeights = $this->normaliseSemanticWeights($semanticProfile['term_weights'] ?? [], 18);
+        $semanticPhraseWeights = $this->normaliseSemanticPhraseWeights($semanticProfile['phrase_weights'] ?? [], 18);
+        $semanticTags = [];
+        if (isset($semanticProfile['terms']) && is_array($semanticProfile['terms'])) {
+            foreach ($semanticProfile['terms'] as $term) {
+                if (!is_string($term)) {
+                    continue;
+                }
+
+                $normalized = trim(mb_strtolower($term, 'UTF-8'));
+                if ($normalized === '') {
+                    continue;
+                }
+
+                $semanticTags[] = $normalized;
+            }
+        }
+        if ($semanticTags === []) {
+            $semanticTags = array_keys($semanticTermWeights);
+        }
+        $semanticTags = array_slice(array_values(array_unique($semanticTags)), 0, 18);
+
+        $keyPhrases = $this->normaliseKeyPhrases($semanticProfile['key_phrases'] ?? [], 12);
+        $semanticFingerprint = isset($semanticProfile['fingerprint']) && is_string($semanticProfile['fingerprint'])
+            ? trim($semanticProfile['fingerprint'])
+            : '';
+        $semanticHighlights = $this->refiner->semanticHighlights($scraped->text(), 4);
+
         $keywords = $this->formatKeywords($analysis['keywords'] ?? []);
         $entities = $this->extractEntities($analysis['analytics']['entities']['top_entities'] ?? []);
         if (!$meaningful) {
             $keywords = [];
             $entities = [];
+            $semanticTags = [];
+            $semanticTermWeights = [];
+            $semanticPhraseWeights = [];
+            $keyPhrases = [];
+            $semanticFingerprint = '';
+            $semanticHighlights = [];
         }
         $filteredLinks = $this->filterLinks($scraped->links());
 
@@ -4221,6 +4257,12 @@ final class HiddenCrawler
             'paragraph_count' => $scraped->paragraphCount(),
             'narrative' => $narrativeAnalytics,
             'meaningful' => $meaningful,
+            'key_phrases' => $keyPhrases,
+            'semantic_tags' => $semanticTags,
+            'semantic_term_weights' => $semanticTermWeights,
+            'semantic_phrase_weights' => $semanticPhraseWeights,
+            'semantic_fingerprint' => $semanticFingerprint,
+            'semantic_highlights' => $semanticHighlights,
         ];
 
         $classification = $this->classifyEntry($entry);
@@ -4249,7 +4291,7 @@ final class HiddenCrawler
 
         $normalizedUrl = $this->normalisePageUrl($entry['url'], (string) $entry['canonical_url']);
         $contentType = $this->detectContentType($scraped, $entry);
-        $fingerprint = $this->fingerprint($scraped);
+        $fingerprint = $this->fingerprint($scraped, $semanticProfile);
 
         $fullEntry = array_merge($entry, $classification, $quality, [
             'recommended_sources' => $recommendations,
@@ -4294,6 +4336,12 @@ final class HiddenCrawler
             'character_count' => 0,
             'paragraph_count' => 0,
             'meaningful' => false,
+            'key_phrases' => [],
+            'semantic_tags' => [],
+            'semantic_term_weights' => [],
+            'semantic_phrase_weights' => [],
+            'semantic_fingerprint' => '',
+            'semantic_highlights' => [],
         ];
     }
 
@@ -4943,12 +4991,60 @@ final class HiddenCrawler
         return $this->normalisePageUrl($url, '');
     }
 
-    private function fingerprint(ScrapeResult $scraped): string
+    private function fingerprint(ScrapeResult $scraped, ?array $semanticProfile = null): string
     {
         $text = mb_strtolower(trim($scraped->text()));
         $title = mb_strtolower(trim($scraped->title()));
 
-        return hash('sha256', $title . '|' . $text);
+        $signatureParts = [];
+        if (is_array($semanticProfile)) {
+            $fingerprint = isset($semanticProfile['fingerprint']) && is_string($semanticProfile['fingerprint'])
+                ? trim($semanticProfile['fingerprint'])
+                : '';
+            if ($fingerprint !== '') {
+                $signatureParts[] = $fingerprint;
+            }
+
+            if (isset($semanticProfile['terms']) && is_array($semanticProfile['terms'])) {
+                foreach ($semanticProfile['terms'] as $term) {
+                    if (!is_string($term)) {
+                        continue;
+                    }
+
+                    $normalized = trim(mb_strtolower($term, 'UTF-8'));
+                    if ($normalized === '') {
+                        continue;
+                    }
+
+                    $signatureParts[] = $normalized;
+                }
+            }
+
+            if (isset($semanticProfile['key_phrases']) && is_array($semanticProfile['key_phrases'])) {
+                foreach ($semanticProfile['key_phrases'] as $phrase) {
+                    if (is_array($phrase)) {
+                        $phraseText = (string) ($phrase['phrase'] ?? '');
+                    } elseif (is_string($phrase)) {
+                        $phraseText = $phrase;
+                    } else {
+                        continue;
+                    }
+
+                    $normalizedPhrase = trim(mb_strtolower($phraseText, 'UTF-8'));
+                    if ($normalizedPhrase === '') {
+                        continue;
+                    }
+
+                    $signatureParts[] = $normalizedPhrase;
+                }
+            }
+        }
+
+        if ($signatureParts !== []) {
+            $signatureParts = array_values(array_unique(array_slice($signatureParts, 0, 20)));
+        }
+
+        return hash('sha256', $title . '|' . $text . '|' . implode('|', $signatureParts));
     }
 
     /**
@@ -5016,8 +5112,23 @@ final class HiddenCrawler
             );
         }
 
-        if (!isset($entry['content_digest']) || !is_string($entry['content_digest']) || trim($entry['content_digest']) === '') {
-            $entry['content_digest'] = $this->deriveEntryDigest($entry);
+        if (!isset($entry['key_phrases']) || !is_array($entry['key_phrases'])) {
+            $entry['key_phrases'] = [];
+        }
+        if (!isset($entry['semantic_tags']) || !is_array($entry['semantic_tags'])) {
+            $entry['semantic_tags'] = [];
+        }
+        if (!isset($entry['semantic_term_weights']) || !is_array($entry['semantic_term_weights'])) {
+            $entry['semantic_term_weights'] = [];
+        }
+        if (!isset($entry['semantic_phrase_weights']) || !is_array($entry['semantic_phrase_weights'])) {
+            $entry['semantic_phrase_weights'] = [];
+        }
+        if (!isset($entry['semantic_fingerprint']) || !is_string($entry['semantic_fingerprint'])) {
+            $entry['semantic_fingerprint'] = '';
+        }
+        if (!isset($entry['semantic_highlights']) || !is_array($entry['semantic_highlights'])) {
+            $entry['semantic_highlights'] = [];
         }
 
         if (!isset($entry['discovery']) || !is_array($entry['discovery'])) {
@@ -5118,6 +5229,154 @@ final class HiddenCrawler
         });
 
         return array_slice(array_values($normalised), 0, 10);
+    }
+
+    /**
+     * @param mixed $weights
+     *
+     * @return array<string, float>
+     */
+    private function normaliseSemanticWeights($weights, int $limit = 18): array
+    {
+        if (!is_array($weights)) {
+            return [];
+        }
+
+        $normalised = [];
+        foreach ($weights as $token => $weight) {
+            if (!is_string($token)) {
+                continue;
+            }
+
+            $normalizedToken = trim(mb_strtolower($token, 'UTF-8'));
+            if ($normalizedToken === '') {
+                continue;
+            }
+
+            if (!is_numeric($weight)) {
+                $weight = 0.0;
+            }
+
+            $normalised[$normalizedToken] = max(
+                $normalised[$normalizedToken] ?? 0.0,
+                round(min(1.0, max(0.0, (float) $weight)), 3)
+            );
+        }
+
+        if ($normalised === []) {
+            return [];
+        }
+
+        arsort($normalised, SORT_NUMERIC);
+
+        return array_slice($normalised, 0, $limit, true);
+    }
+
+    /**
+     * @param mixed $weights
+     *
+     * @return array<string, float>
+     */
+    private function normaliseSemanticPhraseWeights($weights, int $limit = 16): array
+    {
+        if (!is_array($weights)) {
+            return [];
+        }
+
+        $normalised = [];
+        foreach ($weights as $phrase => $weight) {
+            if (!is_string($phrase)) {
+                continue;
+            }
+
+            $normalizedPhrase = preg_replace('/\s+/', ' ', mb_strtolower($phrase, 'UTF-8'));
+            if (!is_string($normalizedPhrase)) {
+                $normalizedPhrase = mb_strtolower($phrase, 'UTF-8');
+            }
+
+            $normalizedPhrase = trim($normalizedPhrase);
+            if ($normalizedPhrase === '') {
+                continue;
+            }
+
+            if (!is_numeric($weight)) {
+                $weight = 0.0;
+            }
+
+            $normalised[$normalizedPhrase] = max(
+                $normalised[$normalizedPhrase] ?? 0.0,
+                round(min(1.0, max(0.0, (float) $weight)), 3)
+            );
+        }
+
+        if ($normalised === []) {
+            return [];
+        }
+
+        arsort($normalised, SORT_NUMERIC);
+
+        return array_slice($normalised, 0, $limit, true);
+    }
+
+    /**
+     * @param mixed $phrases
+     *
+     * @return array<int, array{phrase: string, score: float}>
+     */
+    private function normaliseKeyPhrases($phrases, int $limit = 12): array
+    {
+        if (!is_array($phrases)) {
+            return [];
+        }
+
+        $bucket = [];
+        foreach ($phrases as $phrase) {
+            if (is_array($phrase)) {
+                $text = isset($phrase['phrase']) ? (string) $phrase['phrase'] : '';
+                $score = isset($phrase['score']) ? (float) $phrase['score'] : 0.0;
+            } elseif (is_string($phrase)) {
+                $text = $phrase;
+                $score = 0.0;
+            } else {
+                continue;
+            }
+
+            $text = trim($text);
+            if ($text === '') {
+                continue;
+            }
+
+            $normalizedKey = preg_replace('/\s+/', ' ', mb_strtolower($text, 'UTF-8'));
+            if (!is_string($normalizedKey)) {
+                $normalizedKey = mb_strtolower($text, 'UTF-8');
+            }
+            $normalizedKey = trim($normalizedKey);
+            if ($normalizedKey === '') {
+                continue;
+            }
+
+            $rounded = round(min(1.0, max(0.0, $score)), 3);
+            if (!isset($bucket[$normalizedKey]) || $rounded > $bucket[$normalizedKey]['score']) {
+                $bucket[$normalizedKey] = [
+                    'phrase' => $text,
+                    'score' => $rounded,
+                ];
+            }
+        }
+
+        if ($bucket === []) {
+            return [];
+        }
+
+        usort($bucket, static function (array $left, array $right): int {
+            if ($left['score'] === $right['score']) {
+                return strcasecmp($left['phrase'], $right['phrase']);
+            }
+
+            return $right['score'] <=> $left['score'];
+        });
+
+        return array_slice(array_values($bucket), 0, $limit);
     }
 
     /**
