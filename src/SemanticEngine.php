@@ -254,9 +254,14 @@ class SemanticEngine
     }
 
     /**
+     * @var array<string, array<string, array<string, float>>>
+     */
+    private array $tripleConfidence = [];
+
+    /**
      * Add a triple to the knowledge graph.
      */
-    public function addTriple(string $subject, string $relation, string $object): void
+    public function addTriple(string $subject, string $relation, string $object, float $confidence = 0.75): void
     {
         $subjectKey = $this->normalizeEntity($subject);
         $objectKey = $this->normalizeEntity($object);
@@ -275,6 +280,8 @@ class SemanticEngine
 
         $this->graph[$relationKey][$subjectKey][$objectKey] = true;
 
+        $this->storeTripleConfidence($relationKey, $subjectKey, $objectKey, $confidence);
+
         $this->ensureEntityProfile($subjectKey);
         $this->ensureEntityProfile($objectKey);
         $this->entityProfiles[$subjectKey]['as_subject'][$relationKey] = ($this->entityProfiles[$subjectKey]['as_subject'][$relationKey] ?? 0) + 1;
@@ -286,6 +293,36 @@ class SemanticEngine
                 $this->verbLexicon[$verb] = true;
             }
         }
+    }
+
+    private function storeTripleConfidence(string $relation, string $subject, string $object, float $confidence): void
+    {
+        $normalisedConfidence = $this->clampScore($confidence);
+
+        if (!isset($this->tripleConfidence[$relation])) {
+            $this->tripleConfidence[$relation] = [];
+        }
+        if (!isset($this->tripleConfidence[$relation][$subject])) {
+            $this->tripleConfidence[$relation][$subject] = [];
+        }
+
+        $current = $this->tripleConfidence[$relation][$subject][$object] ?? 0.0;
+        if ($normalisedConfidence > $current) {
+            $this->tripleConfidence[$relation][$subject][$object] = $normalisedConfidence;
+        }
+    }
+
+    public function getTripleConfidence(string $subject, string $relation, string $object): float
+    {
+        $relationKey = $this->norm($relation);
+        $subjectKey = $this->normalizeEntity($subject);
+        $objectKey = $this->normalizeEntity($object);
+
+        if ($relationKey === '' || $subjectKey === '' || $objectKey === '') {
+            return 0.0;
+        }
+
+        return $this->tripleConfidence[$relationKey][$subjectKey][$objectKey] ?? 0.0;
     }
 
     /**
@@ -309,8 +346,8 @@ class SemanticEngine
         $this->synonyms[$leftKey][$rightKey] = true;
         $this->synonyms[$rightKey][$leftKey] = true;
 
-        $this->addTriple($left, 'synonym', $right);
-        $this->addTriple($right, 'synonym', $left);
+        $this->addTriple($left, 'synonym', $right, 0.9);
+        $this->addTriple($right, 'synonym', $left, 0.9);
     }
 
     /**
@@ -469,7 +506,8 @@ class SemanticEngine
             if (preg_match('/^(?P<subj>.+?)\s+is\s+(?:an?\s+)?(?P<obj>[\w\s\-]+)$/iu', $sentence, $matches)) {
                 $subjRaw = $matches['subj'];
                 $objRaw = $matches['obj'];
-                $this->addTriple($subjRaw, 'isa', $objRaw);
+                $confidence = $this->estimateRelationConfidence($subjRaw, 'isa', $objRaw, $sentence, 0.83);
+                $this->addTriple($subjRaw, 'isa', $objRaw, $confidence);
                 $subj = $this->normalizeEntity($subjRaw);
                 $obj = $this->normalizeEntity($objRaw);
                 if ($subj !== '' && $obj !== '') {
@@ -481,9 +519,14 @@ class SemanticEngine
             if (preg_match('/^(?P<left>.+?)\s+(aka|also known as|known as|nicknamed|alias(?:\s+of)?|goes by|synonym of)\s+(?P<right>.+)$/iu', $sentence, $matches)) {
                 $leftRaw = $matches['left'];
                 $rightRaw = $matches['right'];
+                $confidence = $this->estimateRelationConfidence($leftRaw, 'synonym', $rightRaw, $sentence, 0.85);
                 $this->addSynonym($leftRaw, $rightRaw);
                 $left = $this->normalizeEntity($leftRaw);
                 $right = $this->normalizeEntity($rightRaw);
+                if ($left !== '' && $right !== '') {
+                    $this->storeTripleConfidence('synonym', $left, $right, $confidence);
+                    $this->storeTripleConfidence('synonym', $right, $left, $confidence);
+                }
                 if ($left !== '' && $right !== '') {
                     $triples[] = [$left, 'synonym', $right];
                 }
@@ -494,7 +537,8 @@ class SemanticEngine
                 $labelRaw = trim($matches['label']);
                 $descriptionRaw = trim($matches['desc']);
                 if ($labelRaw !== '' && $descriptionRaw !== '' && $this->containsAlpha($labelRaw) && $this->containsAlpha($descriptionRaw)) {
-                    $this->addTriple($labelRaw, 'tagline', $descriptionRaw);
+                    $confidence = $this->estimateRelationConfidence($labelRaw, 'tagline', $descriptionRaw, $sentence, 0.62);
+                    $this->addTriple($labelRaw, 'tagline', $descriptionRaw, $confidence);
                     $label = $this->normalizeEntity($labelRaw);
                     $description = $this->normalizeEntity($descriptionRaw);
                     if ($label !== '' && $description !== '') {
@@ -549,7 +593,14 @@ class SemanticEngine
                 }
 
                 $objectRaw = $matches['object'];
-                $this->addTriple($subjectRaw, $pattern['relation'], $objectRaw);
+                $confidence = $this->estimateRelationConfidence(
+                    $subjectRaw,
+                    $pattern['relation'],
+                    $objectRaw,
+                    $sentence,
+                    (float) ($pattern['confidence'] ?? 0.6)
+                );
+                $this->addTriple($subjectRaw, $pattern['relation'], $objectRaw, $confidence);
                 $subject = $this->normalizeEntity($subjectRaw);
                 $object = $this->normalizeEntity($objectRaw);
                 if ($subject !== '' && $object !== '') {
@@ -609,9 +660,16 @@ class SemanticEngine
                     $connectors = [null];
                 }
 
+                $baseConfidence = isset($template['confidence']) && is_numeric($template['confidence'])
+                    ? (float) $template['confidence']
+                    : (isset($definition['confidence']) && is_numeric($definition['confidence'])
+                        ? (float) $definition['confidence']
+                        : 0.6);
+
                 $compiled[] = [
                     'relation' => $relation,
                     'regex' => $this->buildRelationRegex($verbs, $connectors),
+                    'confidence' => $baseConfidence,
                 ];
             }
         }
@@ -631,6 +689,7 @@ class SemanticEngine
         return [
             [
                 'relation' => 'works_at',
+                'confidence' => 0.82,
                 'templates' => [
                     [
                         'verbs' => ['work', 'serve', 'consult'],
@@ -640,6 +699,7 @@ class SemanticEngine
             ],
             [
                 'relation' => 'lives_in',
+                'confidence' => 0.78,
                 'templates' => [
                     [
                         'verbs' => ['live', 'reside'],
@@ -649,6 +709,7 @@ class SemanticEngine
             ],
             [
                 'relation' => 'leads',
+                'confidence' => 0.76,
                 'templates' => [
                     [
                         'verbs' => [
@@ -660,6 +721,7 @@ class SemanticEngine
             ],
             [
                 'relation' => 'focuses_on',
+                'confidence' => 0.74,
                 'templates' => [
                     [
                         'verbs' => [
@@ -672,6 +734,7 @@ class SemanticEngine
             ],
             [
                 'relation' => 'located_in',
+                'confidence' => 0.72,
                 'templates' => [
                     [
                         'verbs' => ['locate', 'situate'],
@@ -681,6 +744,7 @@ class SemanticEngine
             ],
             [
                 'relation' => 'collaborates_with',
+                'confidence' => 0.7,
                 'templates' => [
                     [
                         'verbs' => ['collaborate', 'cooperate'],
@@ -690,6 +754,7 @@ class SemanticEngine
             ],
             [
                 'relation' => 'acquired',
+                'confidence' => 0.77,
                 'templates' => [
                     [
                         'verbs' => [
@@ -702,6 +767,7 @@ class SemanticEngine
             ],
             [
                 'relation' => 'invested_in',
+                'confidence' => 0.72,
                 'templates' => [
                     [
                         'verbs' => ['invest'],
@@ -714,6 +780,7 @@ class SemanticEngine
             ],
             [
                 'relation' => 'partnered_with',
+                'confidence' => 0.7,
                 'templates' => [
                     [
                         'verbs' => ['partner'],
@@ -727,6 +794,7 @@ class SemanticEngine
             ],
             [
                 'relation' => 'appointed',
+                'confidence' => 0.68,
                 'templates' => [
                     [
                         'verbs' => ['appoint', 'name'],
@@ -735,6 +803,7 @@ class SemanticEngine
             ],
             [
                 'relation' => 'launched',
+                'confidence' => 0.65,
                 'templates' => [
                     [
                         'verbs' => ['launch', 'introduce'],
@@ -743,6 +812,7 @@ class SemanticEngine
             ],
             [
                 'relation' => 'includes',
+                'confidence' => 0.64,
                 'templates' => [
                     [
                         'verbs' => ['include', 'feature'],
@@ -1366,16 +1436,20 @@ class SemanticEngine
                     $ensure($subject);
                     $ensure($object);
 
+                    $confidence = $this->getTripleConfidence($subject, $relation, $object);
+
                     $references[$subject]['facts'][] = [
                         'direction' => 'outgoing',
                         'relation' => $relation,
                         'counterpart' => $object,
+                        'confidence' => round($this->clampScore($confidence), 4),
                     ];
 
                     $references[$object]['facts'][] = [
                         'direction' => 'incoming',
                         'relation' => $relation,
                         'counterpart' => $subject,
+                        'confidence' => round($this->clampScore($confidence), 4),
                     ];
                 }
             }
@@ -1750,6 +1824,108 @@ class SemanticEngine
         return $normalised;
     }
 
+    private function estimateRelationConfidence(string $subject, string $relation, string $object, string $context, float $baseConfidence = 0.65): float
+    {
+        $score = $this->clampScore($baseConfidence);
+
+        $entityBoost = ($this->evaluateEntitySignal($subject) + $this->evaluateEntitySignal($object)) * 0.3;
+        $score += $entityBoost;
+
+        if ($this->normalizeEntity($subject) === $this->normalizeEntity($object)) {
+            $score -= 0.2;
+        }
+
+        if (strpos($relation, 'action-') === 0) {
+            $score -= 0.05;
+        }
+
+        $score += $this->evidenceBoost($context);
+        $score -= $this->uncertaintyPenalty($context);
+
+        return $this->clampScore(round($score, 4));
+    }
+
+    private function evaluateEntitySignal(string $text): float
+    {
+        $trimmed = trim($text);
+        if ($trimmed === '') {
+            return 0.0;
+        }
+
+        $length = mb_strlen($trimmed, 'UTF-8');
+        $letters = preg_match_all('/[\p{L}]/u', $trimmed, $matches);
+        $letterRatio = 0.0;
+        if (is_int($letters) && $length > 0) {
+            $letterRatio = $letters / $length;
+        }
+
+        $tokens = preg_split('/\s+/u', $trimmed, -1, PREG_SPLIT_NO_EMPTY);
+        if ($tokens === false) {
+            $tokens = [];
+        }
+        $tokenCount = count($tokens);
+
+        $score = 0.1;
+
+        if ($letterRatio >= 0.6) {
+            $score += 0.15;
+        }
+
+        if ($tokenCount >= 2 && $tokenCount <= 8) {
+            $score += 0.1;
+        } elseif ($tokenCount > 10) {
+            $score -= 0.05;
+        }
+
+        if (preg_match('/\b(?:inc|corp|ltd|llc|university|université|institute|laborator(?:y|ies)|company|group|centre|center|laboratory)\b/i', $trimmed) === 1) {
+            $score += 0.08;
+        }
+
+        if (preg_match('/\d/', $trimmed) === 1) {
+            $score -= 0.05;
+        }
+
+        if (preg_match('/^[\p{Lu}]/u', $trimmed) === 1) {
+            $score += 0.05;
+        }
+
+        if (preg_match('/\b(?:unknown|miscellaneous|various)\b/i', $trimmed) === 1) {
+            $score -= 0.08;
+        }
+
+        return $this->clampScore($score);
+    }
+
+    private function uncertaintyPenalty(string $context): float
+    {
+        $penalty = 0.0;
+
+        if (preg_match('/\b(?:rumor|rumour|speculation|alleged(?:ly)?|reportedly|unconfirmed|apparently)\b/i', $context) === 1) {
+            $penalty += 0.12;
+        }
+
+        if (preg_match('/\b(?:plan|planning|seek|seeking|considering|exploring)\b/i', $context) === 1) {
+            $penalty += 0.05;
+        }
+
+        return min(0.2, $penalty);
+    }
+
+    private function evidenceBoost(string $context): float
+    {
+        $boost = 0.0;
+
+        if (preg_match('/\b(?:confirmed|announced|signed|completed|official|formalized|verified)\b/i', $context) === 1) {
+            $boost += 0.07;
+        }
+
+        if (preg_match('/\b(?:according to|per|backed by)\b/i', $context) === 1) {
+            $boost += 0.03;
+        }
+
+        return min(0.15, $boost);
+    }
+
     private function clampScore(float $value): float
     {
         if ($value < 0) {
@@ -1884,7 +2060,8 @@ class SemanticEngine
         }
 
         $relation = 'action-' . $verbBase;
-        $this->addTriple($subjectRaw, $relation, $objectRaw);
+        $confidence = $this->estimateRelationConfidence($subjectRaw, $relation, $objectRaw, $sentence, 0.58);
+        $this->addTriple($subjectRaw, $relation, $objectRaw, $confidence);
 
         $subject = $this->normalizeEntity($subjectRaw);
         $object = $this->normalizeEntity($objectRaw);

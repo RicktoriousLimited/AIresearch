@@ -88,7 +88,9 @@ final class Extractor implements ExtractorInterface
      *     keywords: array<int, array{token: string, count: int}>,
      *     spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>,
      *     qa: array<int, array{question: string, answer: string, response: string}>,
-     *     analytics: array<string, mixed>
+     *     analytics: array<string, mixed>,
+     *     boilerplate?: array<string, mixed>,
+     *     acronyms?: array<int, array<string, mixed>>
      * }> $documents
      */
     private function buildResult(
@@ -99,11 +101,20 @@ final class Extractor implements ExtractorInterface
     ): ExtractionResult
     {
         $triples = array_map(
-            static fn(array $triple): array => [
-                'subject' => (string) ($triple[0] ?? ''),
-                'relation' => (string) ($triple[1] ?? ''),
-                'object' => (string) ($triple[2] ?? ''),
-            ],
+            function (array $triple) use ($engine): array {
+                $subject = (string) ($triple[0] ?? '');
+                $relation = (string) ($triple[1] ?? '');
+                $object = (string) ($triple[2] ?? '');
+
+                $confidence = $engine->getTripleConfidence($subject, $relation, $object);
+
+                return [
+                    'subject' => $subject,
+                    'relation' => $relation,
+                    'object' => $object,
+                    'confidence' => round($confidence, 4),
+                ];
+            },
             $engine->iterTriples()
         );
 

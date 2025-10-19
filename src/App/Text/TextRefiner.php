@@ -565,6 +565,30 @@ final class TextRefiner
     ];
 
     /** @var array<string, bool> */
+    private static array $acronymStopwords = [
+        'and' => true,
+        'of' => true,
+        'the' => true,
+        'for' => true,
+        'to' => true,
+        'in' => true,
+        'on' => true,
+        'at' => true,
+        'with' => true,
+        'by' => true,
+        'from' => true,
+        'de' => true,
+        'la' => true,
+        'le' => true,
+        'los' => true,
+        'las' => true,
+        'der' => true,
+        'und' => true,
+        'van' => true,
+        'von' => true,
+    ];
+
+    /** @var array<string, bool> */
     private static array $navigationVocabulary = [
         'about' => true,
         'account' => true,
@@ -1944,6 +1968,8 @@ final class TextRefiner
      *     spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>,
      *     qa: array<int, array{question: string, answer: string, response: string}>,
      *     analytics: array<string, mixed>,
+     *     boilerplate: array{segments: array<int, array{text: string, line: int|null, tags: array<int, string>, confidence: float}>, density: float},
+     *     acronyms: array<int, array{acronym: string, expansion: string, confidence: float, context: string}>,
      *     is_meaningful: bool
      * }
      */
@@ -1953,7 +1979,25 @@ final class TextRefiner
         $rewritten = $this->rewriteDocument($text);
         $keywords = $this->extractKeywords($text);
         $analytics = $this->analyseNarrativeSignals($text, $cleaned, $keywords);
+        $boilerplate = $this->detectBoilerplateSegments($text);
+        $acronyms = $this->identifyAcronyms($text);
         $isMeaningful = $this->evaluateMeaningfulness($text, $cleaned);
+
+        if (!isset($analytics['boilerplate']) || !is_array($analytics['boilerplate'])) {
+            $analytics['boilerplate'] = $boilerplate;
+        } else {
+            $analytics['boilerplate'] = array_merge(
+                ['segments' => [], 'density' => 0.0],
+                $analytics['boilerplate']
+            );
+            $analytics['boilerplate']['segments'] = $boilerplate['segments'];
+            $analytics['boilerplate']['density'] = $boilerplate['density'];
+        }
+
+        if (!isset($analytics['terminology']) || !is_array($analytics['terminology'])) {
+            $analytics['terminology'] = [];
+        }
+        $analytics['terminology']['acronyms'] = $acronyms;
 
         return [
             'original' => $text,
@@ -1963,8 +2007,277 @@ final class TextRefiner
             'spelling' => $this->spellCheck($text),
             'qa' => $this->generateQuestionAnswerPairs($text),
             'analytics' => $analytics,
+            'boilerplate' => $boilerplate,
+            'acronyms' => $acronyms,
             'is_meaningful' => $isMeaningful,
         ];
+    }
+
+    /**
+     * @return array{segments: array<int, array{text: string, line: int|null, tags: array<int, string>, confidence: float}>, density: float}
+     */
+    public function detectBoilerplateSegments(string $text, int $maxSegments = 12): array
+    {
+        $lines = preg_split("/\r\n|\r|\n/u", $text);
+        if ($lines === false) {
+            $lines = [$text];
+        }
+
+        $lineSignatures = [];
+        $totalLines = 0;
+
+        foreach ($lines as $rawLine) {
+            $trimmed = trim((string) $rawLine);
+            if ($trimmed === '') {
+                continue;
+            }
+
+            $totalLines++;
+            $signature = strtolower(preg_replace('/\s+/', ' ', $trimmed) ?? $trimmed);
+            $lineSignatures[$signature] = ($lineSignatures[$signature] ?? 0) + 1;
+        }
+
+        $segments = [];
+        $seen = [];
+
+        foreach ($lines as $index => $rawLine) {
+            $trimmed = trim((string) $rawLine);
+            if ($trimmed === '') {
+                continue;
+            }
+
+            $signature = strtolower(preg_replace('/\s+/', ' ', $trimmed) ?? $trimmed);
+
+            $tags = [];
+            $confidence = 0.0;
+
+            if ($this->looksLikeBoilerplate($trimmed)) {
+                $tags[] = 'boilerplate';
+                $confidence = max($confidence, 0.75);
+            }
+
+            if ($this->looksLikeMeaninglessText($trimmed)) {
+                $tags[] = 'noise';
+                $confidence = max($confidence, 0.65);
+            }
+
+            $repeatCount = $lineSignatures[$signature] ?? 0;
+            if ($repeatCount >= 2) {
+                $tags[] = 'repetition';
+                $confidence = max($confidence, min(0.7, 0.45 + ($repeatCount / max(2, $totalLines))));
+            }
+
+            if (preg_match('/©|copyright/i', $trimmed) === 1) {
+                $tags[] = 'attribution';
+                $confidence = max($confidence, 0.82);
+            }
+
+            if (preg_match('/\b(?:privacy|cookies|terms|feedback|signin|sign in|subscribe|advertise)\b/i', $trimmed) === 1) {
+                $tags[] = 'navigation';
+                $confidence = max($confidence, 0.78);
+            }
+
+            if ($tags === []) {
+                continue;
+            }
+
+            if (isset($seen[$signature])) {
+                continue;
+            }
+            $seen[$signature] = true;
+
+            $confidence = $this->clamp($confidence + (count($tags) * 0.03));
+
+            $segments[] = [
+                'text' => $trimmed,
+                'line' => $index + 1,
+                'tags' => array_values(array_unique($tags)),
+                'confidence' => round($confidence, 4),
+            ];
+
+            if (count($segments) >= $maxSegments) {
+                break;
+            }
+        }
+
+        $density = $totalLines > 0 ? round(min(1.0, count($segments) / $totalLines), 4) : 0.0;
+
+        return [
+            'segments' => $segments,
+            'density' => $density,
+        ];
+    }
+
+    /**
+     * @return array<int, array{acronym: string, expansion: string, confidence: float, context: string}>
+     */
+    public function identifyAcronyms(string $text, int $maxResults = 16): array
+    {
+        $candidates = [];
+
+        $register = function (string $acronym, string $expansion, float $confidence, string $context) use (&$candidates, $text): void {
+            $key = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $acronym));
+            $expansion = $this->normaliseAcronymExpansion($expansion);
+            if ($key === '' || $expansion === '') {
+                return;
+            }
+
+            $confidence = $this->clamp($confidence);
+            if (!isset($candidates[$key]) || $confidence > $candidates[$key]['confidence']) {
+                $candidates[$key] = [
+                    'acronym' => $key,
+                    'expansion' => $expansion,
+                    'confidence' => round($confidence, 4),
+                    'context' => $this->summariseAcronymContext($text, $context),
+                ];
+            }
+        };
+
+        $pattern = '/\b([A-Za-z][A-Za-z&\-\.]+(?:\s+[A-Za-z][A-Za-z&\-\.]+){0,6})\s*\(([A-Z][A-Z0-9&]{2,})\)/u';
+        if (preg_match_all($pattern, $text, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $expansion = (string) ($match[1] ?? '');
+                $acronym = (string) ($match[2] ?? '');
+                $context = (string) ($match[0] ?? '');
+                $confidence = 0.82;
+                if ($this->acronymMatchesExpansion($acronym, $expansion)) {
+                    $confidence = 0.95;
+                }
+                $register($acronym, $expansion, $confidence, $context);
+            }
+        }
+
+        $reversePattern = '/\b([A-Z][A-Z0-9&]{2,})\s*\(([^)]+)\)/u';
+        if (preg_match_all($reversePattern, $text, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $acronym = (string) ($match[1] ?? '');
+                $expansion = (string) ($match[2] ?? '');
+                $context = (string) ($match[0] ?? '');
+                $confidence = 0.78;
+                if ($this->acronymMatchesExpansion($acronym, $expansion)) {
+                    $confidence = 0.9;
+                }
+                $register($acronym, $expansion, $confidence, $context);
+            }
+        }
+
+        $verbalPattern = '/\b([A-Z]{2,})\b\s+(?:stands for|is short for|means|abbreviates)\s+([^.;:\n\r]{3,80})/iu';
+        if (preg_match_all($verbalPattern, $text, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $acronym = (string) ($match[1] ?? '');
+                $expansion = (string) ($match[2] ?? '');
+                $context = (string) ($match[0] ?? '');
+                $confidence = 0.8;
+                if ($this->acronymMatchesExpansion($acronym, $expansion)) {
+                    $confidence = 0.92;
+                }
+                $register($acronym, $expansion, $confidence, $context);
+            }
+        }
+
+        if ($candidates === []) {
+            return [];
+        }
+
+        $entries = array_values($candidates);
+        usort(
+            $entries,
+            static function (array $left, array $right): int {
+                if ($left['confidence'] === $right['confidence']) {
+                    return $left['acronym'] <=> $right['acronym'];
+                }
+
+                return $right['confidence'] <=> $left['confidence'];
+            }
+        );
+
+        return array_slice($entries, 0, $maxResults);
+    }
+
+    private function normaliseAcronymExpansion(string $expansion): string
+    {
+        $trimmed = trim($expansion, " \t\n\r\0\x0B\"'[](){}");
+        $collapsed = preg_replace('/\s+/', ' ', $trimmed);
+
+        return is_string($collapsed) ? $collapsed : $trimmed;
+    }
+
+    private function summariseAcronymContext(string $text, string $match): string
+    {
+        $position = mb_stripos($text, $match, 0, 'UTF-8');
+        if ($position === false) {
+            return $this->normaliseWhitespaceSnippet($match);
+        }
+
+        $length = mb_strlen($match, 'UTF-8');
+        $windowStart = max(0, $position - 60);
+        $windowLength = $length + 120;
+        $snippet = mb_substr($text, $windowStart, $windowLength, 'UTF-8');
+        $snippet = $this->normaliseWhitespaceSnippet($snippet);
+
+        if ($windowStart > 0) {
+            $snippet = '…' . ltrim($snippet);
+        }
+
+        $totalLength = mb_strlen($text, 'UTF-8');
+        if (($windowStart + $windowLength) < $totalLength) {
+            $snippet = rtrim($snippet) . '…';
+        }
+
+        return $snippet;
+    }
+
+    private function normaliseWhitespaceSnippet(string $text): string
+    {
+        $collapsed = preg_replace('/\s+/u', ' ', trim($text));
+
+        return is_string($collapsed) ? $collapsed : trim($text);
+    }
+
+    private function acronymMatchesExpansion(string $acronym, string $expansion): bool
+    {
+        $acronymKey = strtoupper(preg_replace('/[^A-Z0-9]/i', '', $acronym));
+        if ($acronymKey === '') {
+            return false;
+        }
+
+        $expansionTokens = preg_split('/[\s\-\/]+/u', $this->normaliseAcronymExpansion($expansion));
+        if ($expansionTokens === false || $expansionTokens === []) {
+            return false;
+        }
+
+        $initials = '';
+        foreach ($expansionTokens as $token) {
+            $token = trim($token);
+            if ($token === '') {
+                continue;
+            }
+
+            $lower = mb_strtolower($token, 'UTF-8');
+            if (isset(self::$acronymStopwords[$lower])) {
+                continue;
+            }
+
+            $letter = mb_substr($token, 0, 1, 'UTF-8');
+            if ($letter === false) {
+                continue;
+            }
+            $initials .= mb_strtoupper($letter, 'UTF-8');
+        }
+
+        if ($initials === '') {
+            return false;
+        }
+
+        if (strpos($initials, $acronymKey) === 0) {
+            return true;
+        }
+
+        if (strlen($acronymKey) <= strlen($initials)) {
+            return substr($initials, 0, strlen($acronymKey)) === $acronymKey;
+        }
+
+        return false;
     }
 
     private function evaluateMeaningfulness(string $original, string $cleaned): bool

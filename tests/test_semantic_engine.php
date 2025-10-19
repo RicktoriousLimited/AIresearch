@@ -30,6 +30,21 @@ function assertContains(array $needle, array $haystack, string $message = ''): v
     throw new AssertionError($msg . 'Array ' . var_export($needle, true) . ' not found.');
 }
 
+function assertFactExists(array $facts, string $direction, string $relation, string $counterpart, string $message = ''): void {
+    foreach ($facts as $fact) {
+        if (
+            ($fact['direction'] ?? '') === $direction
+            && ($fact['relation'] ?? '') === $relation
+            && ($fact['counterpart'] ?? '') === $counterpart
+        ) {
+            return;
+        }
+    }
+
+    $msg = $message !== '' ? $message . ' ' : '';
+    throw new AssertionError($msg . 'Expected fact ' . $direction . ' ' . $relation . ' ' . $counterpart . ' to exist.');
+}
+
 $engine = new SemanticEngine();
 assertEquals('red fox', $engine->normalizeEntity('Red Fox'));
 assertEquals('blue-green', $engine->normalizeEntity('Blue-Green'));
@@ -66,6 +81,8 @@ assertEquals(['vulpes vulpes'], $engine->querySynonyms('red fox'));
 $synonymTriples = $engine->iterTriples('synonym');
 assertContains(['red fox', 'synonym', 'vulpes vulpes'], $synonymTriples);
 assertContains(['vulpes vulpes', 'synonym', 'red fox'], $synonymTriples);
+$tripleConfidence = $engine->getTripleConfidence('red fox', 'isa', 'wild animal');
+assertTrue($tripleConfidence > 0.5, 'Expected confidence for isa relation to be above 0.5.');
 
 $engine = new SemanticEngine();
 $text = 'Jane Doe (JD) leads Bright Labs.';
@@ -120,11 +137,13 @@ $collaboratesTriples = $engine->iterTriples('collaborates_with');
 assertContains(['alice smith', 'collaborateswith', 'bob hernandez'], $collaboratesTriples);
 $crossReferences = $engine->buildCrossReferences();
 assertTrue(isset($crossReferences['alice smith']), 'Cross references should include Alice Smith');
-assertContains(['direction' => 'outgoing', 'relation' => 'worksat', 'counterpart' => 'ricktorious limited'], $crossReferences['alice smith']['facts']);
-assertContains(['direction' => 'outgoing', 'relation' => 'livesin', 'counterpart' => 'birmingham'], $crossReferences['alice smith']['facts']);
-assertContains(['direction' => 'outgoing', 'relation' => 'collaborateswith', 'counterpart' => 'bob hernandez'], $crossReferences['alice smith']['facts']);
+$aliceFacts = $crossReferences['alice smith']['facts'];
+assertTrue(isset($aliceFacts[0]['confidence']), 'Facts should expose confidence scores.');
+assertFactExists($aliceFacts, 'outgoing', 'worksat', 'ricktorious limited');
+assertFactExists($aliceFacts, 'outgoing', 'livesin', 'birmingham');
+assertFactExists($aliceFacts, 'outgoing', 'collaborateswith', 'bob hernandez');
 assertTrue(isset($crossReferences['bob hernandez']), 'Cross references should include Bob Hernandez');
-assertContains(['direction' => 'incoming', 'relation' => 'collaborateswith', 'counterpart' => 'alice smith'], $crossReferences['bob hernandez']['facts']);
+assertFactExists($crossReferences['bob hernandez']['facts'], 'incoming', 'collaborateswith', 'alice smith');
 assertEquals(['collaborateswith' => 1, 'livesin' => 1, 'worksat' => 1], $crossReferences['alice smith']['context']['as_subject']);
 assertEquals([], $crossReferences['alice smith']['context']['as_object']);
 $aliceRanking = $crossReferences['alice smith']['ranking'];

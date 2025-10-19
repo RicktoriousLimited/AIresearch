@@ -80,6 +80,8 @@ assertTrue(is_array($analysis['qa']) && $analysis['qa'] !== [], 'QA analysis sho
 assertTrue(is_bool($analysis['is_meaningful']), 'Meaningfulness flag should be boolean.');
 assertTrue($analysis['is_meaningful'], 'Expected sample document to be marked as meaningful.');
 assertTrue(isset($analysis['analytics']['grammar']), 'Analytics payload should include grammar insights.');
+assertTrue(isset($analysis['boilerplate']['segments']), 'Boilerplate analysis should be present.');
+assertTrue(isset($analysis['acronyms']), 'Acronym analysis should be present.');
 $grammarInsights = $analysis['analytics']['grammar'];
 assertTrue(is_array($grammarInsights['nouns'] ?? null), 'Grammar nouns listing should be an array.');
 assertTrue(is_array($grammarInsights['verbs'] ?? null), 'Grammar verbs listing should be an array.');
@@ -198,6 +200,22 @@ TEXT;
 $gibberishCleaned = $refiner->cleanDocument($gibberish);
 assertTrue(strpos($gibberishCleaned, 'asdf qwer zxcv') === false, 'Expected meaningless text to be removed.');
 assertTrue(strpos($gibberishCleaned, 'This is a meaningful sentence') !== false, 'Expected meaningful text to remain.');
+
+$nasaText = 'The National Aeronautics and Space Administration (NASA) commissioned a new study.';
+$acronymResults = $refiner->identifyAcronyms($nasaText);
+assertTrue($acronymResults !== [], 'Expected acronym detection to identify NASA.');
+$nasaFound = false;
+foreach ($acronymResults as $entry) {
+    if (($entry['acronym'] ?? '') === 'NASA') {
+        $nasaFound = stripos($entry['expansion'] ?? '', 'National Aeronautics and Space Administration') !== false;
+        break;
+    }
+}
+assertTrue($nasaFound, 'Expected NASA acronym expansion to be recognised.');
+
+$navAnalysis = $refiner->analyseDocument($bbcNav);
+$navBoilerplate = $navAnalysis['boilerplate']['segments'] ?? [];
+assertTrue($navBoilerplate !== [], 'Navigation sample should flag boilerplate segments.');
 $gibberishAnalysis = $refiner->analyseDocument($gibberish);
 assertTrue($gibberishAnalysis['is_meaningful'] ?? false, 'Mixed samples with meaningful sentences should still pass meaningfulness checks.');
 

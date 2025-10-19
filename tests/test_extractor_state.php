@@ -33,6 +33,12 @@ $secondResult = $secondExtractor->analyse('Bob Johnson lives in Paris.', $state)
 $combinedTriples = $secondResult->triples();
 assertTrue(count($combinedTriples) >= 2, 'Combined extraction should accumulate triples from both runs.');
 
+$firstTriple = $combinedTriples[0] ?? null;
+if ($firstTriple !== null) {
+    assertTrue(isset($firstTriple['confidence']), 'Triples should expose confidence scores.');
+    assertTrue(is_float($firstTriple['confidence']) || is_int($firstTriple['confidence']), 'Confidence should be numeric.');
+}
+
 $subjects = array_map(static function (array $triple): string {
     return $triple['subject'] ?? '';
 }, $combinedTriples);
@@ -50,6 +56,8 @@ $firstDocument = $documents[0];
 assertTrue(isset($firstDocument['cleaned'], $firstDocument['rewritten']), 'Document analysis should expose cleaned and rewritten text.');
 assertTrue(is_array($firstDocument['keywords']), 'Document keywords should be an array.');
 assertTrue(is_array($firstDocument['spelling']), 'Document spelling insights should be an array.');
+assertTrue(isset($firstDocument['boilerplate']), 'Document boilerplate insights should be present.');
+assertTrue(isset($firstDocument['acronyms']), 'Document acronym insights should be present.');
 
 $crossReferences = $secondResult->crossReferences();
 assertTrue(isset($crossReferences['alice smith']), 'Cross references must track initial entities.');

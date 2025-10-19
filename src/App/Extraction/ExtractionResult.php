@@ -11,7 +11,7 @@ use JsonSerializable;
  */
 final class ExtractionResult implements JsonSerializable
 {
-    /** @var array<int, array{subject: string, relation: string, object: string}> */
+    /** @var array<int, array{subject: string, relation: string, object: string, confidence: float}> */
     private array $triples;
 
     /** @var array<int, array{entity: string, synonyms: array<int, string>}> */
@@ -39,7 +39,9 @@ final class ExtractionResult implements JsonSerializable
      *     rewritten: string,
      *     keywords: array<int, array{token: string, count: int}>,
      *     spelling: array<int, array{token: string, count: int, suggestions: array<int, string}>>,
-     *     analytics?: array<string, mixed>
+     *     analytics?: array<string, mixed>,
+     *     boilerplate?: array{segments?: array<int, array{text: string, line: int|null, tags: array<int, string>, confidence: float}>, density?: float},
+     *     acronyms?: array<int, array{acronym: string, expansion: string, confidence: float, context: string}>
      * }>
      */
     private array $documents;
@@ -61,14 +63,14 @@ final class ExtractionResult implements JsonSerializable
     private array $dataset;
 
     /**
-     * @param array<int, array{subject: string, relation: string, object: string}> $triples
+     * @param array<int, array{subject: string, relation: string, object: string, confidence: float}> $triples
      * @param array<int, array{entity: string, synonyms: array<int, string>}> $synonyms
      * @param array<string, array<int, array{entity: string, score: float}>> $relatedTerms
      * @param array<string, int> $relationFrequency
      * @param array<string, int> $entityFrequency
      * @param array<string, int|string> $summary
      * @param array<string, mixed> $state
-     * @param array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>}> $documents
+     * @param array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string}>>, analytics?: array<string, mixed>, boilerplate?: array<string, mixed>, acronyms?: array<int, array<string, mixed>>}> $documents
      * @param array<string, array{entity: string, facts: array<int, array{direction: string, relation: string, counterpart: string}>, synonyms: array<int, string>, related_terms?: array<int, array{entity: string, score: float}>, context: array{as_subject: array<string, int>, as_object: array<string, int>}, ranking: array{score: float, eligible: bool, signals: array{uniqueness: float, freshness: float, quality: float, authority: float, consistency: float}, support: array{incoming_links: int, outgoing_links: int, fact_count: int}}}> $crossReferences
      * @param array{rows: array<int, array<string, mixed>>, schema: array<string, mixed>, statistics: array<string, mixed>} $dataset
      */
@@ -97,7 +99,7 @@ final class ExtractionResult implements JsonSerializable
     }
 
     /**
-     * @return array<int, array{subject: string, relation: string, object: string}>
+     * @return array<int, array{subject: string, relation: string, object: string, confidence: float}>
      */
     public function triples(): array
     {
@@ -153,7 +155,16 @@ final class ExtractionResult implements JsonSerializable
     }
 
     /**
-     * @return array<int, array{original: string, cleaned: string, rewritten: string, keywords: array<int, array{token: string, count: int}>, spelling: array<int, array{token: string, count: int, suggestions: array<int, string>}>}>
+     * @return array<int, array{
+     *     original: string,
+     *     cleaned: string,
+     *     rewritten: string,
+     *     keywords: array<int, array{token: string, count: int}>,
+     *     spelling: array<int, array{token: string, count: int, suggestions: array<int, string}>>,
+     *     analytics?: array<string, mixed>,
+     *     boilerplate?: array{segments?: array<int, array{text: string, line: int|null, tags: array<int, string>, confidence: float}>, density?: float},
+     *     acronyms?: array<int, array{acronym: string, expansion: string, confidence: float, context: string}>
+     * }>
      */
     public function documents(): array
     {
@@ -161,7 +172,7 @@ final class ExtractionResult implements JsonSerializable
     }
 
     /**
-     * @return array<string, array{entity: string, facts: array<int, array{direction: string, relation: string, counterpart: string}>, synonyms: array<int, string>, context: array{as_subject: array<string, int>, as_object: array<string, int>}, ranking: array{score: float, eligible: bool, signals: array{uniqueness: float, freshness: float, quality: float, authority: float, consistency: float}, support: array{incoming_links: int, outgoing_links: int, fact_count: int}}}>
+     * @return array<string, array{entity: string, facts: array<int, array{direction: string, relation: string, counterpart: string, confidence: float}>, synonyms: array<int, string>, context: array{as_subject: array<string, int>, as_object: array<string, int>}, ranking: array{score: float, eligible: bool, signals: array{uniqueness: float, freshness: float, quality: float, authority: float, consistency: float}, support: array{incoming_links: int, outgoing_links: int, fact_count: int}}>
      */
     public function crossReferences(): array
     {

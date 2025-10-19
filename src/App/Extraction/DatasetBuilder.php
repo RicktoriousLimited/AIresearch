@@ -54,6 +54,8 @@ final class DatasetBuilder
         $certaintySum = 0.0;
         $certaintyCount = 0;
         $analyticsDocumentCount = 0;
+        $boilerplateDocumentCount = 0;
+        $acronymDocumentCount = 0;
 
         $structuredEntities = $this->normaliseTriples($triples);
         $synonymMap = $this->normaliseSynonyms($synonyms);
@@ -78,12 +80,14 @@ final class DatasetBuilder
             $keywords = $this->extractKeywords($document['keywords'] ?? []);
             $qaPairs = $this->normaliseQuestionAnswers($document['qa'] ?? []);
             $analytics = $this->normaliseAnalytics($document['analytics'] ?? []);
+            $boilerplate = $this->normaliseBoilerplate($document['boilerplate'] ?? []);
+            $acronyms = $this->normaliseAcronyms($document['acronyms'] ?? []);
 
             if ($original === '' && $cleaned === '' && $rewrite === '') {
                 continue;
             }
 
-            $tasks = $this->deriveTasks($cleaned, $rewrite, $keywords, $structuredEntities, $synonymMap, $qaPairs, $analytics);
+            $tasks = $this->deriveTasks($cleaned, $rewrite, $keywords, $structuredEntities, $synonymMap, $qaPairs, $analytics, $boilerplate, $acronyms);
             foreach ($tasks as $task) {
                 $taskTally[$task] = ($taskTally[$task] ?? 0) + 1;
             }
@@ -93,7 +97,7 @@ final class DatasetBuilder
             $qaPairTotal += count($qaPairs);
 
             $prompt = $this->buildPrompt($original !== '' ? $original : $cleaned, $tasks, $qaPairs !== []);
-            $idealResponse = $this->buildTarget($cleaned, $rewrite, $keywords, $structuredEntities, $synonymMap, $qaPairs, $analytics);
+            $idealResponse = $this->buildTarget($cleaned, $rewrite, $keywords, $structuredEntities, $synonymMap, $qaPairs, $analytics, $boilerplate, $acronyms);
 
             if ($analytics !== []) {
                 $analyticsDocumentCount++;
@@ -128,6 +132,14 @@ final class DatasetBuilder
                 }
             }
 
+            if (!empty($boilerplate['segments'])) {
+                $boilerplateDocumentCount++;
+            }
+
+            if ($acronyms !== []) {
+                $acronymDocumentCount++;
+            }
+
             $rows[] = [
                 'record_id' => $index + 1,
                 'ai_tasks' => $tasks,
@@ -139,6 +151,8 @@ final class DatasetBuilder
                 'synonym_clusters' => $synonymMap,
                 'question_answer_pairs' => $qaPairs,
                 'document_analytics' => $analytics,
+                'document_boilerplate' => $boilerplate,
+                'document_acronyms' => $acronyms,
                 'prompt' => $prompt,
                 'ideal_response' => $idealResponse,
             ];
@@ -173,6 +187,8 @@ final class DatasetBuilder
                     'type' => 'object',
                     'description' => 'Context-aware analytics summarising sentiment, intent, factuality, and conversational signals.',
                 ],
+                ['name' => 'document_boilerplate', 'type' => 'object'],
+                ['name' => 'document_acronyms', 'type' => 'object[]'],
                 ['name' => 'prompt', 'type' => 'string'],
                 ['name' => 'ideal_response', 'type' => 'object'],
             ],
@@ -197,6 +213,8 @@ final class DatasetBuilder
             'intent_distribution' => $intentDistribution,
             'factuality_distribution' => $factualityDistribution,
             'certainty_average' => $certaintyCount > 0 ? round($certaintySum / $certaintyCount, 4) : null,
+            'boilerplate_document_count' => $boilerplateDocumentCount,
+            'acronym_document_count' => $acronymDocumentCount,
         ];
 
         return [
@@ -207,8 +225,8 @@ final class DatasetBuilder
     }
 
     /**
-     * @param array<int, array{subject: string, relation: string, object: string}> $triples
-     * @return array<int, array{subject: string, relation: string, canonical_relation: string, relation_type: string, object: string, confidence: float, status: string, provenance: array<string, mixed>}> 
+     * @param array<int, array{subject: string, relation: string, object: string, confidence?: float}> $triples
+     * @return array<int, array{subject: string, relation: string, canonical_relation: string, relation_type: string, object: string, confidence: float, status: string, provenance: array<string, mixed>}>
      */
     private function normaliseTriples(array $triples): array
     {
@@ -222,6 +240,11 @@ final class DatasetBuilder
             }
 
             $schema = $this->relationMapper->map($relation);
+            $extractionConfidence = isset($triple['confidence']) && is_numeric($triple['confidence'])
+                ? $this->clampConfidence((float) $triple['confidence'])
+                : 0.0;
+            $schemaConfidence = $this->clampConfidence($schema['confidence']);
+            $confidence = max($schemaConfidence, $extractionConfidence);
 
             $clean[] = [
                 'subject' => $subject,
@@ -229,13 +252,31 @@ final class DatasetBuilder
                 'canonical_relation' => $schema['canonical'],
                 'relation_type' => $schema['type'],
                 'object' => $object,
-                'confidence' => $this->clampConfidence($schema['confidence']),
+                'confidence' => $confidence,
                 'status' => $schema['status'],
-                'provenance' => $this->defaultProvenance(),
+                'provenance' => $this->augmentProvenance($this->defaultProvenance(), $extractionConfidence, $schemaConfidence),
             ];
         }
 
         return $clean;
+    }
+
+    /**
+     * @param array<string, mixed> $provenance
+     * @return array<string, mixed>
+     */
+    private function augmentProvenance(array $provenance, float $extractionConfidence, float $schemaConfidence): array
+    {
+        $details = $provenance;
+        $details['confidence_sources'] = [
+            'schema' => round($schemaConfidence, 4),
+        ];
+
+        if ($extractionConfidence > 0.0) {
+            $details['confidence_sources']['extraction'] = round($extractionConfidence, 4);
+        }
+
+        return $details;
     }
 
     /**
@@ -293,7 +334,7 @@ final class DatasetBuilder
      * @param array<string, mixed> $analytics
      * @return array<int, string>
      */
-    private function deriveTasks(string $cleaned, string $rewrite, array $keywords, array $structuredEntities, array $synonymMap, array $qaPairs, array $analytics): array
+    private function deriveTasks(string $cleaned, string $rewrite, array $keywords, array $structuredEntities, array $synonymMap, array $qaPairs, array $analytics, array $boilerplate, array $acronyms): array
     {
         $tasks = ['text_cleaning'];
 
@@ -343,6 +384,14 @@ final class DatasetBuilder
             }
         }
 
+        if (!empty($boilerplate['segments'])) {
+            $tasks[] = 'boilerplate_detection';
+        }
+
+        if ($acronyms !== []) {
+            $tasks[] = 'acronym_expansion';
+        }
+
         $unique = [];
         foreach ($tasks as $task) {
             if (!in_array($task, $unique, true)) {
@@ -390,7 +439,7 @@ PROMPT;
      * @param array<string, mixed> $analytics
      * @return array<string, mixed>
      */
-    private function buildTarget(string $cleaned, string $rewrite, array $keywords, array $structuredEntities, array $synonymMap, array $qaPairs, array $analytics): array
+    private function buildTarget(string $cleaned, string $rewrite, array $keywords, array $structuredEntities, array $synonymMap, array $qaPairs, array $analytics, array $boilerplate, array $acronyms): array
     {
         return [
             'cleaned_text' => $cleaned,
@@ -400,6 +449,8 @@ PROMPT;
             'synonym_clusters' => $synonymMap,
             'question_answer_pairs' => $qaPairs,
             'analytics' => $analytics,
+            'boilerplate' => $boilerplate,
+            'acronyms' => $acronyms,
         ];
     }
 
@@ -432,6 +483,102 @@ PROMPT;
                 'question' => $question,
                 'answer' => $answer,
                 'response' => $response,
+            ];
+        }
+
+        return $clean;
+    }
+
+    /**
+     * @param array<string, mixed> $boilerplate
+     * @return array{segments: array<int, array{text: string, line: int|null, tags: array<int, string>, confidence: float}>, density: float}
+     */
+    private function normaliseBoilerplate($boilerplate): array
+    {
+        if (!is_array($boilerplate)) {
+            return ['segments' => [], 'density' => 0.0];
+        }
+
+        $segments = [];
+        if (isset($boilerplate['segments']) && is_array($boilerplate['segments'])) {
+            foreach ($boilerplate['segments'] as $segment) {
+                if (!is_array($segment)) {
+                    continue;
+                }
+
+                $text = trim((string) ($segment['text'] ?? ''));
+                if ($text === '') {
+                    continue;
+                }
+
+                $line = isset($segment['line']) && is_numeric($segment['line']) ? (int) $segment['line'] : null;
+                $tags = [];
+                if (isset($segment['tags']) && is_array($segment['tags'])) {
+                    foreach ($segment['tags'] as $tag) {
+                        $tagString = trim((string) $tag);
+                        if ($tagString === '') {
+                            continue;
+                        }
+                        $tags[] = $tagString;
+                    }
+                }
+
+                $confidence = isset($segment['confidence']) && is_numeric($segment['confidence'])
+                    ? $this->clampConfidence((float) $segment['confidence'])
+                    : 0.0;
+
+                $segments[] = [
+                    'text' => $text,
+                    'line' => $line,
+                    'tags' => $tags,
+                    'confidence' => $confidence,
+                ];
+            }
+        }
+
+        $density = 0.0;
+        if (isset($boilerplate['density']) && is_numeric($boilerplate['density'])) {
+            $density = $this->clampConfidence((float) $boilerplate['density']);
+        }
+
+        return [
+            'segments' => $segments,
+            'density' => $density,
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $acronyms
+     * @return array<int, array{acronym: string, expansion: string, confidence: float, context: string}>
+     */
+    private function normaliseAcronyms($acronyms): array
+    {
+        if (!is_array($acronyms)) {
+            return [];
+        }
+
+        $clean = [];
+        foreach ($acronyms as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $acronym = strtoupper(trim((string) ($entry['acronym'] ?? '')));
+            $expansion = trim((string) ($entry['expansion'] ?? ''));
+            if ($acronym === '' || $expansion === '') {
+                continue;
+            }
+
+            $confidence = isset($entry['confidence']) && is_numeric($entry['confidence'])
+                ? $this->clampConfidence((float) $entry['confidence'])
+                : 0.0;
+            $context = trim((string) ($entry['context'] ?? ''));
+
+            $clean[] = [
+                'acronym' => $acronym,
+                'expansion' => $expansion,
+                'confidence' => $confidence,
+                'context' => $context,
             ];
         }
 
