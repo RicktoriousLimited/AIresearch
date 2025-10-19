@@ -60,6 +60,10 @@ if (!isset($first['category']) || !in_array($first['category'], ['financial', 'g
     throw new RuntimeException('Crawler results should include a valid category label.');
 }
 
+if (!is_string($first['content_digest'] ?? null) || trim((string) $first['content_digest']) === '') {
+    throw new RuntimeException('Crawler entries should expose a semantic content digest.');
+}
+
 if (!isset($first['topics']) || !is_array($first['topics']) || $first['topics'] === []) {
     throw new RuntimeException('Crawler results should include at least one topic.');
 }
@@ -227,6 +231,38 @@ if ((int) ($third['revision'] ?? 0) !== 2) {
 if (empty($third['versions']) || !is_array($third['versions'])) {
     throw new RuntimeException('Updated entries should retain prior versions.');
 }
+
+$duplicateScraper = new StubScraper();
+$duplicateScraper->text = 'Signal Ledger automatically gathers intelligence across markets.';
+$crawlerDuplicate = new HiddenCrawler($storage, $duplicateScraper, new TextRefiner());
+$duplicateResult = $crawlerDuplicate->crawl(['https://mirror.example.com']);
+if (count($duplicateResult) !== 1) {
+    throw new RuntimeException('Expected a single crawl result for duplicate run.');
+}
+
+$duplicateEntry = $duplicateResult[0];
+if (!is_string($duplicateEntry['duplicate_of'] ?? null) || trim((string) $duplicateEntry['duplicate_of']) === '') {
+    throw new RuntimeException('Duplicate entries should reference the canonical URL.');
+}
+
+if (($duplicateEntry['duplicate_of'] ?? '') === ($duplicateEntry['normalized_url'] ?? '')) {
+    throw new RuntimeException('Duplicate pointer should not reference the entry itself.');
+}
+
+if (!empty($duplicateEntry['ingest'])) {
+    throw new RuntimeException('Duplicate entries should not be marked for ingestion.');
+}
+
+$duplicateReasons = $duplicateEntry['quality_reasons'] ?? [];
+if (!is_array($duplicateReasons) || $duplicateReasons === []) {
+    throw new RuntimeException('Duplicate entries should surface quality reasons.');
+}
+
+$duplicateReasonText = implode(' ', $duplicateReasons);
+if (stripos($duplicateReasonText, 'duplicate') === false) {
+    throw new RuntimeException('Duplicate entries should note the duplicate detection in quality reasons.');
+}
+
 
 $latestHistory = $crawlerChanged->history();
 if ((int) ($latestHistory[0]['revision'] ?? 0) !== 2) {

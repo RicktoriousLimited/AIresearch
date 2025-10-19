@@ -76,6 +76,8 @@ final class NewsSearchService
 
     private ?BM25Ranker $bm25Ranker = null;
 
+    private TextRefiner $textRefiner;
+
     /**
      * @var array<string, float>
      */
@@ -171,6 +173,7 @@ final class NewsSearchService
             $quality = (float) ($formatted['quality_score'] ?? 0.0);
 
             $matchScore = $this->matchScore($formatted, $terms);
+            $formatted['semantic_score'] = $this->lastSemanticBoost;
             if ($terms !== [] && $matchScore <= 0.0) {
                 continue;
             }
@@ -506,6 +509,7 @@ final class NewsSearchService
         $this->queryTerms = $profile['original_terms'];
         $this->expandedTermSet = array_fill_keys($profile['terms'], true);
         $this->queryBigrams = $profile['bigrams'];
+        $this->queryFingerprint = $this->buildQueryFingerprint($profile);
     }
 
     /**
@@ -678,6 +682,150 @@ final class NewsSearchService
             'original_terms' => array_values(array_unique($original)),
             'bigrams' => $this->generateQueryBigrams($original),
         ];
+    }
+
+    /**
+     * @param array{
+     *     terms: array<int, string>,
+     *     weights: array<string, float>,
+     *     phrases: array<string, float>,
+     *     original_terms: array<int, string>,
+     *     bigrams: array<string, float>
+     * } $profile
+     *
+     * @return array<string, float>
+     */
+    private function buildQueryFingerprint(array $profile): array
+    {
+        $candidates = [];
+
+        $query = trim($this->activeQuery);
+        if ($query !== '') {
+            $candidates[] = $query;
+        }
+
+        if ($profile['phrases'] !== []) {
+            $candidates[] = implode(' ', array_keys($profile['phrases']));
+        }
+
+        if ($profile['original_terms'] !== []) {
+            $candidates[] = implode(' ', $profile['original_terms']);
+        }
+
+        $candidates = array_values(array_filter(
+            $candidates,
+            static fn(string $value): bool => trim($value) !== ''
+        ));
+
+        if ($candidates === []) {
+            return [];
+        }
+
+        $combined = trim(implode(' ', $candidates));
+        $fingerprint = $this->textRefiner->buildSemanticFingerprint($combined);
+        if ($fingerprint !== []) {
+            return $fingerprint;
+        }
+
+        foreach ($candidates as $candidate) {
+            $candidateFingerprint = $this->textRefiner->buildSemanticFingerprint($candidate);
+            if ($candidateFingerprint !== []) {
+                return $candidateFingerprint;
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     *
+     * @return array<string, float>
+     */
+    private function documentFingerprint(array $entry, string $text): array
+    {
+        $fragments = [$text];
+
+        if (isset($entry['topics']) && is_array($entry['topics'])) {
+            foreach ($entry['topics'] as $topic) {
+                if (is_string($topic)) {
+                    $trimmed = trim($topic);
+                    if ($trimmed !== '') {
+                        $fragments[] = $trimmed;
+                    }
+                }
+            }
+        }
+
+        if (isset($entry['entities']) && is_array($entry['entities'])) {
+            foreach ($entry['entities'] as $entity) {
+                if (!is_array($entity)) {
+                    continue;
+                }
+                $label = isset($entity['label']) ? trim((string) $entity['label']) : '';
+                if ($label !== '') {
+                    $fragments[] = $label;
+                }
+            }
+        }
+
+        $combined = trim(implode(' ', array_filter(
+            $fragments,
+            static fn($fragment): bool => is_string($fragment) && $fragment !== ''
+        )));
+
+        if ($combined === '') {
+            return [];
+        }
+
+        $cacheKey = sha1($combined);
+        if (!isset($this->fingerprintCache[$cacheKey])) {
+            $this->fingerprintCache[$cacheKey] = $this->textRefiner->buildSemanticFingerprint($combined);
+
+            if (count($this->fingerprintCache) > 256) {
+                $this->fingerprintCache = array_slice($this->fingerprintCache, -192, null, true);
+            }
+        }
+
+        return $this->fingerprintCache[$cacheKey];
+    }
+
+    /**
+     * @param array<string, mixed> $entry
+     */
+    private function semanticSimilarityScore(array $entry, string $text): float
+    {
+        if ($this->queryFingerprint === []) {
+            return 0.0;
+        }
+
+        $documentFingerprint = $this->documentFingerprint($entry, $text);
+        if ($documentFingerprint === []) {
+            return 0.0;
+        }
+
+        $similarity = $this->textRefiner->compareFingerprints($this->queryFingerprint, $documentFingerprint);
+        if ($similarity <= 0.0) {
+            return 0.0;
+        }
+
+        $boost = $similarity * 9.0;
+
+        if ($this->expandedTermSet !== [] && isset($entry['topics']) && is_array($entry['topics'])) {
+            foreach ($entry['topics'] as $topic) {
+                if (!is_string($topic)) {
+                    continue;
+                }
+                foreach (BM25Ranker::tokenise($topic) as $token) {
+                    if (isset($this->expandedTermSet[$token])) {
+                        $boost *= 1.08;
+                        break 2;
+                    }
+                }
+            }
+        }
+
+        return $boost;
     }
 
     /**
@@ -1014,6 +1162,7 @@ final class NewsSearchService
             $quality = (float) ($formatted['quality_score'] ?? 0.0);
 
             $matchScore = $this->matchScore($formatted, $terms);
+            $formatted['semantic_score'] = $this->lastSemanticBoost;
             if ($terms !== [] && $matchScore <= 0.0) {
                 continue;
             }
@@ -1348,6 +1497,11 @@ final class NewsSearchService
             $merged['quality_label'] = $this->qualityLabelFromScore((float) $merged['quality_score']);
         }
 
+        $merged['semantic_score'] = max(
+            (float) ($primary['semantic_score'] ?? 0.0),
+            (float) ($secondary['semantic_score'] ?? 0.0)
+        );
+
         $merged['ingest'] = !empty($primary['ingest']) || !empty($secondary['ingest']);
 
         $merged['topics'] = $this->mergeStringLists($primary['topics'] ?? [], $secondary['topics'] ?? []);
@@ -1674,6 +1828,8 @@ final class NewsSearchService
      */
     private function matchScore(array $entry, array $terms): float
     {
+        $this->lastSemanticBoost = 0.0;
+
         if ($terms === []) {
             return 0.0;
         }
