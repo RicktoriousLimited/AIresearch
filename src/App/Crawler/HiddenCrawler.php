@@ -542,18 +542,28 @@ final class HiddenCrawler
                 }
             }
 
-            if ($scraped !== null && $currentDepth < $maxDepth) {
+            $nextDepth = $currentDepth + 1;
+            $canExploreNow = $currentDepth < $maxDepth;
+            $shouldDeferDiscovery = $deferDiscovered || !$canExploreNow;
+
+            if ($scraped !== null && ($canExploreNow || $shouldDeferDiscovery)) {
                 $parentDomain = $this->extractDomain($currentUrl);
+                $assignedDepth = $nextDepth;
+
+                if ($shouldDeferDiscovery && !$deferDiscovered && !$canExploreNow) {
+                    $assignedDepth = 0;
+                }
+
                 $added = $this->enqueueDiscoveredLinks(
                     $queue,
                     $seen,
                     $scraped->links(),
-                    $currentDepth + 1,
+                    $assignedDepth,
                     $parentDomain,
                     $currentUrl,
                     $discoveryLedger,
                     $tasks,
-                    $deferDiscovered,
+                    $shouldDeferDiscovery,
                     $scheduledQueue,
                     $scheduledIndex,
                     $scheduledChanged
@@ -561,10 +571,12 @@ final class HiddenCrawler
                 if ($added > 0) {
                     $discoveredTotal += $added;
                     $progress['discovered'] = ($progress['discovered'] ?? 0) + $added;
-                    if ($deferDiscovered) {
+                    if ($shouldDeferDiscovery) {
                         $progress['scheduled_total'] = count($scheduledQueue);
                         $progress['scheduled_preview'] = $this->summariseScheduledQueue($scheduledQueue);
-                        $progress['message'] = 'Scheduled ' . $discoveredTotal . ' additional page(s).';
+                        $progress['message'] = $deferDiscovered
+                            ? 'Scheduled ' . $discoveredTotal . ' additional page(s).'
+                            : 'Queued ' . $discoveredTotal . ' additional page(s) for later runs.';
                     } else {
                         $progress['total'] = ($progress['total'] ?? 0) + $added;
                         $progress['queued'] = count($queue);
