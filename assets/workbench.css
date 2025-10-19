@@ -1707,6 +1707,186 @@ td {
     border-bottom: none;
 }
 
+.crawler-discovery {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid rgba(148, 163, 184, 0.2);
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.crawler-discovery__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.crawler-discovery__totals {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 0.85rem;
+    margin: 0;
+}
+
+.crawler-discovery__totals > div {
+    background: rgba(15, 23, 42, 0.45);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 12px;
+    padding: 0.9rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.crawler-discovery__totals dt {
+    margin: 0;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba(148, 163, 184, 0.8);
+}
+
+.crawler-discovery__totals dd {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: rgba(226, 232, 240, 0.95);
+}
+
+.crawler-discovery__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+}
+
+.crawler-discovery__column {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+}
+
+.crawler-discovery__domain-list,
+.crawler-discovery__link-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    max-height: 360px;
+    overflow-y: auto;
+    padding-right: 0.35rem;
+}
+
+.crawler-discovery__domain-list li,
+.crawler-discovery__link-list li {
+    padding: 0.75rem 0.8rem;
+    border-radius: 12px;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(15, 23, 42, 0.4);
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+}
+
+.crawler-discovery__domain-list .label {
+    font-weight: 600;
+    color: rgba(226, 232, 240, 0.95);
+}
+
+.crawler-discovery__domain-list .value {
+    font-size: 0.85rem;
+    color: rgba(148, 163, 184, 0.85);
+}
+
+.crawler-discovery__link {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.85rem;
+    word-break: break-word;
+}
+
+.crawler-discovery__link a {
+    color: rgba(96, 165, 250, 0.95);
+}
+
+.crawler-discovery__meta {
+    font-size: 0.78rem;
+    color: rgba(148, 163, 184, 0.9);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.discovery-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: rgba(148, 163, 184, 0.25);
+    color: rgba(226, 232, 240, 0.9);
+}
+
+.discovery-status[data-status='running'] {
+    background: rgba(59, 130, 246, 0.25);
+    color: rgba(147, 197, 253, 0.95);
+}
+
+.discovery-status[data-status='queued'] {
+    background: rgba(250, 204, 21, 0.25);
+    color: rgba(250, 204, 21, 0.95);
+}
+
+.discovery-status[data-status='overdue'],
+.discovery-status[data-status='failed'] {
+    background: rgba(248, 113, 113, 0.25);
+    color: rgba(248, 113, 113, 0.95);
+}
+
+.discovery-status[data-status='fresh'] {
+    background: rgba(34, 197, 94, 0.25);
+    color: rgba(134, 239, 172, 0.95);
+}
+
+.discovery-status[data-status='recent'] {
+    background: rgba(56, 189, 248, 0.25);
+    color: rgba(125, 211, 252, 0.95);
+}
+
+.discovery-status[data-status='stale'] {
+    background: rgba(148, 163, 184, 0.25);
+    color: rgba(148, 163, 184, 0.95);
+}
+
+.discovery-status[data-status='new'] {
+    background: rgba(167, 139, 250, 0.25);
+    color: rgba(196, 181, 253, 0.95);
+}
+
+.discovery-status[data-status='unknown'] {
+    background: rgba(148, 163, 184, 0.18);
+    color: rgba(226, 232, 240, 0.8);
+}
+
+@media (max-width: 768px) {
+    .crawler-discovery__totals {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    }
+
+    .crawler-discovery__domain-list,
+    .crawler-discovery__link-list {
+        max-height: none;
+    }
+}
+
 .entity-detail {
     background: rgba(15, 23, 42, 0.4);
     border: 1px solid rgba(148, 163, 184, 0.18);

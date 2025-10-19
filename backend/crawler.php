@@ -601,6 +601,130 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
             <p class="muted" id="progress-task-empty">Tasks will appear here as the crawler runs.</p>
             <ul class="task-items" id="progress-task-items"></ul>
         </div>
+        <?php
+            $discoverySummary = is_array($progress['discovery_summary'] ?? null) ? $progress['discovery_summary'] : [];
+            $discoveryTotalsRaw = is_array($discoverySummary['totals'] ?? null) ? $discoverySummary['totals'] : [];
+            $discoveryTotals = array_merge([
+                'links' => 0,
+                'domains' => 0,
+                'fresh' => 0,
+                'recent' => 0,
+                'stale' => 0,
+                'overdue' => 0,
+                'queued' => 0,
+                'running' => 0,
+                'new' => 0,
+                'failed' => 0,
+                'unknown' => 0,
+            ], $discoveryTotalsRaw);
+            $discoveryDomains = is_array($discoverySummary['domains'] ?? null) ? $discoverySummary['domains'] : [];
+            $discoveryLinks = is_array($discoverySummary['links'] ?? null) ? $discoverySummary['links'] : [];
+        ?>
+        <div class="crawler-discovery" id="progress-discovery">
+            <div class="crawler-discovery__header">
+                <h3>Discovery coverage</h3>
+                <p class="muted" id="progress-discovery-updated">
+                    <?= isset($discoverySummary['generated_at']) && $discoverySummary['generated_at'] !== ''
+                        ? 'Updated ' . esc((string) $discoverySummary['generated_at'])
+                        : 'Waiting for crawl data'; ?>
+                </p>
+            </div>
+            <dl class="crawler-discovery__totals">
+                <div>
+                    <dt>Total links</dt>
+                    <dd id="progress-discovery-total-links"><?= esc((string) $discoveryTotals['links']); ?></dd>
+                </div>
+                <div>
+                    <dt>Domains</dt>
+                    <dd id="progress-discovery-total-domains"><?= esc((string) $discoveryTotals['domains']); ?></dd>
+                </div>
+                <div>
+                    <dt>Queued</dt>
+                    <dd id="progress-discovery-total-queued"><?= esc((string) $discoveryTotals['queued']); ?></dd>
+                </div>
+                <div>
+                    <dt>Running</dt>
+                    <dd id="progress-discovery-total-running"><?= esc((string) $discoveryTotals['running']); ?></dd>
+                </div>
+                <div>
+                    <dt>Fresh</dt>
+                    <dd id="progress-discovery-total-fresh"><?= esc((string) $discoveryTotals['fresh']); ?></dd>
+                </div>
+                <div>
+                    <dt>Overdue</dt>
+                    <dd id="progress-discovery-total-overdue"><?= esc((string) $discoveryTotals['overdue']); ?></dd>
+                </div>
+                <div>
+                    <dt>Stale</dt>
+                    <dd id="progress-discovery-total-stale"><?= esc((string) $discoveryTotals['stale']); ?></dd>
+                </div>
+            </dl>
+            <div class="crawler-discovery__grid">
+                <div class="crawler-discovery__column">
+                    <h4>By domain</h4>
+                    <p class="muted" id="progress-discovery-domains-empty"<?= $discoveryDomains === [] ? '' : ' hidden'; ?>>No domains discovered yet.</p>
+                    <ul class="crawler-discovery__domain-list" id="progress-discovery-domains">
+                        <?php foreach (array_slice($discoveryDomains, 0, 15) as $domainRow):
+                            if (!is_array($domainRow)) { continue; }
+                            $domainName = (string) ($domainRow['domain'] ?? '');
+                            $domainTotal = (int) ($domainRow['total'] ?? 0);
+                            $domainOverdue = (int) ($domainRow['overdue'] ?? 0);
+                            $domainQueued = (int) ($domainRow['queued'] ?? 0);
+                            $domainFresh = (int) ($domainRow['fresh'] ?? 0);
+                            $domainLast = (string) ($domainRow['last_crawled_at'] ?? '');
+                            $domainNext = isset($domainRow['next_due_at']) ? (string) $domainRow['next_due_at'] : '';
+                        ?>
+                            <li>
+                                <span class="label"><?= esc($domainName !== '' ? $domainName : 'Unknown domain'); ?></span>
+                                <span class="value"><?= esc((string) $domainTotal); ?> links</span>
+                                <div class="crawler-discovery__meta">
+                                    <span><?= esc((string) $domainQueued); ?> queued · <?= esc((string) $domainOverdue); ?> overdue · <?= esc((string) $domainFresh); ?> fresh</span>
+                                    <?php if ($domainLast !== ''): ?>
+                                        <span>Last crawl <?= esc($domainLast); ?></span>
+                                    <?php endif; ?>
+                                    <?php if ($domainNext !== ''): ?>
+                                        <span>Next due <?= esc($domainNext); ?></span>
+                                    <?php endif; ?>
+                                </div>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+                <div class="crawler-discovery__column">
+                    <h4>Tracked links</h4>
+                    <p class="muted" id="progress-discovery-links-empty"<?= $discoveryLinks === [] ? '' : ' hidden'; ?>>No discovery links recorded yet.</p>
+                    <ul class="crawler-discovery__link-list" id="progress-discovery-links">
+                        <?php foreach (array_slice($discoveryLinks, 0, 20) as $linkRow):
+                            if (!is_array($linkRow)) { continue; }
+                            $linkUrl = (string) ($linkRow['url'] ?? '');
+                            $linkDomain = (string) ($linkRow['domain'] ?? '');
+                            $linkStatus = (string) ($linkRow['status'] ?? 'unknown');
+                            $linkLast = (string) ($linkRow['last_crawled_at'] ?? '');
+                            $linkDue = isset($linkRow['next_due_at']) ? (string) $linkRow['next_due_at'] : '';
+                        ?>
+                            <li>
+                                <p class="crawler-discovery__link">
+                                    <span class="discovery-status" data-status="<?= esc($linkStatus); ?>"><?= esc(ucfirst($linkStatus)); ?></span>
+                                    <?php if ($linkUrl !== ''): ?>
+                                        <a href="<?= esc($linkUrl); ?>" target="_blank" rel="noopener"><?= esc($linkUrl); ?></a>
+                                    <?php else: ?>
+                                        <span><?= esc($linkDomain !== '' ? $linkDomain : 'Unknown link'); ?></span>
+                                    <?php endif; ?>
+                                </p>
+                                <div class="crawler-discovery__meta">
+                                    <?php if ($linkLast !== ''): ?>
+                                        <span>Last crawl <?= esc($linkLast); ?></span>
+                                    <?php endif; ?>
+                                    <?php if ($linkDue !== ''): ?>
+                                        <span>Next due <?= esc($linkDue); ?></span>
+                                    <?php endif; ?>
+                                </div>
+                            </li>
+                        <?php endforeach; ?>
+                    </ul>
+                </div>
+            </div>
+        </div>
     </section>
 
     <section class="card">
@@ -938,6 +1062,19 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
     const taskEmptyEl = document.getElementById('progress-task-empty');
     const scheduledListEl = document.getElementById('scheduled-items');
     const scheduledEmptyEl = document.getElementById('scheduled-empty');
+    const discoverySection = document.getElementById('progress-discovery');
+    const discoveryUpdatedEl = document.getElementById('progress-discovery-updated');
+    const discoveryTotalsLinksEl = document.getElementById('progress-discovery-total-links');
+    const discoveryTotalsDomainsEl = document.getElementById('progress-discovery-total-domains');
+    const discoveryTotalsQueuedEl = document.getElementById('progress-discovery-total-queued');
+    const discoveryTotalsRunningEl = document.getElementById('progress-discovery-total-running');
+    const discoveryTotalsFreshEl = document.getElementById('progress-discovery-total-fresh');
+    const discoveryTotalsOverdueEl = document.getElementById('progress-discovery-total-overdue');
+    const discoveryTotalsStaleEl = document.getElementById('progress-discovery-total-stale');
+    const discoveryDomainsList = document.getElementById('progress-discovery-domains');
+    const discoveryDomainsEmpty = document.getElementById('progress-discovery-domains-empty');
+    const discoveryLinksList = document.getElementById('progress-discovery-links');
+    const discoveryLinksEmpty = document.getElementById('progress-discovery-links-empty');
     const form = document.getElementById('crawler-form');
     const runButton = form ? form.querySelector('button[type="submit"]') : null;
 
@@ -957,6 +1094,109 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
         const totalValue = Number.isFinite(total) ? total : 0;
         const denominator = totalValue > 0 ? totalValue : Math.max(totalValue, processedValue);
         return processedValue + ' / ' + denominator;
+    }
+
+    function escapeHtml(value) {
+        const stringValue = value == null ? '' : String(value);
+        return stringValue
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function formatTimestamp(value) {
+        if (!value || typeof value !== 'string') {
+            return '';
+        }
+
+        const parsed = new Date(value);
+        if (Number.isNaN(parsed.getTime())) {
+            return value;
+        }
+
+        return parsed.toLocaleString();
+    }
+
+    function formatFreshness(minutes) {
+        if (!Number.isFinite(minutes)) {
+            return '';
+        }
+
+        if (minutes < 1) {
+            return 'Just checked';
+        }
+
+        if (minutes < 60) {
+            return `${Math.round(minutes)} min old`;
+        }
+
+        if (minutes < 1440) {
+            const hours = Math.round(minutes / 60);
+            return `${hours} hr${hours === 1 ? '' : 's'} old`;
+        }
+
+        const days = Math.round(minutes / 1440);
+        return `${days} day${days === 1 ? '' : 's'} old`;
+    }
+
+    function formatDue(minutes, timestamp) {
+        if (Number.isFinite(minutes)) {
+            const rounded = Math.round(minutes);
+            if (rounded === 0) {
+                return 'Due now';
+            }
+
+            if (rounded < 0) {
+                const overdue = Math.abs(rounded);
+                if (overdue < 60) {
+                    return `${overdue} min overdue`;
+                }
+                if (overdue < 1440) {
+                    const overdueHours = Math.round(overdue / 60);
+                    return `${overdueHours} hr${overdueHours === 1 ? '' : 's'} overdue`;
+                }
+                const overdueDays = Math.round(overdue / 1440);
+                return `${overdueDays} day${overdueDays === 1 ? '' : 's'} overdue`;
+            }
+
+            if (rounded < 60) {
+                return `Due in ${rounded} min`;
+            }
+
+            if (rounded < 1440) {
+                const hours = Math.round(rounded / 60);
+                return `Due in ${hours} hr${hours === 1 ? '' : 's'}`;
+            }
+
+            const days = Math.round(rounded / 1440);
+            return `Due in ${days} day${days === 1 ? '' : 's'}`;
+        }
+
+        if (timestamp && typeof timestamp === 'string') {
+            const formatted = formatTimestamp(timestamp);
+            return formatted !== '' ? `Next due ${formatted}` : '';
+        }
+
+        return '';
+    }
+
+    function formatStatusLabel(status) {
+        const map = {
+            running: 'Running',
+            queued: 'Queued',
+            overdue: 'Overdue',
+            failed: 'Failed',
+            fresh: 'Fresh',
+            recent: 'Recent',
+            stale: 'Stale',
+            new: 'New',
+            unknown: 'Unknown',
+        };
+
+        const normalised = typeof status === 'string' ? status.toLowerCase() : 'unknown';
+        return map[normalised] || normalised.charAt(0).toUpperCase() + normalised.slice(1);
     }
 
     function setStatusPill(stateName) {
@@ -1090,6 +1330,188 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
             li.appendChild(meta);
             scheduledListEl.appendChild(li);
         });
+    }
+
+    function renderDiscovery(summary) {
+        if (!discoverySection) {
+            return;
+        }
+
+        const hasSummary = summary && typeof summary === 'object';
+        const totals = hasSummary && typeof summary.totals === 'object' ? summary.totals : {};
+        const domains = hasSummary && Array.isArray(summary.domains) ? summary.domains : [];
+        const links = hasSummary && Array.isArray(summary.links) ? summary.links : [];
+
+        if (discoveryUpdatedEl) {
+            const generatedAt = hasSummary && typeof summary.generated_at === 'string' && summary.generated_at !== ''
+                ? `Updated ${formatTimestamp(summary.generated_at) || summary.generated_at}`
+                : 'Waiting for crawl data';
+            discoveryUpdatedEl.textContent = generatedAt;
+        }
+
+        const counters = [
+            [discoveryTotalsLinksEl, totals.links],
+            [discoveryTotalsDomainsEl, totals.domains],
+            [discoveryTotalsQueuedEl, totals.queued],
+            [discoveryTotalsRunningEl, totals.running],
+            [discoveryTotalsFreshEl, totals.fresh],
+            [discoveryTotalsOverdueEl, totals.overdue],
+            [discoveryTotalsStaleEl, totals.stale],
+        ];
+
+        counters.forEach(function (tuple) {
+            const el = tuple[0];
+            const value = tuple[1];
+            if (el) {
+                el.textContent = String(Number(value ?? 0));
+            }
+        });
+
+        if (discoveryDomainsList) {
+            discoveryDomainsList.innerHTML = '';
+            if (domains.length === 0) {
+                if (discoveryDomainsEmpty) {
+                    discoveryDomainsEmpty.hidden = false;
+                }
+            } else {
+                const fragment = document.createDocumentFragment();
+                domains.forEach(function (domain) {
+                    if (!domain || typeof domain !== 'object') {
+                        return;
+                    }
+
+                    const name = typeof domain.domain === 'string' && domain.domain !== ''
+                        ? domain.domain
+                        : 'Unknown domain';
+                    const total = Number(domain.total ?? 0);
+                    const queued = Number(domain.queued ?? 0);
+                    const overdue = Number(domain.overdue ?? 0);
+                    const fresh = Number(domain.fresh ?? 0);
+                    const lastCrawl = formatTimestamp(domain.last_crawled_at);
+                    const nextDueLabel = typeof domain.next_due_at === 'string' && domain.next_due_at !== ''
+                        ? formatTimestamp(domain.next_due_at)
+                        : '';
+
+                    const li = document.createElement('li');
+
+                    const label = document.createElement('span');
+                    label.className = 'label';
+                    label.textContent = name;
+                    li.appendChild(label);
+
+                    const valueEl = document.createElement('span');
+                    valueEl.className = 'value';
+                    valueEl.textContent = `${total} link${total === 1 ? '' : 's'}`;
+                    li.appendChild(valueEl);
+
+                    const meta = document.createElement('div');
+                    meta.className = 'crawler-discovery__meta';
+                    const metaParts = [
+                        `${queued} queued`,
+                        `${overdue} overdue`,
+                        `${fresh} fresh`,
+                    ];
+
+                    if (lastCrawl) {
+                        metaParts.push(`Last crawl ${lastCrawl}`);
+                    }
+
+                    if (nextDueLabel) {
+                        metaParts.push(`Next due ${nextDueLabel}`);
+                    }
+
+                    meta.textContent = metaParts.join(' · ');
+                    li.appendChild(meta);
+
+                    fragment.appendChild(li);
+                });
+
+                discoveryDomainsList.appendChild(fragment);
+                if (discoveryDomainsEmpty) {
+                    discoveryDomainsEmpty.hidden = true;
+                }
+            }
+        }
+
+        if (discoveryLinksList) {
+            discoveryLinksList.innerHTML = '';
+            if (links.length === 0) {
+                if (discoveryLinksEmpty) {
+                    discoveryLinksEmpty.hidden = false;
+                }
+            } else {
+                const fragment = document.createDocumentFragment();
+                links.forEach(function (link) {
+                    if (!link || typeof link !== 'object') {
+                        return;
+                    }
+
+                    const url = typeof link.url === 'string' ? link.url : '';
+                    const domain = typeof link.domain === 'string' ? link.domain : '';
+                    const status = typeof link.status === 'string' ? link.status : 'unknown';
+                    const freshnessMinutes = Number.isFinite(link.freshness_minutes)
+                        ? Number(link.freshness_minutes)
+                        : null;
+                    const dueMinutes = Number.isFinite(link.due_in_minutes)
+                        ? Number(link.due_in_minutes)
+                        : null;
+                    const lastCrawl = formatTimestamp(link.last_crawled_at);
+                    const dueLabel = formatDue(dueMinutes, link.next_due_at);
+                    const freshnessLabel = freshnessMinutes !== null ? formatFreshness(freshnessMinutes) : '';
+
+                    const li = document.createElement('li');
+
+                    const header = document.createElement('p');
+                    header.className = 'crawler-discovery__link';
+
+                    const statusBadge = document.createElement('span');
+                    statusBadge.className = 'discovery-status';
+                    statusBadge.setAttribute('data-status', status);
+                    statusBadge.textContent = formatStatusLabel(status);
+                    header.appendChild(statusBadge);
+
+                    if (url) {
+                        const anchor = document.createElement('a');
+                        anchor.href = url;
+                        anchor.target = '_blank';
+                        anchor.rel = 'noopener';
+                        anchor.textContent = url;
+                        header.appendChild(anchor);
+                    } else {
+                        const span = document.createElement('span');
+                        span.textContent = domain || 'Unknown link';
+                        header.appendChild(span);
+                    }
+
+                    li.appendChild(header);
+
+                    const meta = document.createElement('div');
+                    meta.className = 'crawler-discovery__meta';
+                    const metaParts = [];
+                    if (domain) {
+                        metaParts.push(domain);
+                    }
+                    if (freshnessLabel) {
+                        metaParts.push(freshnessLabel);
+                    }
+                    if (lastCrawl) {
+                        metaParts.push(`Last crawl ${lastCrawl}`);
+                    }
+                    if (dueLabel) {
+                        metaParts.push(dueLabel);
+                    }
+                    meta.textContent = metaParts.join(' · ');
+                    li.appendChild(meta);
+
+                    fragment.appendChild(li);
+                });
+
+                discoveryLinksList.appendChild(fragment);
+                if (discoveryLinksEmpty) {
+                    discoveryLinksEmpty.hidden = true;
+                }
+            }
+        }
     }
 
     function renderLastResult(result) {
@@ -1353,6 +1775,7 @@ $refreshAfter = max(0, (int) ($_SESSION['backend_refresh_after'] ?? $refreshAfte
         renderErrors(data.errors);
         renderTaskSummary(data.task_totals);
         renderTasks(data.tasks);
+        renderDiscovery(data.discovery_summary);
         renderScheduled(data.scheduled_preview, data.scheduled_total);
 
         if (state.pendingReload && statusNormalised === 'idle' && typeof data.last_run_at === 'string') {

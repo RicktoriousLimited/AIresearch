@@ -365,6 +365,7 @@ final class HiddenCrawler
 
         $historyEntries = $this->loadStoredEntries();
         $history = $this->indexHistoryByUrl($historyEntries);
+        $historyByQueueKey = $this->indexHistoryByQueueKey($historyEntries);
         $discoveryLedger = $this->initialiseDiscoveryLedger($historyEntries);
         $queue = $this->initialiseQueueDiscovery($queue, $discoveryLedger);
         $tasks = [];
@@ -409,6 +410,12 @@ final class HiddenCrawler
         $progress['task_totals'] = $this->summariseTaskTotals($tasks);
         $progress['scheduled_total'] = count($scheduledQueue);
         $progress['scheduled_preview'] = $this->summariseScheduledQueue($scheduledQueue);
+        $progress['discovery_summary'] = $this->summariseDiscoveryProgress(
+            $discoveryLedger,
+            $historyByQueueKey,
+            array_values($tasks),
+            null
+        );
         $this->writeProgress($progress);
 
         if ($queue === []) {
@@ -467,6 +474,12 @@ final class HiddenCrawler
             $progress['task_totals'] = $this->summariseTaskTotals($tasks);
             $progress['scheduled_total'] = count($scheduledQueue);
             $progress['scheduled_preview'] = $this->summariseScheduledQueue($scheduledQueue);
+            $progress['discovery_summary'] = $this->summariseDiscoveryProgress(
+                $discoveryLedger,
+                $historyByQueueKey,
+                array_values($tasks),
+                $currentUrl
+            );
             $this->writeProgress($progress);
 
             try {
@@ -594,9 +607,17 @@ final class HiddenCrawler
 
             $progress['last_updated_at'] = date(DATE_ATOM);
             $progress['tasks'] = array_values($tasks);
+            $historyByQueueKey = $this->indexHistoryByQueueKey(array_values($history));
+
             $progress['task_totals'] = $this->summariseTaskTotals($tasks);
             $progress['scheduled_total'] = count($scheduledQueue);
             $progress['scheduled_preview'] = $this->summariseScheduledQueue($scheduledQueue);
+            $progress['discovery_summary'] = $this->summariseDiscoveryProgress(
+                $discoveryLedger,
+                $historyByQueueKey,
+                array_values($tasks),
+                null
+            );
             $this->writeProgress($progress);
         }
 
@@ -630,9 +651,17 @@ final class HiddenCrawler
         $progress['next_run_due_at'] = $this->computeNextRunAt($autoInterval, $autoStart, $finishedAt);
         $progress['last_updated_at'] = $finishedAt;
         $progress['tasks'] = array_values($tasks);
+        $historyByQueueKey = $this->indexHistoryByQueueKey(array_values($history));
+
         $progress['task_totals'] = $this->summariseTaskTotals($tasks);
         $progress['scheduled_total'] = count($scheduledQueue);
         $progress['scheduled_preview'] = $this->summariseScheduledQueue($scheduledQueue);
+        $progress['discovery_summary'] = $this->summariseDiscoveryProgress(
+            $discoveryLedger,
+            $historyByQueueKey,
+            array_values($tasks),
+            null
+        );
         $this->writeProgress($progress);
 
         if ($scheduledChanged) {
@@ -668,6 +697,21 @@ final class HiddenCrawler
         $scheduledQueue = $this->loadScheduledQueue();
         $state['scheduled_total'] = count($scheduledQueue);
         $state['scheduled_preview'] = $this->summariseScheduledQueue($scheduledQueue);
+
+        $historyEntries = $this->loadStoredEntries();
+        $ledger = $this->initialiseDiscoveryLedger($historyEntries);
+        $historyByQueueKey = $this->indexHistoryByQueueKey($historyEntries);
+        $tasks = isset($state['tasks']) && is_array($state['tasks']) ? array_values($state['tasks']) : [];
+        $currentUrl = isset($state['current_url']) && is_string($state['current_url'])
+            ? $state['current_url']
+            : null;
+
+        $state['discovery_summary'] = $this->summariseDiscoveryProgress(
+            $ledger,
+            $historyByQueueKey,
+            $tasks,
+            $currentUrl
+        );
 
         return $state;
     }
@@ -1330,6 +1374,24 @@ final class HiddenCrawler
             'task_totals' => $this->defaultTaskTotals(),
             'scheduled_total' => 0,
             'scheduled_preview' => [],
+            'discovery_summary' => [
+                'generated_at' => $now,
+                'totals' => [
+                    'links' => 0,
+                    'domains' => 0,
+                    'fresh' => 0,
+                    'recent' => 0,
+                    'stale' => 0,
+                    'overdue' => 0,
+                    'queued' => 0,
+                    'running' => 0,
+                    'new' => 0,
+                    'failed' => 0,
+                    'unknown' => 0,
+                ],
+                'domains' => [],
+                'links' => [],
+            ],
         ];
     }
 
@@ -1395,6 +1457,11 @@ final class HiddenCrawler
             ];
         } elseif (!isset($decoded['options']['refresh_after'])) {
             $decoded['options']['refresh_after'] = (int) $decoded['refresh_after'];
+        }
+
+        if (!isset($decoded['discovery_summary']) || !is_array($decoded['discovery_summary'])) {
+            $default = $this->defaultProgressState();
+            $decoded['discovery_summary'] = $default['discovery_summary'];
         }
 
         return $decoded;
@@ -2404,6 +2471,270 @@ final class HiddenCrawler
             'completed' => 0,
             'failed' => 0,
         ];
+    }
+
+    /**
+     * @param array<string, array<string, mixed>> $ledger
+     * @param array<string, array<string, mixed>> $historyByQueueKey
+     * @param array<int, array<string, mixed>> $tasks
+     *
+     * @return array<string, mixed>
+     */
+    private function summariseDiscoveryProgress(
+        array $ledger,
+        array $historyByQueueKey,
+        array $tasks,
+        ?string $currentUrl
+    ): array {
+        $taskIndex = $this->indexTasksByQueueKey($tasks);
+        $currentKey = $this->queueKey((string) $currentUrl);
+        if ($currentKey !== '' && isset($taskIndex[$currentKey])) {
+            $taskIndex[$currentKey]['status'] = 'running';
+        }
+
+        $now = $this->safeNow();
+
+        $domainStats = [];
+        $links = [];
+        $totals = [
+            'links' => 0,
+            'domains' => 0,
+            'fresh' => 0,
+            'recent' => 0,
+            'stale' => 0,
+            'overdue' => 0,
+            'queued' => 0,
+            'running' => 0,
+            'new' => 0,
+            'failed' => 0,
+            'unknown' => 0,
+        ];
+
+        foreach ($ledger as $key => $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $url = (string) ($entry['url'] ?? '');
+            if ($url === '') {
+                continue;
+            }
+
+            $domain = $this->extractDomain($url);
+            if ($domain === '') {
+                $domain = 'unknown';
+            }
+
+            if (!isset($domainStats[$domain])) {
+                $domainStats[$domain] = [
+                    'domain' => $domain,
+                    'total' => 0,
+                    'fresh' => 0,
+                    'recent' => 0,
+                    'stale' => 0,
+                    'overdue' => 0,
+                    'queued' => 0,
+                    'running' => 0,
+                    'new' => 0,
+                    'failed' => 0,
+                    'unknown' => 0,
+                    'last_crawled_at' => '',
+                    'next_due_at' => null,
+                ];
+            }
+
+            $historyEntry = $historyByQueueKey[$key] ?? null;
+            $schedule = $this->normaliseSchedule($entry['schedule'] ?? []);
+            $nextDueAt = isset($schedule['next_due_at']) && (string) $schedule['next_due_at'] !== ''
+                ? (string) $schedule['next_due_at']
+                : null;
+
+            $taskMeta = $taskIndex[$key] ?? null;
+            $taskStatus = is_array($taskMeta) ? (string) ($taskMeta['status'] ?? 'queued') : null;
+
+            $lastCrawledAt = '';
+            if (is_array($historyEntry)) {
+                $lastCrawledAt = (string) ($historyEntry['last_checked_at'] ?? $historyEntry['fetched_at'] ?? '');
+            }
+            if ($lastCrawledAt === '') {
+                $lastCrawledAt = (string) ($entry['last_seen_at'] ?? '');
+            }
+
+            $lastCrawledTime = $lastCrawledAt !== '' ? $this->parseDateTime($lastCrawledAt) : null;
+            $nextDueTime = $nextDueAt !== null ? $this->parseDateTime($nextDueAt) : null;
+
+            $freshnessMinutes = null;
+            if ($now !== null && $lastCrawledTime !== null) {
+                $diff = $now->getTimestamp() - $lastCrawledTime->getTimestamp();
+                $freshnessMinutes = $diff <= 0 ? 0 : (int) floor($diff / 60);
+            }
+
+            $dueInMinutes = null;
+            if ($now !== null && $nextDueTime !== null) {
+                $diff = $nextDueTime->getTimestamp() - $now->getTimestamp();
+                $dueInMinutes = (int) floor($diff / 60);
+            }
+
+            $status = 'unknown';
+            if ($historyEntry === null && $lastCrawledAt === '') {
+                $status = 'new';
+            } elseif ($taskStatus === 'running') {
+                $status = 'running';
+            } elseif ($taskStatus === 'queued') {
+                $status = 'queued';
+            } elseif ($taskStatus === 'failed') {
+                $status = 'failed';
+            } elseif ($nextDueTime !== null && $now !== null && $nextDueTime <= $now) {
+                $status = 'overdue';
+            } elseif ($freshnessMinutes !== null) {
+                if ($freshnessMinutes <= 60) {
+                    $status = 'fresh';
+                } elseif ($freshnessMinutes <= 360) {
+                    $status = 'recent';
+                } else {
+                    $status = 'stale';
+                }
+            }
+
+            if (!isset($totals[$status])) {
+                $totals[$status] = 0;
+            }
+            $totals[$status]++;
+            $totals['links']++;
+
+            $domainStats[$domain]['total']++;
+            if (!isset($domainStats[$domain][$status])) {
+                $domainStats[$domain][$status] = 0;
+            }
+            $domainStats[$domain][$status]++;
+
+            if ($lastCrawledAt !== '') {
+                $currentDomainLast = (string) $domainStats[$domain]['last_crawled_at'];
+                if ($currentDomainLast === '' || $currentDomainLast < $lastCrawledAt) {
+                    $domainStats[$domain]['last_crawled_at'] = $lastCrawledAt;
+                }
+            }
+
+            if ($nextDueAt !== null) {
+                $currentDomainDue = $domainStats[$domain]['next_due_at'];
+                if ($currentDomainDue === null || ($currentDomainDue !== null && $nextDueAt < $currentDomainDue)) {
+                    $domainStats[$domain]['next_due_at'] = $nextDueAt;
+                }
+            }
+
+            $links[] = [
+                'url' => $url,
+                'domain' => $domain,
+                'status' => $status,
+                'seed' => !empty($entry['seed']),
+                'last_crawled_at' => $lastCrawledAt,
+                'last_seen_at' => (string) ($entry['last_seen_at'] ?? ''),
+                'next_due_at' => $nextDueAt,
+                'freshness_minutes' => $freshnessMinutes,
+                'due_in_minutes' => $dueInMinutes,
+                'queued_at' => is_array($taskMeta) ? (string) ($taskMeta['queued_at'] ?? '') : null,
+                'depth' => is_array($taskMeta) ? (int) ($taskMeta['depth'] ?? 0) : 0,
+                'attempts' => is_array($taskMeta) ? (int) ($taskMeta['attempts'] ?? 0) : 0,
+            ];
+        }
+
+        $statusOrder = [
+            'running' => 0,
+            'queued' => 1,
+            'overdue' => 2,
+            'failed' => 3,
+            'fresh' => 4,
+            'recent' => 5,
+            'stale' => 6,
+            'new' => 7,
+            'unknown' => 8,
+        ];
+
+        usort($links, static function (array $left, array $right) use ($statusOrder): int {
+            $leftStatus = (string) ($left['status'] ?? 'unknown');
+            $rightStatus = (string) ($right['status'] ?? 'unknown');
+            $leftOrder = $statusOrder[$leftStatus] ?? 9;
+            $rightOrder = $statusOrder[$rightStatus] ?? 9;
+
+            if ($leftOrder === $rightOrder) {
+                $leftDue = (string) ($left['next_due_at'] ?? '');
+                $rightDue = (string) ($right['next_due_at'] ?? '');
+                if ($leftDue !== '' || $rightDue !== '') {
+                    return $leftDue <=> $rightDue;
+                }
+
+                $leftSeen = (string) ($left['last_crawled_at'] ?? '');
+                $rightSeen = (string) ($right['last_crawled_at'] ?? '');
+
+                return $leftSeen <=> $rightSeen;
+            }
+
+            return $leftOrder <=> $rightOrder;
+        });
+
+        $domainList = array_values($domainStats);
+        usort($domainList, static function (array $left, array $right): int {
+            $priority = ['overdue', 'stale', 'queued', 'running', 'recent', 'fresh', 'new', 'failed'];
+            foreach ($priority as $field) {
+                $difference = (int) ($right[$field] ?? 0) <=> (int) ($left[$field] ?? 0);
+                if ($difference !== 0) {
+                    return $difference;
+                }
+            }
+
+            return strcmp((string) ($left['domain'] ?? ''), (string) ($right['domain'] ?? ''));
+        });
+
+        $totals['domains'] = count($domainList);
+
+        return [
+            'generated_at' => date(DATE_ATOM),
+            'totals' => [
+                'links' => $totals['links'],
+                'domains' => $totals['domains'],
+                'fresh' => $totals['fresh'],
+                'recent' => $totals['recent'],
+                'stale' => $totals['stale'],
+                'overdue' => $totals['overdue'],
+                'queued' => $totals['queued'],
+                'running' => $totals['running'],
+                'new' => $totals['new'],
+                'failed' => $totals['failed'],
+                'unknown' => $totals['unknown'],
+            ],
+            'domains' => $domainList,
+            'links' => $links,
+        ];
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $tasks
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function indexTasksByQueueKey(array $tasks): array
+    {
+        $indexed = [];
+
+        foreach ($tasks as $task) {
+            if (!is_array($task)) {
+                continue;
+            }
+
+            $url = isset($task['url']) ? (string) $task['url'] : '';
+            if ($url === '') {
+                continue;
+            }
+
+            $key = $this->queueKey($url);
+            if ($key === '') {
+                continue;
+            }
+
+            $indexed[$key] = $task;
+        }
+
+        return $indexed;
     }
 
     /**
