@@ -1247,6 +1247,190 @@ final class TextRefiner
     }
 
     /**
+     * Produce short semantic highlights that can be attached to crawler results or search matches.
+     *
+     * @return array<int, array{phrase: string, snippet: string}>
+     */
+    public function semanticHighlights(string $text, int $limit = 3): array
+    {
+        $limit = max(1, min(10, $limit));
+
+        $profile = $this->buildSemanticProfile($text, $limit * 2);
+        $phrases = [];
+
+        foreach ($profile['key_phrases'] as $entry) {
+            if (is_array($entry)) {
+                $phrase = isset($entry['phrase']) ? (string) $entry['phrase'] : '';
+                $score = isset($entry['score']) ? (float) $entry['score'] : 0.0;
+            } elseif (is_string($entry)) {
+                $phrase = $entry;
+                $score = 0.0;
+            } else {
+                continue;
+            }
+
+            $normalised = trim(mb_strtolower($phrase, 'UTF-8'));
+            if ($normalised === '') {
+                continue;
+            }
+
+            $phrases[$normalised] = [
+                'phrase' => trim($phrase),
+                'score' => max(0.0, min(1.0, $score)),
+            ];
+        }
+
+        if ($phrases === [] && isset($profile['terms'])) {
+            foreach ($profile['terms'] as $index => $term) {
+                if (!is_string($term)) {
+                    continue;
+                }
+
+                $normalised = trim(mb_strtolower($term, 'UTF-8'));
+                if ($normalised === '') {
+                    continue;
+                }
+
+                $phrases[$normalised] = [
+                    'phrase' => trim($term),
+                    'score' => 0.25 - ($index * 0.01),
+                ];
+            }
+        }
+
+        if ($phrases === []) {
+            return [];
+        }
+
+        uasort($phrases, static fn(array $left, array $right): int => ($right['score'] <=> $left['score']));
+
+        $document = $this->cleanDocument($text);
+        if ($document === '') {
+            $document = trim($text);
+        }
+
+        $candidates = $this->extractSemanticCandidateSentences($document);
+        if ($candidates === []) {
+            return [];
+        }
+
+        $highlights = [];
+        $usedSentences = [];
+
+        foreach ($phrases as $identifier => $payload) {
+            if (count($highlights) >= $limit) {
+                break;
+            }
+
+            $needle = ' ' . $identifier . ' ';
+            $needleBare = $identifier;
+
+            foreach ($candidates as $sentence) {
+                $lowerSentence = ' ' . mb_strtolower($sentence, 'UTF-8') . ' ';
+                if (isset($usedSentences[$sentence])) {
+                    continue;
+                }
+
+                if (
+                    mb_stripos($lowerSentence, $needle) === false
+                    && mb_stripos($lowerSentence, $needleBare) === false
+                ) {
+                    $tokens = preg_split('/\s+/u', $identifier) ?: [];
+                    $allPresent = true;
+                    foreach ($tokens as $token) {
+                        $token = trim((string) $token);
+                        if ($token === '') {
+                            continue;
+                        }
+                        if (mb_stripos($lowerSentence, ' ' . $token . ' ') === false && mb_stripos($lowerSentence, $token) === false) {
+                            $allPresent = false;
+                            break;
+                        }
+                    }
+
+                    if (!$allPresent) {
+                        continue;
+                    }
+                }
+
+                $usedSentences[$sentence] = true;
+
+                $snippet = $this->normaliseHighlightSnippet($sentence);
+                if ($snippet === '') {
+                    continue;
+                }
+
+                $highlights[] = [
+                    'phrase' => $payload['phrase'],
+                    'snippet' => $snippet,
+                ];
+
+                break;
+            }
+        }
+
+        return array_slice($highlights, 0, $limit);
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function extractSemanticCandidateSentences(string $text): array
+    {
+        $normalised = trim(str_replace(["\r\n", "\r"], "\n", $text));
+        if ($normalised === '') {
+            return [];
+        }
+
+        $sentenceSplits = preg_split('/(?<=[\.!?])\s+(?=[\p{L}\d])/u', $normalised) ?: [];
+        $lineSplits = preg_split('/\n+/', $normalised) ?: [];
+
+        $candidates = [];
+
+        foreach (array_merge($sentenceSplits, $lineSplits) as $segment) {
+            if (!is_string($segment)) {
+                continue;
+            }
+
+            $trimmed = trim($segment);
+            if ($trimmed === '' || mb_strlen($trimmed, 'UTF-8') < 12) {
+                continue;
+            }
+
+            if (str_starts_with($trimmed, '- ')) {
+                $trimmed = trim(substr($trimmed, 2));
+            }
+
+            $trimmed = $this->normaliseHighlightSnippet($trimmed);
+            if ($trimmed === '') {
+                continue;
+            }
+
+            $candidates[$trimmed] = true;
+        }
+
+        return array_keys($candidates);
+    }
+
+    private function normaliseHighlightSnippet(string $snippet): string
+    {
+        $normalised = preg_replace('/\s+/u', ' ', trim($snippet));
+        if (!is_string($normalised)) {
+            $normalised = trim($snippet);
+        }
+
+        if ($normalised === '') {
+            return '';
+        }
+
+        if (mb_strlen($normalised, 'UTF-8') > 220) {
+            $normalised = trim(mb_substr($normalised, 0, 220, 'UTF-8')) . '…';
+        }
+
+        return $normalised;
+    }
+
+    /**
      * @param array<int, array{normalized: string, original: string}> $tokens
      * @param array<string, float> $scores
      * @param array<string, string> $phrases

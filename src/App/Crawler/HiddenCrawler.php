@@ -4188,6 +4188,7 @@ final class HiddenCrawler
         $semanticFingerprint = isset($semanticProfile['fingerprint']) && is_string($semanticProfile['fingerprint'])
             ? trim($semanticProfile['fingerprint'])
             : '';
+        $semanticHighlights = $this->refiner->semanticHighlights($scraped->text(), 4);
 
         $keywords = $this->formatKeywords($analysis['keywords'] ?? []);
         $entities = $this->extractEntities($analysis['analytics']['entities']['top_entities'] ?? []);
@@ -4199,6 +4200,7 @@ final class HiddenCrawler
             $semanticPhraseWeights = [];
             $keyPhrases = [];
             $semanticFingerprint = '';
+            $semanticHighlights = [];
         }
         $filteredLinks = $this->filterLinks($scraped->links());
 
@@ -4249,6 +4251,7 @@ final class HiddenCrawler
             'semantic_term_weights' => $semanticTermWeights,
             'semantic_phrase_weights' => $semanticPhraseWeights,
             'semantic_fingerprint' => $semanticFingerprint,
+            'semantic_highlights' => $semanticHighlights,
         ];
 
         $classification = $this->classifyEntry($entry);
@@ -4326,6 +4329,7 @@ final class HiddenCrawler
             'semantic_term_weights' => [],
             'semantic_phrase_weights' => [],
             'semantic_fingerprint' => '',
+            'semantic_highlights' => [],
         ];
     }
 
@@ -4955,6 +4959,9 @@ final class HiddenCrawler
         }
         if (!isset($entry['semantic_fingerprint']) || !is_string($entry['semantic_fingerprint'])) {
             $entry['semantic_fingerprint'] = '';
+        }
+        if (!isset($entry['semantic_highlights']) || !is_array($entry['semantic_highlights'])) {
+            $entry['semantic_highlights'] = [];
         }
 
         if (!isset($entry['discovery']) || !is_array($entry['discovery'])) {

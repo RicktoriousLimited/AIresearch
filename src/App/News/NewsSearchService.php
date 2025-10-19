@@ -1909,6 +1909,27 @@ final class NewsSearchService
             }
         }
 
+        if (isset($entry['semantic_highlights']) && is_array($entry['semantic_highlights'])) {
+            foreach ($entry['semantic_highlights'] as $highlight) {
+                if (!is_array($highlight)) {
+                    continue;
+                }
+
+                $phrase = isset($highlight['phrase']) ? (string) $highlight['phrase'] : '';
+                $normalized = preg_replace('/\s+/', ' ', mb_strtolower($phrase, 'UTF-8'));
+                if (!is_string($normalized)) {
+                    $normalized = mb_strtolower($phrase, 'UTF-8');
+                }
+
+                $normalized = trim($normalized);
+                if ($normalized === '') {
+                    continue;
+                }
+
+                $weights[$normalized] = max($weights[$normalized] ?? 0.0, 0.6);
+            }
+        }
+
         if ($weights !== []) {
             arsort($weights, SORT_NUMERIC);
             $weights = array_slice($weights, 0, 20, true);
@@ -2017,6 +2038,26 @@ final class NewsSearchService
         $contentType = $this->normaliseContentType((string) ($entry['content_type'] ?? 'page'), $entry, $topics);
         $imageUrl = $this->extractImageUrl($entry);
 
+        $highlights = [];
+        if (is_array($entry['semantic_highlights'] ?? null)) {
+            foreach ($entry['semantic_highlights'] as $highlight) {
+                if (!is_array($highlight)) {
+                    continue;
+                }
+
+                $phrase = trim((string) ($highlight['phrase'] ?? ''));
+                $snippet = trim((string) ($highlight['snippet'] ?? ''));
+                if ($phrase === '' || $snippet === '') {
+                    continue;
+                }
+
+                $highlights[] = [
+                    'phrase' => $phrase,
+                    'snippet' => $snippet,
+                ];
+            }
+        }
+
         return [
             'title' => (string) ($entry['title'] ?? $entry['url'] ?? ''),
             'url' => (string) ($entry['url'] ?? ''),
@@ -2044,6 +2085,7 @@ final class NewsSearchService
             'unchanged' => (bool) ($entry['unchanged'] ?? false),
             'changes' => $this->formatChangeSummary($entry['changes'] ?? null),
             'versions' => $this->formatVersions($entry['versions'] ?? null),
+            'semantic_highlights' => $highlights,
         ];
     }
 
