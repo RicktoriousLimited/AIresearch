@@ -301,6 +301,20 @@ if (!in_array('Quality below recommended threshold – included for comprehensiv
     throw new RuntimeException('Low quality inclusions should note comprehensive coverage.');
 }
 
+$meaninglessDuplicateResult = $meaninglessCrawler->crawl(['https://mirror.example.com/meaningless']);
+if (count($meaninglessDuplicateResult) !== 1) {
+    throw new RuntimeException('Expected a single crawl result for meaningless duplicate run.');
+}
+
+$meaninglessDuplicateEntry = $meaninglessDuplicateResult[0];
+if (!is_string($meaninglessDuplicateEntry['duplicate_of'] ?? null) || trim((string) $meaninglessDuplicateEntry['duplicate_of']) === '') {
+    throw new RuntimeException('Meaningless duplicate entries should reference their canonical URL.');
+}
+
+if (($meaninglessDuplicateEntry['duplicate_of'] ?? '') === ($meaninglessDuplicateEntry['normalized_url'] ?? '')) {
+    throw new RuntimeException('Meaningless duplicate detection should not point to the entry itself.');
+}
+
 $flakyStorage = sys_get_temp_dir() . '/crawler_history_' . bin2hex(random_bytes(4)) . '.json';
 $flakyCrawler = new HiddenCrawler($flakyStorage, new FlakyScraper(), new TextRefiner());
 $flakyResult = $flakyCrawler->crawl([
@@ -392,6 +406,48 @@ if (!is_string($linkedChildKnown['next_due_at'] ?? '') || $linkedChildKnown['nex
     throw new RuntimeException('Discovered entries should expose the next due timestamp.');
 }
 
+$manualStorage = sys_get_temp_dir() . '/crawler_history_' . bin2hex(random_bytes(4)) . '.json';
+$manualCrawler = new HiddenCrawler($manualStorage, new StubScraper(), new TextRefiner());
+$manualQueued = $manualCrawler->queueManualRun(['https://example.com/manual-queue'], 1, 5, false, 15);
+if ((int) ($manualQueued['scheduled'] ?? 0) !== 1) {
+    throw new RuntimeException('Queueing a manual run should schedule at least one target.');
+}
+
+$manualProgress = $manualCrawler->progress();
+if ($manualProgress['status'] !== 'queued') {
+    throw new RuntimeException('Manual queueing should mark the crawler status as queued.');
+}
+
+$manualPending = $manualProgress['pending_run'] ?? null;
+if (!is_array($manualPending) || (int) ($manualPending['scheduled_remaining'] ?? 0) < 1) {
+    throw new RuntimeException('Manual queueing should track remaining scheduled pages.');
+}
+
+$manualCrawler->updatePendingRunProgress(1, ['depth' => 1], ['scheduled_total' => 1]);
+$updatedProgress = $manualCrawler->progress();
+if ((int) ($updatedProgress['queued'] ?? 0) !== 1) {
+    throw new RuntimeException('Pending run progress should reflect remaining queued tasks.');
+}
+
+$manualRunResult = $manualCrawler->runScheduledQueue(1, 1, 0, false, 0);
+$manualCrawler->updatePendingRunProgress(
+    (int) ($manualRunResult['scheduled_remaining'] ?? 0),
+    ['depth' => 1],
+    [
+        'scheduled_total' => (int) ($manualRunResult['scheduled_total'] ?? 0),
+        'scheduled_preview' => $manualRunResult['scheduled_preview'] ?? [],
+    ]
+);
+$finalManualProgress = $manualCrawler->progress();
+if ((int) ($finalManualProgress['queued'] ?? -1) !== 0) {
+    throw new RuntimeException('Completing a pending run should clear queued counters.');
+}
+
+$manualScheduled = $manualCrawler->scheduledQueue();
+if (!is_array($manualScheduled) || $manualScheduled !== []) {
+    throw new RuntimeException('Scheduled queue should be empty after manual run completion.');
+}
+
 unlink($flakyStorage);
 $flakyProgress = preg_replace('/\.json$/', '.progress.json', $flakyStorage);
 if (!is_string($flakyProgress)) {
@@ -426,6 +482,15 @@ if (!is_string($linkedProgress)) {
 }
 if (file_exists($linkedProgress)) {
     unlink($linkedProgress);
+}
+
+unlink($manualStorage);
+$manualProgressFile = preg_replace('/\.json$/', '.progress.json', $manualStorage);
+if (!is_string($manualProgressFile)) {
+    $manualProgressFile = $manualStorage . '.progress.json';
+}
+if (file_exists($manualProgressFile)) {
+    unlink($manualProgressFile);
 }
 
 echo "HiddenCrawler tests passed\n";

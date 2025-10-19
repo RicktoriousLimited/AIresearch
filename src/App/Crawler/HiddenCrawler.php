@@ -44,6 +44,7 @@ use function explode;
 use function mkdir;
 use function preg_match;
 use function preg_replace;
+use function preg_split;
 use function date;
 use function parse_url;
 use function parse_str;
@@ -64,6 +65,8 @@ use function strtotime;
 use function floor;
 use function stripos;
 use function strcasecmp;
+use function similar_text;
+use function sort;
 
 
 use const DATE_ATOM;
@@ -720,6 +723,229 @@ final class HiddenCrawler
         );
 
         return $state;
+    }
+
+    /**
+     * @param array<int, mixed> $targets
+     *
+     * @return array<string, mixed>
+     */
+    public function queueManualRun(
+        array $targets,
+        int $maxDepth = 0,
+        int $autoInterval = 0,
+        bool $autoStart = false,
+        int $refreshAfterMinutes = 0
+    ): array {
+        $maxDepth = max(0, $maxDepth);
+        $autoInterval = max(0, $autoInterval);
+        $refreshAfterMinutes = max(0, $refreshAfterMinutes);
+
+        [$queue, , $seedUrls] = $this->buildQueue($targets);
+        $scheduledQueue = $this->loadScheduledQueue();
+        $scheduledIndex = $this->indexScheduledQueue($scheduledQueue);
+
+        $scheduledCount = 0;
+        foreach ($queue as $entry) {
+            if (!is_array($entry) || !isset($entry['url'])) {
+                continue;
+            }
+
+            $url = (string) $entry['url'];
+            if ($url === '') {
+                continue;
+            }
+
+            $depth = isset($entry['depth']) ? max(0, (int) $entry['depth']) : $maxDepth;
+            $priority = isset($entry['priority'])
+                ? (float) $entry['priority']
+                : $this->baseScoreForDomain($this->extractDomain($url));
+            $priority = min(1.5, $priority + 0.25);
+
+            if ($this->scheduleDiscovery(
+                $scheduledQueue,
+                $scheduledIndex,
+                $url,
+                $depth,
+                $priority,
+                !empty($entry['seed']),
+                null,
+                'manual'
+            )) {
+                $scheduledCount++;
+            }
+        }
+
+        if ($scheduledCount > 0) {
+            $this->storeScheduledQueue($scheduledQueue);
+        }
+
+        $progress = $this->readProgress();
+        $progress['options'] = [
+            'depth' => $maxDepth,
+            'auto_interval' => $autoInterval,
+            'auto_start' => $autoStart,
+            'refresh_after' => $refreshAfterMinutes,
+        ];
+        $progress['auto_interval'] = $autoInterval;
+        $progress['auto_start'] = $autoStart;
+        $progress['refresh_after'] = $refreshAfterMinutes;
+        $progress['seed_urls'] = $seedUrls;
+        $progress['last_updated_at'] = date(DATE_ATOM);
+
+        if ($scheduledCount > 0) {
+            $existingPending = is_array($progress['pending_run']) ? $progress['pending_run'] : null;
+            $pendingSeedUrls = $seedUrls;
+            $pendingTotal = $scheduledCount;
+            $pendingRemaining = $scheduledCount;
+            $queuedAt = date(DATE_ATOM);
+
+            if (
+                $existingPending !== null
+                && empty($existingPending['completed_at'])
+                && (int) ($existingPending['scheduled_remaining'] ?? 0) > 0
+            ) {
+                $pendingSeedUrls = array_values(array_unique(array_merge(
+                    isset($existingPending['seed_urls']) && is_array($existingPending['seed_urls'])
+                        ? $existingPending['seed_urls']
+                        : [],
+                    $seedUrls
+                )));
+                $pendingTotal = max(
+                    $pendingRemaining + (int) ($existingPending['total'] ?? 0),
+                    $pendingRemaining
+                );
+                $pendingRemaining += (int) ($existingPending['scheduled_remaining'] ?? 0);
+                $queuedAt = isset($existingPending['queued_at']) && is_string($existingPending['queued_at'])
+                    ? $existingPending['queued_at']
+                    : $queuedAt;
+            }
+
+            $progress['pending_run'] = $this->normalisePendingRun([
+                'queued_at' => $queuedAt,
+                'total' => $pendingTotal,
+                'scheduled_remaining' => $pendingRemaining,
+                'seed_urls' => $pendingSeedUrls,
+                'options' => $progress['options'],
+            ]);
+            $progress['status'] = 'queued';
+            $progress['message'] = 'Queued ' . $scheduledCount . ' page(s) for crawling.';
+            $progress['queued'] = (int) ($progress['pending_run']['scheduled_remaining'] ?? $scheduledCount);
+            $progress['total'] = max($progress['queued'], isset($progress['total']) ? (int) $progress['total'] : 0);
+        } else {
+            $progress['message'] = 'No valid targets were queued.';
+            if (!is_array($progress['pending_run']) || (int) ($progress['pending_run']['scheduled_remaining'] ?? 0) === 0) {
+                $progress['status'] = 'idle';
+                $progress['queued'] = 0;
+                $progress['total'] = max(0, (int) ($progress['total'] ?? 0));
+            }
+        }
+
+        $progress['scheduled_total'] = count($scheduledQueue);
+        $progress['scheduled_preview'] = $this->summariseScheduledQueue($scheduledQueue);
+
+        $this->writeProgress($progress);
+
+        return [
+            'scheduled' => $scheduledCount,
+            'scheduled_total' => $progress['scheduled_total'],
+            'pending_run' => $progress['pending_run'],
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $options
+     * @param array<string, mixed> $context
+     *
+     * @return array<string, mixed>|null
+     */
+    public function updatePendingRunProgress(int $remaining, array $options = [], array $context = []): ?array
+    {
+        $remaining = max(0, $remaining);
+        $progress = $this->readProgress();
+        $now = date(DATE_ATOM);
+
+        $options = array_merge([
+            'depth' => isset($progress['options']['depth']) ? (int) $progress['options']['depth'] : 0,
+            'auto_interval' => isset($progress['options']['auto_interval']) ? (int) $progress['options']['auto_interval'] : 0,
+            'auto_start' => isset($progress['options']['auto_start']) ? (bool) $progress['options']['auto_start'] : false,
+            'refresh_after' => isset($progress['options']['refresh_after']) ? (int) $progress['options']['refresh_after'] : 0,
+        ], $options);
+
+        $pending = is_array($progress['pending_run']) ? $progress['pending_run'] : null;
+        if ($pending === null || (isset($pending['completed_at']) && $remaining > 0)) {
+            $pending = [
+                'queued_at' => $now,
+                'total' => $remaining,
+                'scheduled_remaining' => $remaining,
+                'seed_urls' => isset($context['seed_urls']) && is_array($context['seed_urls'])
+                    ? $context['seed_urls']
+                    : [],
+                'options' => $options,
+            ];
+        } else {
+            $pending['options'] = isset($pending['options']) && is_array($pending['options'])
+                ? array_merge($pending['options'], $options)
+                : $options;
+        }
+
+        $pending['scheduled_remaining'] = $remaining;
+        if (!isset($pending['total']) || (int) $pending['total'] < $remaining) {
+            $pending['total'] = $remaining;
+        }
+
+        if ($remaining <= 0) {
+            $pending['completed_at'] = $now;
+            $progress['status'] = 'idle';
+            if (!isset($progress['message']) || $progress['message'] === '' || $progress['message'] === 'Queued 0 page(s) for crawling.') {
+                $progress['message'] = 'Idle';
+            }
+        } else {
+            unset($pending['completed_at']);
+            if ($progress['status'] !== 'running') {
+                $progress['status'] = 'queued';
+            }
+            $progress['message'] = 'Queued run paused with ' . $remaining . ' page(s) remaining.';
+        }
+
+        $progress['pending_run'] = $this->normalisePendingRun($pending);
+        $progress['queued'] = $remaining;
+        if (isset($progress['pending_run']['total'])) {
+            $progress['total'] = max((int) ($progress['total'] ?? 0), (int) $progress['pending_run']['total']);
+        }
+
+        if (isset($context['last_result']) && is_array($context['last_result'])) {
+            $progress['last_result'] = $context['last_result'];
+        }
+
+        if (isset($context['errors']) && is_array($context['errors'])) {
+            $progress['errors'] = $context['errors'];
+        }
+
+        if (isset($context['tasks']) && is_array($context['tasks'])) {
+            $progress['tasks'] = $context['tasks'];
+        }
+
+        if (isset($context['task_totals']) && is_array($context['task_totals'])) {
+            $progress['task_totals'] = array_merge($this->defaultTaskTotals(), $context['task_totals']);
+        }
+
+        if (isset($context['scheduled_total'])) {
+            $progress['scheduled_total'] = max(0, (int) $context['scheduled_total']);
+        } else {
+            $queue = $this->loadScheduledQueue();
+            $progress['scheduled_total'] = count($queue);
+            $context['scheduled_preview'] = $this->summariseScheduledQueue($queue);
+        }
+
+        if (isset($context['scheduled_preview']) && is_array($context['scheduled_preview'])) {
+            $progress['scheduled_preview'] = $context['scheduled_preview'];
+        }
+
+        $progress['last_updated_at'] = $now;
+        $this->writeProgress($progress);
+
+        return $progress['pending_run'];
     }
 
     /**
@@ -1380,6 +1606,7 @@ final class HiddenCrawler
             'task_totals' => $this->defaultTaskTotals(),
             'scheduled_total' => 0,
             'scheduled_preview' => [],
+            'pending_run' => null,
             'discovery_summary' => [
                 'generated_at' => $now,
                 'totals' => [
@@ -1399,6 +1626,50 @@ final class HiddenCrawler
                 'links' => [],
             ],
         ];
+    }
+
+    /**
+     * @param array<string, mixed>|null $pending
+     */
+    private function normalisePendingRun($pending): ?array
+    {
+        if ($pending === null) {
+            return null;
+        }
+
+        if (!is_array($pending)) {
+            return null;
+        }
+
+        $defaults = [
+            'queued_at' => null,
+            'completed_at' => null,
+            'total' => 0,
+            'scheduled_remaining' => 0,
+            'seed_urls' => [],
+            'options' => [
+                'depth' => 0,
+                'auto_interval' => 0,
+                'auto_start' => false,
+                'refresh_after' => 0,
+            ],
+        ];
+
+        $options = isset($pending['options']) && is_array($pending['options'])
+            ? array_merge($defaults['options'], $pending['options'])
+            : $defaults['options'];
+
+        $normalised = array_merge($defaults, $pending);
+        $normalised['options'] = $options;
+        $normalised['total'] = max(0, (int) ($normalised['total'] ?? 0));
+        $normalised['scheduled_remaining'] = max(0, (int) ($normalised['scheduled_remaining'] ?? 0));
+        $normalised['seed_urls'] = isset($normalised['seed_urls']) && is_array($normalised['seed_urls'])
+            ? array_values(array_filter(array_map('strval', $normalised['seed_urls']), static function (string $url): bool {
+                return $url !== '';
+            }))
+            : [];
+
+        return $normalised;
     }
 
     /**
@@ -1463,6 +1734,14 @@ final class HiddenCrawler
             ];
         } elseif (!isset($decoded['options']['refresh_after'])) {
             $decoded['options']['refresh_after'] = (int) $decoded['refresh_after'];
+        }
+
+        if (!array_key_exists('pending_run', $decoded)) {
+            $decoded['pending_run'] = null;
+        } elseif (is_array($decoded['pending_run'])) {
+            $decoded['pending_run'] = $this->normalisePendingRun($decoded['pending_run']);
+        } else {
+            $decoded['pending_run'] = null;
         }
 
         if (!isset($decoded['discovery_summary']) || !is_array($decoded['discovery_summary'])) {
@@ -1963,7 +2242,7 @@ final class HiddenCrawler
             }
 
             if ($deferDiscovered) {
-                if ($this->scheduleDiscovery($scheduledQueue, $scheduledIndex, $normalised, $depth, $priority, false, $parentUrl)) {
+                if ($this->scheduleDiscovery($scheduledQueue, $scheduledIndex, $normalised, $depth, $priority, false, $parentUrl, null)) {
                     $scheduledChanged = true;
                     $seen[$key] = true;
                     $added++;
@@ -3005,11 +3284,14 @@ final class HiddenCrawler
             $refreshAfterMinutes,
             true
         );
+        $queueAfter = $this->loadScheduledQueue();
 
         return [
             'processed' => count($results),
             'targets' => array_map(static fn(array $target): string => (string) $target['url'], $targetList),
-            'scheduled_remaining' => count($remaining),
+            'scheduled_remaining' => count($queueAfter),
+            'scheduled_total' => count($queueAfter),
+            'scheduled_preview' => $this->summariseScheduledQueue($queueAfter),
             'results' => $results,
         ];
     }
@@ -3045,7 +3327,7 @@ final class HiddenCrawler
                 ? max(0.0, (float) $candidate['score'] / 100.0)
                 : $this->baseScoreForDomain($this->extractDomain($url));
 
-            if ($this->scheduleDiscovery($queue, $index, $url, $depth, $priorityScore, false, null)) {
+            if ($this->scheduleDiscovery($queue, $index, $url, $depth, $priorityScore, false, null, null)) {
                 $scheduled++;
             }
 
@@ -3525,7 +3807,8 @@ final class HiddenCrawler
         int $depth,
         float $priority,
         bool $seed,
-        ?string $parentUrl
+        ?string $parentUrl,
+        ?string $source = null
     ): bool {
         $url = trim($url);
         if ($url === '') {
@@ -3547,6 +3830,10 @@ final class HiddenCrawler
 
         if ($parentUrl !== null && $parentUrl !== '') {
             $entry['parent_url'] = $parentUrl;
+        }
+
+        if ($source !== null && $source !== '') {
+            $entry['source'] = $source;
         }
 
         $queue[] = $entry;
@@ -4228,6 +4515,9 @@ final class HiddenCrawler
         if ($contentDigest === '' && $summaryClean !== '') {
             $contentDigest = $this->digestContent($summaryClean);
         }
+
+        $comparisonText = $this->buildComparisonText($scraped, $summaryClean, $preview, $meta, $meaningful, $rawText);
+
         if (!$meaningful) {
             $preview = '';
             $summaryClean = '';
@@ -4263,6 +4553,7 @@ final class HiddenCrawler
             'semantic_phrase_weights' => $semanticPhraseWeights,
             'semantic_fingerprint' => $semanticFingerprint,
             'semantic_highlights' => $semanticHighlights,
+            'comparison_text' => $comparisonText,
         ];
 
         $classification = $this->classifyEntry($entry);
@@ -4342,6 +4633,7 @@ final class HiddenCrawler
             'semantic_phrase_weights' => [],
             'semantic_fingerprint' => '',
             'semantic_highlights' => [],
+            'comparison_text' => '',
         ];
     }
 
@@ -4532,18 +4824,54 @@ final class HiddenCrawler
             if (isset($this->contentDigestIndex[$digest]) && $this->contentDigestIndex[$digest] !== $key) {
                 $duplicateKey = $this->contentDigestIndex[$digest];
                 $isDuplicate = true;
-                $entry['duplicate_of'] = $duplicateKey;
-                $entry['ingest'] = false;
-                $entry['quality_score'] = max(0.0, (float) ($entry['quality_score'] ?? 0.0) - 25.0);
-                $entry['quality_label'] = $this->labelForScore((float) $entry['quality_score']);
-                $reasons = is_array($entry['quality_reasons'] ?? null) ? $entry['quality_reasons'] : [];
-                $reasons[] = 'Detected duplicate content from ' . $duplicateKey . '.';
-                $entry['quality_reasons'] = array_values(array_unique($reasons));
+                $entry = $this->markEntryAsDuplicate($entry, $duplicateKey);
             } else {
                 unset($entry['duplicate_of']);
             }
         } else {
             unset($entry['duplicate_of']);
+        }
+
+        if (!isset($entry['duplicate_of'])) {
+            $candidateNormalised = $this->normaliseContentForComparison($entry);
+            if ($candidateNormalised !== '') {
+                foreach ($history as $existingKey => $existingEntry) {
+                    if (!is_array($existingEntry)) {
+                        continue;
+                    }
+
+                    $duplicateCandidateKey = (string) ($existingEntry['normalized_url'] ?? $existingEntry['url'] ?? $existingKey);
+                    if ($duplicateCandidateKey === '' || $duplicateCandidateKey === $key) {
+                        continue;
+                    }
+
+                    $existingNormalised = $this->normaliseContentForComparison($existingEntry);
+                    if ($existingNormalised !== '' && $this->isNearDuplicate($candidateNormalised, $existingNormalised)) {
+                        $entry = $this->markEntryAsDuplicate($entry, $duplicateCandidateKey);
+                        $isDuplicate = true;
+                        break;
+                    }
+
+                    if (!empty($existingEntry['versions']) && is_array($existingEntry['versions'])) {
+                        foreach ($existingEntry['versions'] as $version) {
+                            if (!is_array($version)) {
+                                continue;
+                            }
+
+                            $versionNormalised = $this->normaliseContentForComparison($version);
+                            if ($versionNormalised === '') {
+                                continue;
+                            }
+
+                            if ($this->isNearDuplicate($candidateNormalised, $versionNormalised)) {
+                                $entry = $this->markEntryAsDuplicate($entry, $duplicateCandidateKey);
+                                $isDuplicate = true;
+                                break 2;
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if (isset($history[$key])) {
@@ -4716,6 +5044,113 @@ final class HiddenCrawler
         return $version;
     }
 
+    private function buildComparisonText(
+        ScrapeResult $scraped,
+        string $summary,
+        string $preview,
+        array $meta,
+        bool $meaningful,
+        string $rawText
+    ): string {
+        $fragments = [];
+
+        foreach ([$summary, $preview, (string) ($meta['description'] ?? ''), $scraped->title()] as $candidate) {
+            if (!is_string($candidate)) {
+                continue;
+            }
+
+            $clean = $this->refiner->cleanDocument($candidate);
+            if ($clean === '') {
+                $clean = $candidate;
+            }
+
+            $clean = trim($clean);
+            if ($clean !== '') {
+                $fragments[] = mb_strtolower($clean);
+            }
+        }
+
+        $shouldIncludeRaw = !$meaningful || count($fragments) < 2;
+        if ($shouldIncludeRaw) {
+            $rawClean = $this->refiner->cleanDocument($rawText);
+            if ($rawClean === '') {
+                $rawClean = $rawText;
+            }
+
+            $rawClean = preg_replace('/\s+/u', ' ', trim($rawClean));
+            if (!is_string($rawClean) || $rawClean === '') {
+                $rawClean = trim($rawText);
+                $rawClean = preg_replace('/\s+/u', ' ', $rawClean);
+            }
+
+            if (is_string($rawClean)) {
+                $rawClean = trim($rawClean);
+                if ($rawClean !== '') {
+                    $fragments[] = mb_strtolower($rawClean);
+                }
+            }
+        }
+
+        if ($fragments === []) {
+            return '';
+        }
+
+        $fragments = array_values(array_unique($fragments));
+
+        $combined = preg_replace('/\s+/u', ' ', implode(' ', $fragments));
+        $combined = is_string($combined) ? trim($combined) : '';
+
+        $signature = $this->buildTokenSignature($fragments);
+        if ($signature !== '') {
+            $combined = trim($combined . ' || ' . $signature);
+        }
+
+        if ($combined === '') {
+            return '';
+        }
+
+        if (mb_strlen($combined) > 4000) {
+            return mb_substr($combined, 0, 4000);
+        }
+
+        return $combined;
+    }
+
+    /**
+     * @param array<int, string> $fragments
+     */
+    private function buildTokenSignature(array $fragments): string
+    {
+        $tokens = [];
+
+        foreach ($fragments as $fragment) {
+            $parts = preg_split('/[^\p{L}\p{N}]+/u', $fragment) ?: [];
+            foreach ($parts as $part) {
+                if (!is_string($part)) {
+                    continue;
+                }
+
+                $token = trim(mb_strtolower($part));
+                if ($token === '' || mb_strlen($token) < 4) {
+                    continue;
+                }
+
+                $tokens[$token] = true;
+            }
+        }
+
+        if ($tokens === []) {
+            return '';
+        }
+
+        $keys = array_keys($tokens);
+        sort($keys, SORT_STRING);
+
+        $signature = implode(' ', $keys);
+
+        return mb_strlen($signature) > 1200 ? mb_substr($signature, 0, 1200) : $signature;
+    }
+
     /**
      * @param array<string, mixed> $entry
      */
@@ -4723,7 +5158,7 @@ final class HiddenCrawler
     {
         $fragments = [];
 
-        foreach (['summary', 'preview', 'content', 'body', 'meta_description'] as $field) {
+        foreach (['summary', 'preview', 'content', 'body', 'meta_description', 'comparison_text'] as $field) {
             if (!isset($entry[$field])) {
                 continue;
             }
@@ -4755,6 +5190,137 @@ final class HiddenCrawler
         }
 
         return hash('sha256', $normalised);
+    }
+
+    private function normaliseContentForComparison(array $entry): string
+    {
+        $fragments = [];
+
+        foreach (['summary', 'preview', 'content', 'body', 'meta_description', 'comparison_text', 'title'] as $field) {
+            if (!isset($entry[$field])) {
+                continue;
+            }
+
+            $raw = is_string($entry[$field]) ? (string) $entry[$field] : '';
+            $raw = trim($raw);
+            if ($raw === '') {
+                continue;
+            }
+
+            $clean = $this->refiner->cleanDocument($raw);
+            if ($clean === '') {
+                $clean = $raw;
+            }
+
+            $clean = trim($clean);
+            if ($clean !== '') {
+                $fragments[] = mb_strtolower($clean);
+            }
+        }
+
+        if ($fragments === []) {
+            return '';
+        }
+
+        $normalised = preg_replace('/\s+/u', ' ', implode(' ', $fragments));
+        $normalised = is_string($normalised) ? trim($normalised) : '';
+
+        if ($normalised === '') {
+            return '';
+        }
+
+        if (mb_strlen($normalised) > 4000) {
+            return mb_substr($normalised, 0, 4000);
+        }
+
+        return $normalised;
+    }
+
+    private function isNearDuplicate(string $candidate, string $baseline): bool
+    {
+        if ($candidate === '' || $baseline === '') {
+            return false;
+        }
+
+        if ($candidate === $baseline) {
+            return true;
+        }
+
+        $candidateLength = mb_strlen($candidate);
+        $baselineLength = mb_strlen($baseline);
+
+        if ($candidateLength === 0 || $baselineLength === 0) {
+            return false;
+        }
+
+        $shorter = $candidateLength <= $baselineLength ? $candidate : $baseline;
+        $longer = $shorter === $candidate ? $baseline : $candidate;
+        $shorterLength = mb_strlen($shorter);
+        $longerLength = mb_strlen($longer);
+
+        if ($shorterLength >= 24 && str_contains($longer, $shorter)) {
+            return ($shorterLength / max(1, $longerLength)) >= 0.65;
+        }
+
+        $similarity = 0.0;
+        similar_text($candidate, $baseline, $similarity);
+
+        if ($similarity >= 92.0) {
+            return true;
+        }
+
+        $candidateTokens = $this->tokeniseForComparison($candidate);
+        $baselineTokens = $this->tokeniseForComparison($baseline);
+        if ($candidateTokens === [] || $baselineTokens === []) {
+            return false;
+        }
+
+        $shared = array_intersect_key($candidateTokens, $baselineTokens);
+        $minimum = (float) min(count($candidateTokens), count($baselineTokens));
+        if ($minimum <= 0.0) {
+            return false;
+        }
+
+        $overlap = count($shared) / $minimum;
+
+        return $overlap >= 0.82;
+    }
+
+    /**
+     * @return array<string, bool>
+     */
+    private function tokeniseForComparison(string $content): array
+    {
+        $parts = preg_split('/[^\p{L}\p{N}]+/u', $content) ?: [];
+        $tokens = [];
+
+        foreach ($parts as $part) {
+            if (!is_string($part)) {
+                continue;
+            }
+
+            $token = trim(mb_strtolower($part));
+            if ($token === '' || mb_strlen($token) < 4) {
+                continue;
+            }
+
+            $tokens[$token] = true;
+        }
+
+        return $tokens;
+    }
+
+    private function markEntryAsDuplicate(array $entry, string $duplicateKey): array
+    {
+        $entry['duplicate_of'] = $duplicateKey;
+        $entry['ingest'] = false;
+        $entry['quality_score'] = max(0.0, (float) ($entry['quality_score'] ?? 0.0) - 25.0);
+        $entry['quality_label'] = $this->labelForScore((float) $entry['quality_score']);
+        $reasons = is_array($entry['quality_reasons'] ?? null) ? $entry['quality_reasons'] : [];
+        $reasons[] = 'Detected duplicate content from ' . $duplicateKey . '.';
+        $entry['quality_reasons'] = array_values(array_unique($reasons));
+
+        return $entry;
     }
 
     private function digestContent(string $text): string
@@ -5129,6 +5695,11 @@ final class HiddenCrawler
         }
         if (!isset($entry['semantic_highlights']) || !is_array($entry['semantic_highlights'])) {
             $entry['semantic_highlights'] = [];
+        }
+
+        if (!isset($entry['comparison_text']) || !is_string($entry['comparison_text'])) {
+            $normalised = $this->normaliseContentForComparison($entry);
+            $entry['comparison_text'] = $normalised;
         }
 
         if (!isset($entry['discovery']) || !is_array($entry['discovery'])) {
