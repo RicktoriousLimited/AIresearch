@@ -127,14 +127,61 @@
             openPanel();
         };
 
+        const scoreSuggestion = (value, query) => {
+            if (!value || !query) {
+                return 0;
+            }
+
+            let score = 0;
+            if (value.startsWith(query)) {
+                score += 3;
+            }
+            if (value.includes(query)) {
+                score += 1.5;
+            }
+
+            const tokens = value.split(/\s+/);
+            if (tokens.some((token) => token.startsWith(query))) {
+                score += 1.2;
+            }
+
+            const delta = Math.abs(value.length - query.length);
+            score += Math.max(0, 1 - (delta / 40));
+
+            return score;
+        };
+
         const updateSuggestions = () => {
             const rawQuery = normalise(input.value.trim());
             if (rawQuery === '') {
                 visibleSuggestions = suggestions.slice(0, 8);
             } else {
-                visibleSuggestions = suggestions
-                    .filter((suggestion) => normalise(suggestion).includes(rawQuery))
-                    .slice(0, 8);
+                const ranked = suggestions
+                    .map((suggestion) => {
+                        const normalised = normalise(suggestion);
+                        const score = scoreSuggestion(normalised, rawQuery);
+                        if (score <= 0 && !normalised.includes(rawQuery)) {
+                            return null;
+                        }
+                        return {
+                            value: suggestion,
+                            score: score > 0 ? score : 0.1,
+                        };
+                    })
+                    .filter((entry) => entry !== null)
+                    .sort((left, right) => {
+                        if (left.score === right.score) {
+                            return left.value.localeCompare(right.value);
+                        }
+
+                        return right.score - left.score;
+                    });
+
+                visibleSuggestions = ranked.slice(0, 8).map((entry) => entry.value);
+            }
+
+            if (rawQuery !== '' && visibleSuggestions.length === 0) {
+                visibleSuggestions = suggestions.slice(0, 6);
             }
 
             activeIndex = visibleSuggestions.length > 0 ? 0 : -1;

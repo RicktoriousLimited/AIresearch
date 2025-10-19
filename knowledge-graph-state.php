@@ -110,7 +110,109 @@ return (static function (): array {
         $trendingTopics = [];
     }
 
-    $autocompleteJson = json_encode($trendingTopics, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $predictiveSuggestions = (static function () use ($trendingTopics, $topEntities, $entities, $synonymGroups): array {
+        $scores = [];
+
+        $add = static function (&$scores, string $value, float $score): void {
+            $candidate = trim($value);
+            if ($candidate === '') {
+                return;
+            }
+            $key = mb_strtolower($candidate, 'UTF-8');
+            if (!isset($scores[$key]) || $score > $scores[$key]['score']) {
+                $scores[$key] = ['value' => $candidate, 'score' => $score];
+            }
+        };
+
+        foreach ($trendingTopics as $index => $topic) {
+            $add($scores, $topic, 1.0 - ($index * 0.03));
+        }
+
+        foreach ($topEntities as $index => $entityRow) {
+            $entityName = isset($entityRow['entity']) ? (string) $entityRow['entity'] : '';
+            $add($scores, $entityName, 0.85 - ($index * 0.02));
+        }
+
+        foreach ($entities as $entityRow) {
+            if (!is_array($entityRow)) {
+                continue;
+            }
+
+            $entityName = isset($entityRow['entity']) ? (string) $entityRow['entity'] : '';
+            $add($scores, $entityName, 0.78);
+
+            if (isset($entityRow['synonyms']) && is_array($entityRow['synonyms'])) {
+                foreach ($entityRow['synonyms'] as $synonym) {
+                    if (!is_string($synonym)) {
+                        continue;
+                    }
+                    $add($scores, $synonym, 0.7);
+                }
+            }
+
+            if (isset($entityRow['related_terms']) && is_array($entityRow['related_terms'])) {
+                foreach ($entityRow['related_terms'] as $related) {
+                    if (!is_array($related)) {
+                        continue;
+                    }
+                    $relatedName = isset($related['entity']) ? (string) $related['entity'] : '';
+                    if ($relatedName === '') {
+                        continue;
+                    }
+                    $score = isset($related['score']) && is_numeric($related['score']) ? (float) $related['score'] : 0.0;
+                    $add($scores, $relatedName, 0.62 + min(0.18, $score * 0.3));
+                }
+            }
+
+            if (isset($entityRow['facts']) && is_array($entityRow['facts'])) {
+                foreach ($entityRow['facts'] as $fact) {
+                    if (!is_string($fact)) {
+                        continue;
+                    }
+                    $add($scores, $fact, 0.55);
+                }
+            }
+        }
+
+        if (is_array($synonymGroups)) {
+            foreach ($synonymGroups as $group) {
+                if (!is_array($group)) {
+                    continue;
+                }
+                $values = $group['synonyms'] ?? ($group['values'] ?? []);
+                if (is_array($values)) {
+                    foreach ($values as $value) {
+                        if (!is_string($value)) {
+                            continue;
+                        }
+                        $add($scores, $value, 0.68);
+                    }
+                }
+            }
+        }
+
+        if ($scores === []) {
+            return [];
+        }
+
+        $ranked = array_values($scores);
+        usort(
+            $ranked,
+            static function (array $left, array $right): int {
+                if ($left['score'] === $right['score']) {
+                    return $left['value'] <=> $right['value'];
+                }
+
+                return $right['score'] <=> $left['score'];
+            }
+        );
+
+        return array_slice(array_column($ranked, 'value'), 0, 20);
+    })();
+
+    $autocompleteSource = $predictiveSuggestions !== [] ? $predictiveSuggestions : $trendingTopics;
+
+    $autocompleteJson = json_encode($autocompleteSource, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if (!is_string($autocompleteJson)) {
         $autocompleteJson = '[]';
     }
@@ -410,6 +512,8 @@ return (static function (): array {
         'formatNumber' => $formatNumber,
         'formatDate' => $formatDate,
         'autocompleteJson' => $autocompleteJson,
+        'autocompleteSuggestions' => $autocompleteSource,
+        'predictiveSuggestions' => $predictiveSuggestions,
         'heroDigest' => $heroDigest,
         'trendingTopics' => $trendingTopics,
         'summary' => $summary,

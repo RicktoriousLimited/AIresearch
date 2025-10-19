@@ -150,6 +150,63 @@ body.search-page .sr-only {
   margin-bottom: 4px;
 }
 
+.search-summary__spellcheck {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(26, 115, 232, 0.25);
+  background: rgba(26, 115, 232, 0.08);
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.search-summary__spellcheck strong {
+  display: block;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.search-summary__spellcheck a {
+  font-weight: 600;
+}
+
+.spellcheck-hints {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.spellcheck-hints li {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  border: 1px solid rgba(26, 115, 232, 0.15);
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.spellcheck-hints__original {
+  font-size: 12px;
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.spellcheck-hints__suggestion {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.spellcheck-hints__alternatives {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .metric-pill {
   min-width: 160px;
   padding: 12px 14px;

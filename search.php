@@ -7,6 +7,7 @@ require __DIR__ . '/src/App/bootstrap.php';
 use App\Crawler\HiddenCrawler;
 use App\News\NewsSearchService;
 use App\News\SearchCache;
+use App\Text\TextRefiner;
 use App\Web\PathResolver;
 use App\Web\SearchViewHelpers;
 
@@ -127,6 +128,33 @@ function formatPercent(?float $value, int $precision = 0): string
     $formatted = rtrim(rtrim($formatted, '0'), '.');
 
     return $formatted === '' ? '0%' : $formatted . '%';
+}
+
+function matchSuggestionCase(string $suggestion, string $original): string
+{
+    if ($original === '') {
+        return $suggestion;
+    }
+
+    if (mb_strtoupper($original, 'UTF-8') === $original) {
+        return mb_strtoupper($suggestion, 'UTF-8');
+    }
+
+    if (mb_strtolower($original, 'UTF-8') === $original) {
+        return mb_strtolower($suggestion, 'UTF-8');
+    }
+
+    $first = mb_substr($original, 0, 1, 'UTF-8');
+    $rest = mb_substr($original, 1, null, 'UTF-8');
+    if ($first !== false && $rest !== false && mb_strtoupper($first, 'UTF-8') === $first && mb_strtolower($rest, 'UTF-8') === $rest) {
+        $suggestionFirst = mb_substr($suggestion, 0, 1, 'UTF-8');
+        $suggestionRest = mb_substr($suggestion, 1, null, 'UTF-8');
+
+        return ($suggestionFirst !== false ? mb_strtoupper($suggestionFirst, 'UTF-8') : '')
+            . ($suggestionRest !== false ? mb_strtolower($suggestionRest, 'UTF-8') : '');
+    }
+
+    return $suggestion;
 }
 
 /**
@@ -413,6 +441,93 @@ if (isset($meta['active_filters']) && is_array($meta['active_filters'])) {
     }
 }
 $activeFilters = normaliseQueryParams($activeFilters);
+
+$spellCheckSuggestion = null;
+$spellCheckUrl = null;
+$spellCheckTokens = [];
+
+if ($query !== '') {
+    $refiner = new TextRefiner();
+    $spellCandidates = $refiner->spellCheck($query, 5);
+    $replacementMap = [];
+
+    foreach ($spellCandidates as $candidate) {
+        if (!is_array($candidate)) {
+            continue;
+        }
+
+        $token = isset($candidate['token']) ? strtolower((string) $candidate['token']) : '';
+        if ($token === '') {
+            continue;
+        }
+
+        $suggestions = [];
+        if (isset($candidate['suggestions']) && is_array($candidate['suggestions'])) {
+            foreach ($candidate['suggestions'] as $suggestion) {
+                if (!is_string($suggestion)) {
+                    continue;
+                }
+
+                $trimmed = trim($suggestion);
+                if ($trimmed === '') {
+                    continue;
+                }
+
+                $suggestions[] = $trimmed;
+            }
+        }
+
+        if ($suggestions === []) {
+            continue;
+        }
+
+        $primary = $suggestions[0];
+        if (strtolower($primary) === $token) {
+            continue;
+        }
+
+        $replacementMap[$token] = $primary;
+        $spellCheckTokens[] = [
+            'token' => $token,
+            'suggestion' => $primary,
+            'alternatives' => array_slice($suggestions, 1, 2),
+        ];
+    }
+
+    if ($replacementMap !== []) {
+        $corrected = preg_replace_callback(
+            "/[A-Za-z\']+/u",
+            static function (array $matches) use ($replacementMap) {
+                $word = $matches[0] ?? '';
+                if ($word === '') {
+                    return $word;
+                }
+
+                $normalized = strtolower($word);
+                if (!isset($replacementMap[$normalized])) {
+                    return $word;
+                }
+
+                $suggestion = $replacementMap[$normalized];
+
+                return matchSuggestionCase($suggestion, $word);
+            },
+            $query
+        );
+
+        if (is_string($corrected) && $corrected !== $query) {
+            $spellCheckSuggestion = trim($corrected);
+            if ($spellCheckSuggestion !== '') {
+                $spellCheckTokens = array_slice($spellCheckTokens, 0, 4);
+                $spellCheckUrl = buildSearchUrl($searchPath, array_merge(['q' => $spellCheckSuggestion], $activeFilters));
+            } else {
+                $spellCheckTokens = [];
+            }
+        } else {
+            $spellCheckTokens = [];
+        }
+    }
+}
 
 $queryParams = $query !== '' ? ['q' => $query] : [];
 $queryParams = array_merge($queryParams, $activeFilters);
@@ -703,6 +818,28 @@ if ($crawlerUnavailable) {
                                 <?php endif; ?>
                             </div>
                         <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+                <?php if ($spellCheckSuggestion !== null && $spellCheckUrl !== null): ?>
+                    <div class="search-summary__spellcheck" role="status">
+                        <div>
+                            <strong>Spell-check assistance.</strong>
+                            Did you mean <a href="<?= esc($spellCheckUrl) ?>"><?= esc($spellCheckSuggestion) ?></a>?
+                        </div>
+                        <?php if ($spellCheckTokens !== []): ?>
+                            <ul class="spellcheck-hints">
+                                <?php foreach ($spellCheckTokens as $hint): ?>
+                                    <li>
+                                        <span class="spellcheck-hints__original"><?= esc($hint['token']) ?></span>
+                                        <span aria-hidden="true">→</span>
+                                        <span class="spellcheck-hints__suggestion"><?= esc($hint['suggestion']) ?></span>
+                                        <?php if (!empty($hint['alternatives'])): ?>
+                                            <span class="spellcheck-hints__alternatives">(<?= esc(implode(', ', $hint['alternatives'])) ?>)</span>
+                                        <?php endif; ?>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        <?php endif; ?>
                     </div>
                 <?php endif; ?>
             </div>
