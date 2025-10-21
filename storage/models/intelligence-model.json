@@ -1,0 +1,15 @@
+{
+  "bias": -1.15,
+  "weights": {
+    "avg_quality": 1.35,
+    "freshness": 1.2,
+    "graph_density": 1.5,
+    "entity_focus": 0.85,
+    "source_diversity": 0.65,
+    "semantic_alignment": 1.45,
+    "volume": 0.72,
+    "graph_support": 1.05
+  },
+  "trained_at": "2024-01-01T00:00:00+00:00",
+  "notes": "Seed logistic regression parameters for the InsightEngine cohesion scorer."
+}
