@@ -22,6 +22,9 @@ $homeScriptVersion = file_exists(__DIR__ . '/assets/home.js') ? (string) filemti
 
 $homePath = PathResolver::url($assetBase, 'index.php');
 $searchPath = PathResolver::url($assetBase, 'search.php');
+$knowledgePath = PathResolver::url($assetBase, 'knowledge-graph.php');
+$marketsPath = PathResolver::url($assetBase, 'markets.php');
+$researchPath = PathResolver::url($assetBase, 'research.php');
 
 $sampleQueries = [
     'emerging ai regulation',
@@ -30,12 +33,68 @@ $sampleQueries = [
     'cybersecurity breach response',
 ];
 
-$sampleQueriesJson = json_encode($sampleQueries, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+$systemHighlights = [
+    [
+        'kicker' => 'Crawler control',
+        'title' => 'Signals ready when you are',
+        'description' => 'Autonomous crawls watch high-signal domains and enrich every article with summaries, sentiment and context.',
+        'points' => [
+            'Smart retry handling and content deduplication to keep feeds clean.',
+            'Quality scoring at ingest so teams can triage faster.',
+            'Live cache ensures the app remains responsive even during restarts.',
+        ],
+    ],
+    [
+        'kicker' => 'Knowledge graph',
+        'title' => 'Every mention mapped',
+        'description' => 'Entities, organisations and topics are linked automatically so analysts can pivot coverage without manual tagging.',
+        'points' => [
+            'Topic clustering to surface unexpected angles in seconds.',
+            'Publisher intelligence that highlights who is leading each story.',
+            'Faceted filters that stay in sync across the entire experience.',
+        ],
+    ],
+    [
+        'kicker' => 'Research workspace',
+        'title' => 'Briefings on tap',
+        'description' => 'The research console compiles highlights, embeds and citations into ready-to-share narratives.',
+        'points' => [
+            'Guided playbooks turn raw crawls into clear story outlines.',
+            'Inline AI assistance to clean copy and suggest follow-ups.',
+            'Export options designed for quick stakeholder updates.',
+        ],
+    ],
+];
+
+$workflowSteps = [
+    [
+        'title' => 'Capture',
+        'description' => 'HiddenCrawler sweeps priority sources every few minutes and stores the raw text with canonical metadata.',
+    ],
+    [
+        'title' => 'Enrich',
+        'description' => 'The Semantic Engine scores quality, extracts entities and syncs fresh concepts to the knowledge graph.',
+    ],
+    [
+        'title' => 'Compose',
+        'description' => 'Search, Markets and Research modules feed off the same cache so investigators see one coherent story.',
+    ],
+    [
+        'title' => 'Share',
+        'description' => 'Briefings, exports and alerts ship the latest intelligence to stakeholders without extra formatting.',
+    ],
+];
+
+$sampleQueriesJson = json_encode(
+    $sampleQueries,
+    JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+);
 if (!is_string($sampleQueriesJson)) {
     $sampleQueriesJson = '[]';
 }
 
-?><!DOCTYPE html>
+?>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
@@ -46,49 +105,132 @@ if (!is_string($sampleQueriesJson)) {
     <link rel="stylesheet" href="<?= esc($homeStylesPath . '?v=' . $homeStylesVersion) ?>">
 </head>
 <body class="home-page">
-    <header class="topbar" id="topbar" hidden>
-        <div class="topbar__inner">
+    <header class="home-header" id="topbar">
+        <div class="home-header__inner">
             <a class="brand" href="<?= esc($homePath) ?>" aria-label="AIresearch home">AI<span>research</span></a>
-            <form class="searchbox" action="<?= esc($searchPath) ?>" method="get" role="search" aria-label="Search AIresearch" data-home-search>
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79L20 21.5 21.5 20l-6-6zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-                <label for="q" class="sr-only">Search</label>
-                <input id="q" type="search" name="q" placeholder="Search the web" value="" data-home-search-input data-home-phrases='<?= esc($sampleQueriesJson) ?>' required />
-                <button class="btn pill" type="submit">Search</button>
-            </form>
-            <div class="pill" aria-hidden="true">Safe results</div>
+            <nav class="home-nav" aria-label="Primary">
+                <a class="home-nav__link" href="<?= esc($searchPath) ?>">Search</a>
+                <a class="home-nav__link" href="<?= esc($knowledgePath) ?>">Knowledge graph</a>
+                <a class="home-nav__link" href="<?= esc($marketsPath) ?>">Markets</a>
+                <a class="home-nav__link" href="<?= esc($researchPath) ?>">Research</a>
+            </nav>
+            <a class="btn btn--ghost" href="<?= esc($searchPath) ?>">Launch search</a>
         </div>
     </header>
     <main class="home" id="home">
-        <div class="home__inner">
-            <div class="logo" aria-label="AIresearch">AIresearch<span class="dot">.</span></div>
-            <form class="searchbox" action="<?= esc($searchPath) ?>" method="get" role="search" aria-label="Search AIresearch" data-home-search>
-                <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79L20 21.5 21.5 20l-6-6zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
-                <label for="home-query" class="sr-only">Search</label>
-                <input id="home-query" type="search" name="q" placeholder="Search AIresearch" autofocus data-home-search-input data-home-phrases='<?= esc($sampleQueriesJson) ?>' required />
-                <button class="btn pill" type="submit">Start search</button>
-            </form>
-            <?php if ($sampleQueries !== []): ?>
-                <div class="sub">Try:
-                    <div class="chips">
-                        <?php foreach ($sampleQueries as $query): ?>
-                            <button type="button" class="pill" data-home-suggestion="<?= esc($query) ?>"><?= esc($query) ?></button>
-                        <?php endforeach; ?>
+        <section class="hero">
+            <div class="hero__inner">
+                <div class="hero__content">
+                    <p class="hero__eyebrow">Unified research pipeline</p>
+                    <h1 class="hero__title">Complete intelligence frame for every investigation</h1>
+                    <p class="hero__subtitle">
+                        AIresearch connects crawling, enrichment and briefing tools so analysts land confident answers in minutes.
+                        Start in search, pivot through the knowledge graph, and package your story without leaving the workspace.
+                    </p>
+                    <form class="searchbox hero__search" action="<?= esc($searchPath) ?>" method="get" role="search" aria-label="Search AIresearch" data-home-search>
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79L20 21.5 21.5 20l-6-6zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                        <label for="home-query" class="sr-only">Search</label>
+                        <input id="home-query" type="search" name="q" placeholder="Search AIresearch" autofocus data-home-search-input data-home-phrases='<?= esc($sampleQueriesJson) ?>' required />
+                        <button class="btn" type="submit">Start search</button>
+                    </form>
+                    <?php if ($sampleQueries !== []): ?>
+                        <div class="hero__suggestions">
+                            <span>Popular now:</span>
+                            <div class="hero__chips">
+                                <?php foreach ($sampleQueries as $query): ?>
+                                    <button type="button" class="chip" data-home-suggestion="<?= esc($query) ?>"><?= esc($query) ?></button>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                </div>
+                <aside class="hero__panel">
+                    <div class="panel">
+                        <h2>How the stack works together</h2>
+                        <ul class="panel__list">
+                            <li><strong>Fresh crawls:</strong> automated fetches deliver new briefings every few minutes.</li>
+                            <li><strong>Context on tap:</strong> entity linking keeps topics, markets and people connected.</li>
+                            <li><strong>Shareable outputs:</strong> export clean summaries with citations in one click.</li>
+                        </ul>
+                        <div class="panel__stats">
+                            <div class="panel__stat">
+                                <span class="panel__value">90s</span>
+                                <span class="panel__label">average refresh cadence</span>
+                            </div>
+                            <div class="panel__stat">
+                                <span class="panel__value">1 cache</span>
+                                <span class="panel__label">shared across every module</span>
+                            </div>
+                            <div class="panel__stat">
+                                <span class="panel__value">0</span>
+                                <span class="panel__label">manual hand-offs required</span>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </section>
+        <section class="home-section">
+            <div class="home-section__inner">
+                <div class="section-heading">
+                    <h2>From crawl to briefing without leaving the frame</h2>
+                    <p>Each module is tuned for research teams but powered by the same live intelligence feed.</p>
+                </div>
+                <div class="feature-grid">
+                    <?php foreach ($systemHighlights as $highlight): ?>
+                        <article class="feature-card">
+                            <span class="feature-card__kicker"><?= esc($highlight['kicker']) ?></span>
+                            <h3 class="feature-card__title"><?= esc($highlight['title']) ?></h3>
+                            <p class="feature-card__description"><?= esc($highlight['description']) ?></p>
+                            <?php if (($highlight['points'] ?? []) !== []): ?>
+                                <ul class="feature-card__list">
+                                    <?php foreach ($highlight['points'] as $point): ?>
+                                        <li><?= esc($point) ?></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            <?php endif; ?>
+                        </article>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </section>
+        <section class="home-section home-section--workflow">
+            <div class="home-section__inner">
+                <div class="section-heading">
+                    <h2>Everything stays in sync</h2>
+                    <p>Our workflow keeps analysts in the loop even when the crawler pauses for maintenance.</p>
+                </div>
+                <ol class="workflow">
+                    <?php foreach ($workflowSteps as $index => $step): ?>
+                        <li class="workflow__step">
+                            <span class="workflow__index">0<?= esc((string) ($index + 1)) ?></span>
+                            <h3><?= esc($step['title']) ?></h3>
+                            <p><?= esc($step['description']) ?></p>
+                        </li>
+                    <?php endforeach; ?>
+                </ol>
+            </div>
+        </section>
+        <section class="home-section home-section--cta">
+            <div class="home-section__inner home-section__inner--cta">
+                <div class="cta-panel">
+                    <h2>Put the intelligence frame to work</h2>
+                    <p>Drop a question into the search bar and watch the crawler, graph and briefings align automatically.</p>
+                    <form class="searchbox cta-panel__search" action="<?= esc($searchPath) ?>" method="get" role="search" aria-label="Search AIresearch" data-home-search>
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79L20 21.5 21.5 20l-6-6zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+                        <label for="cta-query" class="sr-only">Search</label>
+                        <input id="cta-query" type="search" name="q" placeholder="Ask about any sector" data-home-search-input data-home-phrases='<?= esc($sampleQueriesJson) ?>' required />
+                        <button class="btn" type="submit">Run query</button>
+                    </form>
+                    <div class="cta-panel__links">
+                        <a href="<?= esc($searchPath) ?>">Explore live results</a>
+                        <a href="<?= esc($knowledgePath) ?>">Review the latest knowledge graph</a>
                     </div>
                 </div>
-            <?php endif; ?>
-        </div>
+            </div>
+        </section>
     </main>
-    <footer class="footer">© <?= date('Y') ?> AIresearch · Fast briefings from your crawler</footer>
-    <script>
-        (function(){
-            const params = new URLSearchParams(window.location.search);
-            const hasQuery = params.get('q');
-            const topbar = document.getElementById('topbar');
-            if (hasQuery && topbar) {
-                topbar.hidden = false;
-            }
-        })();
-    </script>
-<script src="<?= esc($homeScriptPath . '?v=' . $homeScriptVersion) ?>" defer></script>
+    <footer class="home-footer">© <?= date('Y') ?> AIresearch · Fast briefings from your crawler</footer>
+    <script src="<?= esc($homeScriptPath . '?v=' . $homeScriptVersion) ?>" defer></script>
 </body>
 </html>
