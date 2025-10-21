@@ -5,6 +5,7 @@ declare(strict_types=1);
 require __DIR__ . '/src/App/bootstrap.php';
 
 use App\Web\PathResolver;
+use App\Intelligence\InsightEngine;
 
 function esc(string $value): string
 {
@@ -84,6 +85,28 @@ $workflowSteps = [
         'description' => 'Briefings, exports and alerts ship the latest intelligence to stakeholders without extra formatting.',
     ],
 ];
+
+$homeIntelligence = [
+    'snapshots' => [],
+    'model_version' => null,
+    'generated_at' => null,
+];
+try {
+    $insightEngine = new InsightEngine();
+    $homeIntelligence = $insightEngine->overview($sampleQueries, 3);
+} catch (Throwable $exception) {
+    $homeIntelligence['error'] = $exception->getMessage();
+}
+
+$intelligenceSnapshots = isset($homeIntelligence['snapshots']) && is_array($homeIntelligence['snapshots'])
+    ? $homeIntelligence['snapshots']
+    : [];
+$intelligenceModelVersion = isset($homeIntelligence['model_version']) && is_string($homeIntelligence['model_version'])
+    ? $homeIntelligence['model_version']
+    : null;
+$intelligenceGeneratedAt = isset($homeIntelligence['generated_at']) && is_string($homeIntelligence['generated_at'])
+    ? $homeIntelligence['generated_at']
+    : null;
 
 $sampleQueriesJson = json_encode(
     $sampleQueries,
@@ -194,6 +217,77 @@ if (!is_string($sampleQueriesJson)) {
                 </div>
             </div>
         </section>
+        <?php if ($intelligenceSnapshots !== []): ?>
+        <section class="home-section home-section--intelligence">
+            <div class="home-section__inner">
+                <div class="section-heading">
+                    <h2>Intelligence orchestrator</h2>
+                    <p>Machine learning keeps crawl, graph and research surfaces aligned in real time.</p>
+                </div>
+                <div class="intelligence-meta">
+                    <?php if ($intelligenceGeneratedAt !== null): ?>
+                        <span>Generated <?= esc($intelligenceGeneratedAt) ?></span>
+                    <?php endif; ?>
+                    <?php if ($intelligenceModelVersion !== null): ?>
+                        <span>Model <?= esc(substr($intelligenceModelVersion, 0, 12)) ?></span>
+                    <?php endif; ?>
+                </div>
+                <div class="intelligence-grid">
+                    <?php foreach ($intelligenceSnapshots as $snapshot): ?>
+                        <?php
+                        $snapshotHighlights = isset($snapshot['highlights']) && is_array($snapshot['highlights']) ? $snapshot['highlights'] : [];
+                        $snapshotEntities = isset($snapshot['entities']) && is_array($snapshot['entities']) ? $snapshot['entities'] : [];
+                        $snapshotSources = isset($snapshot['sources']) && is_array($snapshot['sources']) ? $snapshot['sources'] : [];
+                        $snapshotActions = isset($snapshot['next_actions']) && is_array($snapshot['next_actions']) ? $snapshot['next_actions'] : [];
+                        $scoreValue = isset($snapshot['score']) ? (float) $snapshot['score'] : 0.0;
+                        $scorePercent = $scoreValue * 100;
+                        ?>
+                        <article class="intelligence-card">
+                            <header class="intelligence-card__header">
+                                <div>
+                                    <span class="intelligence-card__eyebrow">Query</span>
+                                    <h3 class="intelligence-card__title"><?= esc($snapshot['query'] ?? '') ?></h3>
+                                </div>
+                                <div class="intelligence-card__score">
+                                    <span class="intelligence-card__score-value"><?= esc(number_format($scorePercent, 0)) ?><span class="intelligence-card__score-unit">%</span></span>
+                                    <span class="intelligence-card__score-label"><?= esc($snapshot['label'] ?? '') ?></span>
+                                </div>
+                            </header>
+                            <?php if ($snapshotEntities !== []): ?>
+                                <ul class="intelligence-card__entities">
+                                    <?php foreach (array_slice($snapshotEntities, 0, 3) as $entity): ?>
+                                        <li><?= esc($entity) ?></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            <?php endif; ?>
+                            <?php if ($snapshotSources !== []): ?>
+                                <p class="intelligence-card__sources"><strong>Sources:</strong> <?= esc(implode(', ', array_slice($snapshotSources, 0, 4))) ?></p>
+                            <?php endif; ?>
+                            <?php if ($snapshotHighlights !== []): ?>
+                                <ul class="intelligence-card__highlights">
+                                    <?php foreach (array_slice($snapshotHighlights, 0, 3) as $highlight): ?>
+                                        <li><?= esc($highlight) ?></li>
+                                    <?php endforeach; ?>
+                                </ul>
+                            <?php endif; ?>
+                            <?php if ($snapshotActions !== []): ?>
+                                <footer class="intelligence-card__footer">
+                                    <h4>Recommended actions</h4>
+                                    <ul>
+                                        <?php foreach (array_slice($snapshotActions, 0, 2) as $action): ?>
+                                            <?php if (!is_array($action)) { continue; } ?>
+                                            <li><strong><?= esc($action['label'] ?? '') ?>:</strong> <?= esc($action['reason'] ?? '') ?></li>
+                                        <?php endforeach; ?>
+                                    </ul>
+                                </footer>
+                            <?php endif; ?>
+                        </article>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        </section>
+        <?php endif; ?>
+
         <section class="home-section home-section--workflow">
             <div class="home-section__inner">
                 <div class="section-heading">
