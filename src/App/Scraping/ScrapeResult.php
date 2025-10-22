@@ -31,12 +31,22 @@ final class ScrapeResult
      */
     private array $meta;
 
+    private string $contentType;
+
     /**
      * @param array<int, string> $paragraphs
      * @param array<int, string> $links
      * @param array<string, mixed> $meta
      */
-    public function __construct(string $url, string $title, string $text, array $paragraphs, array $links = [], array $meta = [])
+    public function __construct(
+        string $url,
+        string $title,
+        string $text,
+        array $paragraphs,
+        array $links = [],
+        array $meta = [],
+        string $contentType = 'text/html'
+    )
     {
         $this->url = $url;
         $this->title = $title;
@@ -44,6 +54,7 @@ final class ScrapeResult
         $this->paragraphs = $paragraphs;
         $this->links = array_values($links);
         $this->meta = $meta;
+        $this->contentType = $contentType !== '' ? $contentType : 'text/html';
     }
 
     public function url(): string
@@ -83,6 +94,11 @@ final class ScrapeResult
     public function meta(): array
     {
         return $this->meta;
+    }
+
+    public function contentType(): string
+    {
+        return $this->contentType;
     }
 
     public function thumbnail(): ?string
@@ -136,6 +152,7 @@ final class ScrapeResult
             'preview' => $this->preview(),
             'links' => array_slice($this->links, 0, 20),
             'meta' => $this->meta,
+            'content_type' => $this->contentType,
         ];
     }
 }
