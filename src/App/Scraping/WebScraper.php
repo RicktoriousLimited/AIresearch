@@ -33,12 +33,20 @@ use function stream_context_create;
 use function strpos;
 use function trim;
 use function substr;
+use function str_contains;
+use function str_ends_with;
+use function stripos;
+use const CURLINFO_CONTENT_TYPE;
+use const CURLINFO_EFFECTIVE_URL;
 use const FILTER_VALIDATE_URL;
+use const PHP_URL_PATH;
 use const PHP_URL_SCHEME;
 
 final class WebScraper implements ScraperInterface
 {
     private const USER_AGENT = 'AIresearchBot/1.0 (+https://github.com/)';
+
+    private ?PdfDocumentParser $pdfParser = null;
 
     /**
      * Download the page located at the given URL and return a cleaned ScrapeResult.
@@ -46,19 +54,40 @@ final class WebScraper implements ScraperInterface
     public function scrape(string $url): ScrapeResult
     {
         $normalisedUrl = $this->normaliseUrl($url);
-        $html = $this->download($normalisedUrl);
-        $document = $this->extractDocument($html, $normalisedUrl);
+        $downloaded = $this->download($normalisedUrl);
 
+        $effectiveUrl = $downloaded['url'] !== '' ? $downloaded['url'] : $normalisedUrl;
+
+        if ($this->isPdfResponse($downloaded['content_type'], $effectiveUrl)) {
+            $parsed = $this->pdfParser()->parse(
+                $downloaded['body'],
+                $effectiveUrl,
+                fn(string $value): string => $this->normaliseText($value)
+            );
+
+            return new ScrapeResult(
+                $effectiveUrl,
+                $parsed['title'],
+                $parsed['text'],
+                $parsed['paragraphs'],
+                $parsed['links'],
+                $parsed['meta'],
+                $parsed['content_type']
+            );
+        }
+
+        $document = $this->extractDocument($downloaded['body'], $effectiveUrl);
         $paragraphs = $document['paragraphs'];
         $text = trim(implode("\n\n", $paragraphs));
 
         return new ScrapeResult(
-            $normalisedUrl,
+            $effectiveUrl,
             $document['title'],
             $text,
             $paragraphs,
             $document['links'],
-            $document['meta']
+            $document['meta'],
+            $document['content_type']
         );
     }
 
@@ -76,7 +105,10 @@ final class WebScraper implements ScraperInterface
         return $trimmed;
     }
 
-    private function download(string $url): string
+    /**
+     * @return array{body: string, content_type: string, url: string}
+     */
+    private function download(string $url): array
     {
         if (function_exists('curl_init')) {
             $resource = curl_init($url);
@@ -91,7 +123,7 @@ final class WebScraper implements ScraperInterface
                 CURLOPT_CONNECTTIMEOUT => 10,
                 CURLOPT_TIMEOUT => 20,
                 CURLOPT_USERAGENT => self::USER_AGENT,
-                CURLOPT_HTTPHEADER => ['Accept: text/html,application/xhtml+xml']
+                CURLOPT_HTTPHEADER => ['Accept: text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8']
             ]);
 
             $body = curl_exec($resource);
@@ -101,8 +133,16 @@ final class WebScraper implements ScraperInterface
                 throw new RuntimeException($error !== '' ? $error : 'Unable to download URL.');
             }
 
+            $contentType = (string) curl_getinfo($resource, CURLINFO_CONTENT_TYPE);
+            $effectiveUrl = (string) curl_getinfo($resource, CURLINFO_EFFECTIVE_URL);
+
             curl_close($resource);
-            return $body;
+
+            return [
+                'body' => $body,
+                'content_type' => $contentType,
+                'url' => $effectiveUrl !== '' ? $effectiveUrl : $url,
+            ];
         }
 
         $context = stream_context_create([
@@ -110,7 +150,7 @@ final class WebScraper implements ScraperInterface
                 'method' => 'GET',
                 'header' => [
                     'User-Agent: ' . self::USER_AGENT,
-                    'Accept: text/html,application/xhtml+xml'
+                    'Accept: text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8'
                 ],
                 'timeout' => 20,
             ],
@@ -121,7 +161,30 @@ final class WebScraper implements ScraperInterface
             throw new RuntimeException('Unable to download URL.');
         }
 
-        return $body;
+        $contentType = '';
+        $effectiveUrl = $url;
+        if (isset($http_response_header) && is_array($http_response_header)) {
+            foreach ($http_response_header as $headerLine) {
+                if (!is_string($headerLine)) {
+                    continue;
+                }
+
+                if (stripos($headerLine, 'Content-Type:') === 0) {
+                    $contentType = trim(substr($headerLine, 13));
+                } elseif (stripos($headerLine, 'Location:') === 0) {
+                    $location = trim(substr($headerLine, 9));
+                    if ($location !== '') {
+                        $effectiveUrl = $location;
+                    }
+                }
+            }
+        }
+
+        return [
+            'body' => $body,
+            'content_type' => $contentType,
+            'url' => $effectiveUrl,
+        ];
     }
 
     /**
@@ -155,6 +218,7 @@ final class WebScraper implements ScraperInterface
                     'paragraphs' => $this->fallbackParagraphs($html),
                     'links' => [],
                     'meta' => $meta,
+                    'content_type' => 'text/html',
                 ];
             }
 
@@ -278,7 +342,35 @@ final class WebScraper implements ScraperInterface
             'paragraphs' => $paragraphs,
             'links' => $links,
             'meta' => $meta,
+            'content_type' => 'text/html',
         ];
+    }
+
+    private function isPdfResponse(string $contentType, string $url): bool
+    {
+        $contentType = trim($contentType);
+        if ($contentType !== '') {
+            $lower = mb_strtolower($contentType);
+            if (str_contains($lower, 'application/pdf')) {
+                return true;
+            }
+        }
+
+        $path = parse_url($url, PHP_URL_PATH);
+        if (is_string($path) && $path !== '') {
+            return str_ends_with(mb_strtolower($path), '.pdf');
+        }
+
+        return false;
+    }
+
+    private function pdfParser(): PdfDocumentParser
+    {
+        if ($this->pdfParser === null) {
+            $this->pdfParser = new PdfDocumentParser();
+        }
+
+        return $this->pdfParser;
     }
 
     private function normaliseText(string $text): string

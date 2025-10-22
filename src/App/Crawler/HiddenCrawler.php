@@ -5824,6 +5824,16 @@ final class HiddenCrawler
      */
     private function detectContentType(ScrapeResult $scraped, array $entry): string
     {
+        $contentMime = mb_strtolower($scraped->contentType());
+        if ($contentMime !== '' && str_contains($contentMime, 'pdf')) {
+            return 'document';
+        }
+
+        $urlLower = mb_strtolower($scraped->url());
+        if ($urlLower !== '' && str_ends_with($urlLower, '.pdf')) {
+            return 'document';
+        }
+
         $characterCount = (int) ($entry['character_count'] ?? $scraped->characterCount());
         $paragraphCount = (int) ($entry['paragraph_count'] ?? $scraped->paragraphCount());
         $publishedAt = trim((string) ($entry['published_at'] ?? ''));

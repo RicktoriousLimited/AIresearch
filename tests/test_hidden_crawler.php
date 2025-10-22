@@ -18,7 +18,7 @@ class StubScraper implements ScraperInterface
     {
         $text = $this->text;
 
-        return new ScrapeResult($url, 'Stub page', $text, [$text], []);
+        return new ScrapeResult($url, 'Stub page', $text, [$text], [], [], 'application/pdf');
     }
 }
 
@@ -69,7 +69,7 @@ if (!isset($first['topics']) || !is_array($first['topics']) || $first['topics'] 
 }
 
 $contentType = isset($first['content_type']) ? (string) $first['content_type'] : '';
-if (!in_array($contentType, ['article', 'page', 'non_article', 'error'], true)) {
+if (!in_array($contentType, ['article', 'page', 'non_article', 'error', 'document'], true)) {
     throw new RuntimeException('Crawler should classify entries by content type.');
 }
 

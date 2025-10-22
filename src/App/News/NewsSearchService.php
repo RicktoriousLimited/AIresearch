@@ -2316,6 +2316,10 @@ final class NewsSearchService
             $normalised = 'page';
         }
 
+        if ($normalised === 'document' || $normalised === 'pdf') {
+            return 'document';
+        }
+
         $characters = (int) ($entry['character_count'] ?? 0);
         $paragraphs = (int) ($entry['paragraph_count'] ?? 0);
         $summary = (string) ($entry['summary'] ?? $entry['preview'] ?? '');
