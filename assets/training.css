@@ -1,0 +1,402 @@
+:root {
+    --training-bg: radial-gradient(circle at top right, rgba(76, 143, 255, 0.18), transparent 45%),
+        radial-gradient(circle at bottom left, rgba(34, 197, 94, 0.16), transparent 40%),
+        #060914;
+    --training-surface: rgba(10, 17, 32, 0.88);
+    --training-border: rgba(110, 132, 200, 0.32);
+    --training-border-soft: rgba(110, 132, 200, 0.18);
+    --training-highlight: #5fffd2;
+    --training-accent: #8b5cf6;
+    --training-accent-soft: rgba(139, 92, 246, 0.22);
+}
+
+.training-site {
+    background: var(--training-bg);
+    color: var(--ai-color-text, #f5f7ff);
+}
+
+.training-main {
+    display: flex;
+    flex-direction: column;
+    gap: 5rem;
+    padding: 3.5rem 0 4.5rem;
+}
+
+.training-container {
+    width: min(1180px, calc(100% - 3rem));
+    margin: 0 auto;
+}
+
+.training-hero {
+    position: relative;
+}
+
+.training-hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(76, 143, 255, 0.25), rgba(91, 33, 182, 0.2));
+    border-radius: 32px;
+    filter: blur(60px);
+    opacity: 0.6;
+}
+
+.training-hero > .training-container {
+    position: relative;
+    z-index: 1;
+    background: var(--training-surface);
+    border-radius: 32px;
+    padding: 3.5rem clamp(2rem, 4vw, 3rem);
+    border: 1px solid var(--training-border);
+    box-shadow: 0 40px 80px rgba(3, 7, 18, 0.55);
+    display: grid;
+    gap: 2.5rem;
+}
+
+.training-hero__content {
+    max-width: 640px;
+}
+
+.training-hero__content .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0.75rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: rgba(95, 255, 210, 0.14);
+    color: var(--training-highlight);
+}
+
+.training-hero__content h1 {
+    font-size: clamp(2.2rem, 4vw, 3rem);
+    margin-bottom: 1rem;
+    letter-spacing: -0.03em;
+}
+
+.training-hero__content .lead {
+    color: rgba(224, 230, 255, 0.78);
+    font-size: 1.1rem;
+    margin-bottom: 2rem;
+}
+
+.training-hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.training-hero__actions .button {
+    border-radius: 14px;
+    padding: 0.75rem 1.6rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+.button.button--primary {
+    background: linear-gradient(135deg, #60a5fa, #8b5cf6);
+    border: none;
+    color: #081021;
+    box-shadow: 0 14px 36px rgba(76, 143, 255, 0.35);
+}
+
+.button.button--primary:hover,
+.button.button--primary:focus-visible {
+    background: linear-gradient(135deg, #7dd3fc, #a855f7);
+    color: #050914;
+}
+
+.button.button--ghost {
+    background: transparent;
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    color: rgba(226, 232, 240, 0.9);
+}
+
+.button.button--ghost:hover,
+.button.button--ghost:focus-visible {
+    background: rgba(148, 163, 184, 0.2);
+    color: #f8fafc;
+}
+
+.training-hero__metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+}
+
+.training-hero__metric {
+    background: rgba(14, 22, 43, 0.9);
+    border-radius: 20px;
+    padding: 1.5rem;
+    border: 1px solid var(--training-border-soft);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.training-hero__metric-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #fef9ff;
+}
+
+.training-hero__metric-label {
+    font-weight: 500;
+    color: rgba(226, 232, 240, 0.75);
+}
+
+.training-hero__metric-detail {
+    font-size: 0.9rem;
+    color: rgba(148, 196, 255, 0.78);
+}
+
+.training-section__header {
+    max-width: 760px;
+    margin-bottom: 2.5rem;
+}
+
+.training-section__header .eyebrow {
+    display: inline-flex;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-size: 0.8rem;
+    color: var(--training-highlight);
+    padding: 0.15rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid rgba(95, 255, 210, 0.35);
+    margin-bottom: 1rem;
+}
+
+.training-section__header h2 {
+    margin: 0 0 0.75rem;
+    font-size: clamp(1.9rem, 3.4vw, 2.5rem);
+}
+
+.section-lead {
+    margin: 0;
+    color: rgba(219, 225, 255, 0.78);
+}
+
+.training-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1.75rem;
+}
+
+.training-track {
+    background: rgba(9, 15, 29, 0.85);
+    border-radius: 22px;
+    padding: 2rem;
+    border: 1px solid var(--training-border-soft);
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+    box-shadow: 0 18px 42px rgba(3, 7, 18, 0.45);
+}
+
+.training-track__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.training-track__header h3 {
+    margin: 0;
+    font-size: 1.3rem;
+}
+
+.training-track__duration {
+    font-size: 0.9rem;
+    padding: 0.3rem 0.65rem;
+    border-radius: 999px;
+    background: rgba(139, 92, 246, 0.18);
+    color: rgba(209, 213, 255, 0.85);
+    border: 1px solid rgba(139, 92, 246, 0.4);
+}
+
+.training-track__list {
+    margin: 0;
+    padding-left: 1.2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    color: rgba(202, 213, 255, 0.85);
+}
+
+.training-track__list li {
+    line-height: 1.5;
+}
+
+.training-section--journey {
+    position: relative;
+}
+
+.training-journey {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1.5rem;
+}
+
+.training-journey__phase {
+    background: rgba(13, 20, 38, 0.8);
+    border-radius: 20px;
+    padding: 1.75rem;
+    border: 1px solid var(--training-border-soft);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.training-journey__phase h3 {
+    margin: 0;
+}
+
+.training-journey__phase ul {
+    margin: 0;
+    padding-left: 1.2rem;
+    color: rgba(202, 213, 255, 0.82);
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.training-journey__badge {
+    align-self: flex-start;
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
+    border: 1px solid rgba(95, 255, 210, 0.45);
+    color: rgba(95, 255, 210, 0.9);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.training-section--workshops {
+    position: relative;
+}
+
+.training-table-wrapper {
+    overflow-x: auto;
+    background: rgba(9, 15, 29, 0.85);
+    border-radius: 22px;
+    border: 1px solid var(--training-border-soft);
+    box-shadow: 0 24px 48px rgba(3, 7, 18, 0.45);
+}
+
+.training-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 640px;
+}
+
+.training-table th,
+.training-table td {
+    padding: 1.1rem 1.5rem;
+    text-align: left;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    color: rgba(226, 232, 240, 0.9);
+}
+
+.training-table thead th {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: rgba(148, 196, 255, 0.85);
+}
+
+.training-table tbody tr:last-child th,
+.training-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.training-section--resources .training-resources {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1.5rem;
+}
+
+.training-resource {
+    background: rgba(10, 16, 30, 0.82);
+    border-radius: 20px;
+    padding: 1.75rem;
+    border: 1px solid var(--training-border-soft);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.training-resource header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.training-resource__type {
+    margin: 0;
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(95, 255, 210, 0.85);
+}
+
+.training-resource h3 {
+    margin: 0;
+    font-size: 1.2rem;
+}
+
+.training-resource h3 a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.training-resource h3 a:hover,
+.training-resource h3 a:focus-visible {
+    color: var(--training-highlight);
+    text-decoration: underline;
+}
+
+.training-resource__length {
+    margin: 0;
+    font-size: 0.85rem;
+    color: rgba(148, 196, 255, 0.8);
+}
+
+@media (max-width: 768px) {
+    .training-main {
+        gap: 4rem;
+        padding: 3rem 0;
+    }
+
+    .training-hero > .training-container {
+        padding: 2.75rem 1.75rem;
+    }
+
+    .training-hero__metrics {
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
+
+    .training-table {
+        min-width: 520px;
+    }
+}
+
+@media (max-width: 540px) {
+    .training-container {
+        width: calc(100% - 2.5rem);
+    }
+
+    .training-hero__actions {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .training-hero__metrics {
+        grid-template-columns: 1fr;
+    }
+}
