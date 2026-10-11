@@ -24,6 +24,7 @@ $homeScriptVersion = file_exists(__DIR__ . '/assets/home.js') ? (string) filemti
 $homePath = PathResolver::url($assetBase, 'index.php');
 $searchPath = PathResolver::url($assetBase, 'search.php');
 $knowledgePath = PathResolver::url($assetBase, 'knowledge-graph.php');
+$trainingPath = PathResolver::url($assetBase, 'training.php');
 $marketsPath = PathResolver::url($assetBase, 'markets.php');
 $researchPath = PathResolver::url($assetBase, 'research.php');
 
@@ -134,6 +135,7 @@ if (!is_string($sampleQueriesJson)) {
             <nav class="home-nav" aria-label="Primary">
                 <a class="home-nav__link" href="<?= esc($searchPath) ?>">Search</a>
                 <a class="home-nav__link" href="<?= esc($knowledgePath) ?>">Knowledge graph</a>
+                <a class="home-nav__link" href="<?= esc($trainingPath) ?>">Training</a>
                 <a class="home-nav__link" href="<?= esc($marketsPath) ?>">Markets</a>
                 <a class="home-nav__link" href="<?= esc($researchPath) ?>">Research</a>
             </nav>
